@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": false,
+    "checkJs": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@leadvirt/types": ["packages/types/src/index.ts"],
+      "@leadvirt/ui": ["packages/ui/src/index.ts"],
+      "@leadvirt/config": ["packages/config/src/index.ts"],
+      "@leadvirt/db": ["packages/db/src/index.ts"],
+      "@leadvirt/ai": ["packages/ai/src/index.ts"],
+      "@leadvirt/integrations": ["packages/integrations/src/index.ts"]
+    }
+  }
+}

@@ -1,0 +1,196 @@
+# LeadVirt Server Setup
+
+Last updated: 2026-07-04
+
+## Chosen Server Baseline
+
+- Size: `medium` (`6 vCPU / 12 GB RAM / 160 GB SSD`)
+- OS: Ubuntu 24.04 LTS
+- Network: `1 IPv4 - Free`
+- Hostname: `leadvirt-staging-01`
+- Public IPv4: `193.187.92.88`
+
+## SSH Key
+
+Local private key:
+
+```text
+C:\Users\camal\.ssh\leadvirt-staging-01_ed25519
+```
+
+Public key to paste into the provider panel:
+
+```text
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC6GqBM8XOBPX7/QD1iSYyn6TXBjd3C6OrdIMFfXvCyG leadvirt-staging-01
+```
+
+Fingerprint:
+
+```text
+SHA256:eBkEykzuVQ9RP89QO42ADkHI+QQDsDquKY0efCsK9f0
+```
+
+GitHub Actions deploy key installed for `deploy`:
+
+```text
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL5FU5NoP1xqvy0VywGcZ8YKeXBYOzht7Aleg9d1R7uK leadvirt-github-actions
+```
+
+Fingerprint:
+
+```text
+SHA256:DgKg84mqLLPgKMr4Rui6MYf6Q8IXw6vsreNHLoRltvE
+```
+
+## Post-Install Script
+
+Script:
+
+```text
+artifacts/scripts/server-post-install.sh
+```
+
+Run it as `root` after the server is created:
+
+```bash
+HOSTNAME=leadvirt-staging-01 \
+DEPLOY_USER=deploy \
+PUBLIC_SSH_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC6GqBM8XOBPX7/QD1iSYyn6TXBjd3C6OrdIMFfXvCyG leadvirt-staging-01' \
+bash server-post-install.sh
+```
+
+What it prepares:
+
+- hostname and `/etc/hosts`
+- `deploy` user with SSH key and passwordless sudo
+- SSH key-only auth, no password auth
+- UFW firewall for SSH, HTTP, HTTPS
+- fail2ban for SSH
+- unattended security upgrades
+- Docker Engine and Compose plugin from Docker's official Ubuntu repository
+- Docker log rotation
+- 4 GB swapfile if missing
+- `/opt/leadvirt`, `/opt/leadvirt/secrets`, `/opt/leadvirt/backups`, `/var/log/leadvirt`
+
+After it completes, reconnect as:
+
+```bash
+ssh -i ~/.ssh/leadvirt-staging-01_ed25519 deploy@193.187.92.88
+```
+
+## Bootstrap Result
+
+Completed on 2026-07-03.
+
+Verified:
+
+- SSH as `root` with the dedicated key works.
+- SSH as `deploy` with the dedicated key works.
+- Ubuntu: `24.04.4 LTS`.
+- Docker: `29.6.1`.
+- Docker Compose plugin: `v5.3.0`.
+- `deploy` is in `sudo` and `docker` groups.
+- `ufw` is active with `22/tcp`, `80/tcp`, and `443/tcp` allowed.
+- `fail2ban` is active.
+- `unattended-upgrades` is active.
+- 4 GB `/swapfile` is enabled.
+- `/opt/leadvirt`, `/opt/leadvirt/secrets`, `/opt/leadvirt/backups`, and `/var/log/leadvirt` exist.
+
+## Staging App Deployment
+
+Completed on 2026-07-03.
+
+Runtime:
+
+- Source path: `/opt/leadvirt/current`
+- Secrets path: `/opt/leadvirt/secrets/.env`
+- Operator credentials path: `/opt/leadvirt/secrets/operator-login.txt`
+- Public URL: `https://leadvirt.ru`
+- Raw-IP fallback: `http://193.187.92.88`
+- Reverse proxy: nginx on ports `80` and `443`
+- Services: `postgres`, `redis`, `migrate`, `api`, `worker`, `web`, `nginx`
+
+Domain plan:
+
+- Current release domain: `leadvirt.ru`
+- Later English/global domain: `leadvirt.ai`
+- `leadvirt.ru` and `www.leadvirt.ru` resolve to `193.187.92.88`.
+- HTTP redirects to `https://leadvirt.ru`.
+- `https://www.leadvirt.ru` redirects to `https://leadvirt.ru`.
+- Staging/public env is set to `https://leadvirt.ru`; auth cookies are secure.
+
+DNS check:
+
+```bash
+getent ahostsv4 leadvirt.ru
+getent ahostsv4 www.leadvirt.ru
+```
+
+HTTPS cutover script:
+
+```bash
+cd /opt/leadvirt/current
+deploy/enable-leadvirt-ru-https.sh
+```
+
+The script checks DNS, issues a certbot certificate for `leadvirt.ru` and `www.leadvirt.ru`, switches nginx to `deploy/nginx.https.conf`, updates public app env to `https://leadvirt.ru`, rebuilds the web/API/worker/nginx services, and verifies `/health`.
+
+After a successful cutover it also installs `/etc/cron.d/leadvirt-ru-certbot`, which runs `/opt/leadvirt/current/deploy/renew-leadvirt-ru-cert.sh` daily.
+
+Current certificate:
+
+- Path: `/etc/letsencrypt/live/leadvirt.ru`
+- Issuer: Let's Encrypt YE1
+- Expires: `2026-10-02`
+- Renewal cron: `/etc/cron.d/leadvirt-ru-certbot`
+
+Deploy command:
+
+```bash
+cd /opt/leadvirt/current
+docker compose --env-file /opt/leadvirt/secrets/.env -f deploy/docker-compose.staging.yml up -d --build
+```
+
+Verified:
+
+- `GET https://leadvirt.ru/health` returns `200`.
+- `GET http://leadvirt.ru/` redirects to `https://leadvirt.ru/`.
+- `GET https://www.leadvirt.ru/` redirects to `https://leadvirt.ru/`.
+- `GET https://leadvirt.ru/api/auth/me` without a cookie returns `401`.
+- Landing and `/demo` return `200`.
+- Browser visit to `/app` without a session redirects to `/login`.
+- The clean staging operator workspace has zero leads, activity, channels, and response-time metrics after signup.
+- Strict auth readiness passes for `staging-admin@leadvirt.ai`; 2FA is still disabled and should be enabled before wider external access.
+- Real OpenAI provider smoke passes from the staging API container through the FR AI gateway.
+- Main reverse proxy was migrated from Caddy to nginx on 2026-07-04.
+
+## FR AI Gateway
+
+Completed on 2026-07-03.
+
+Runtime:
+
+- Hostname: `fr-vmnano`
+- Public IPv4: `147.90.14.240`
+- Gateway URL: `https://147-90-14-240.sslip.io:8443/v1`
+- Source path: `/opt/leadvirt/ai-gateway`
+- Compose file: `deploy/ai-gateway/docker-compose.yml`
+- Reverse proxy: nginx on ports `80` and `8443`
+- Existing `xray` service remains on port `443`.
+- Certbot certificate: `/etc/letsencrypt/live/147-90-14-240.sslip.io`, expires `2026-10-02`.
+- Cert renewal: `/etc/cron.d/leadvirt-ai-gateway-certbot` runs `/opt/leadvirt/ai-gateway/renew-cert.sh` daily.
+
+Purpose:
+
+- Route staging OpenAI API traffic through a supported-region VPS.
+- Allow proxy access only from main staging IP `193.187.92.88`.
+- Keep local/direct access to OpenAI routes blocked with `403 forbidden`.
+
+Verified:
+
+- `GET http://147-90-14-240.sslip.io/health` returns `200`.
+- Local request to `https://147-90-14-240.sslip.io:8443/v1/models` returns gateway `403 forbidden`.
+- Request from `193.187.92.88` to the same route reaches OpenAI and returns `401 invalid_api_key` with an intentionally invalid key.
+- Staging `AI_BASE_URL` now points at `https://147-90-14-240.sslip.io:8443/v1`.
+- `qa:ai:provider` passes inside the staging API container.
+- Gateway runtime was migrated from Caddy to nginx on 2026-07-04.

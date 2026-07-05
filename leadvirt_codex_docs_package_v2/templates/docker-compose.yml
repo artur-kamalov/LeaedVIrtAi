@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: leadvirt-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: leadvirt
+    ports:
+      - "5432:5432"
+    volumes:
+      - leadvirt_postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: leadvirt-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - leadvirt_redis_data:/data
+
+volumes:
+  leadvirt_postgres_data:
+  leadvirt_redis_data:

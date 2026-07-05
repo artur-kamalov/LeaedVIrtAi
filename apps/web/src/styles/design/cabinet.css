@@ -1,0 +1,139 @@
+/* ============================================================
+   Brand-styled scrollbars (global)
+   ============================================================ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(52, 211, 153, 0.45) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(52, 211, 153, 0.55), rgba(20, 184, 166, 0.55));
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(52, 211, 153, 0.85), rgba(20, 184, 166, 0.85));
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.theme-light {
+  scrollbar-color: rgba(16, 185, 129, 0.5) transparent;
+}
+
+/* ============================================================
+   Light theme — scoped palette remap for the cabinet.
+   Plain (unlayered) selectors win over Tailwind @layer utilities.
+   ============================================================ */
+
+/* --- Page / dark surfaces (zinc-950 family) --- */
+.theme-light.bg-zinc-950,
+.theme-light .bg-zinc-950 { background-color: #f4f4f5; }
+.theme-light .bg-zinc-950\/90 { background-color: rgba(244, 244, 245, 0.9); }
+.theme-light .bg-zinc-950\/70 { background-color: rgba(248, 248, 249, 0.7); }
+.theme-light .bg-zinc-950\/60 { background-color: rgba(248, 248, 249, 0.6); }
+.theme-light .bg-zinc-950\/40 { background-color: rgba(244, 244, 245, 0.4); }
+.theme-light .bg-zinc-950\/20 { background-color: rgba(244, 244, 245, 0.2); }
+
+/* --- Cards (zinc-900 family) → white --- */
+.theme-light .bg-zinc-900 { background-color: #ffffff; }
+.theme-light .bg-zinc-900\/90 { background-color: rgba(255, 255, 255, 0.92); }
+.theme-light .bg-zinc-900\/80 { background-color: rgba(255, 255, 255, 0.85); }
+.theme-light .bg-zinc-900\/60 { background-color: rgba(255, 255, 255, 0.72); }
+.theme-light .bg-zinc-900\/50 { background-color: rgba(255, 255, 255, 0.65); }
+.theme-light .bg-zinc-900\/40 { background-color: rgba(255, 255, 255, 0.55); }
+
+/* --- Elevated greys --- */
+.theme-light .bg-zinc-800 { background-color: #e4e4e7; }
+.theme-light .bg-zinc-800\/60 { background-color: rgba(228, 228, 231, 0.6); }
+.theme-light .bg-zinc-700 { background-color: #d4d4d8; }
+.theme-light .bg-zinc-500 { background-color: #a1a1aa; }
+
+/* --- Text scale (bright on dark → dark on light) --- */
+.theme-light .text-zinc-50 { color: #18181b; }
+.theme-light .text-zinc-100 { color: #18181b; }
+.theme-light .text-zinc-200 { color: #27272a; }
+.theme-light .text-zinc-300 { color: #3f3f46; }
+.theme-light .text-zinc-400 { color: #52525b; }
+.theme-light .text-zinc-500 { color: #5c616b; }
+.theme-light .text-zinc-600 { color: #6b7280; }
+.theme-light .text-zinc-700 { color: #9aa0aa; }
+/* text-zinc-950 stays dark (used on bright emerald buttons) */
+
+/* Emerald accents are too light on white — deepen for readable contrast */
+.theme-light .text-emerald-400 { color: #059669; }
+.theme-light .text-emerald-300 { color: #047857; }
+.theme-light .text-emerald-200 { color: #065f46; }
+
+/* Placeholder readability */
+.theme-light .placeholder\:text-zinc-600::placeholder { color: #9aa0aa; }
+.theme-light .placeholder\:text-zinc-500::placeholder { color: #8a909a; }
+
+/* --- Borders (white/x → black/x) --- */
+.theme-light .border-white\/5 { border-color: rgba(9, 9, 11, 0.08); }
+.theme-light .border-white\/6 { border-color: rgba(9, 9, 11, 0.09); }
+.theme-light .border-white\/8 { border-color: rgba(9, 9, 11, 0.10); }
+.theme-light .border-white\/10 { border-color: rgba(9, 9, 11, 0.12); }
+.theme-light .border-white\/12 { border-color: rgba(9, 9, 11, 0.14); }
+
+/* --- Raised translucent surfaces (white/x → dark tint) --- */
+.theme-light .bg-white\/3 { background-color: rgba(9, 9, 11, 0.03); }
+.theme-light .bg-white\/4 { background-color: rgba(9, 9, 11, 0.035); }
+.theme-light .bg-white\/5 { background-color: rgba(9, 9, 11, 0.045); }
+.theme-light .bg-white\/8 { background-color: rgba(9, 9, 11, 0.06); }
+.theme-light .bg-white\/10 { background-color: rgba(9, 9, 11, 0.08); }
+
+/* --- Dividers --- */
+.theme-light .divide-white\/5 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(9, 9, 11, 0.08);
+}
+
+/* --- Hover states commonly used --- */
+.theme-light .hover\:bg-white\/5:hover { background-color: rgba(9, 9, 11, 0.05); }
+.theme-light .hover\:bg-white\/\[0\.03\]:hover { background-color: rgba(9, 9, 11, 0.04); }
+.theme-light .hover\:bg-zinc-800:hover { background-color: #d4d4d8; }
+.theme-light .hover\:bg-zinc-800\/50:hover { background-color: rgba(212, 212, 216, 0.6); }
+.theme-light .hover\:bg-zinc-900\/80:hover { background-color: rgba(255, 255, 255, 0.9); }
+.theme-light .hover\:border-white\/10:hover { border-color: rgba(9, 9, 11, 0.12); }
+
+/* Soften the heavy ambient glow orbs on light bg */
+.theme-light .blur-\[150px\],
+.theme-light .blur-\[120px\] { opacity: 0.5; }
+
+/* ============================================================
+   Portaled surfaces (dropdowns, modals, tooltips, toasts).
+   These render in a portal and carry `theme-light` on their own
+   root element, so they need same-element overrides too.
+   ============================================================ */
+.theme-light.bg-zinc-900 { background-color: #ffffff; }
+.theme-light.bg-zinc-900\/95 { background-color: rgba(255, 255, 255, 0.98); }
+.theme-light.bg-zinc-950 { background-color: #ffffff; }
+.theme-light.border-white\/5 { border-color: rgba(9, 9, 11, 0.08); }
+.theme-light.border-white\/10 { border-color: rgba(9, 9, 11, 0.12); }
+.theme-light.text-zinc-50 { color: #18181b; }
+
+/* shadcn-token surfaces used by some portaled bits */
+.theme-light .ui-panel {
+  background-color: #ffffff;
+  border-color: rgba(9, 9, 11, 0.12);
+  color: #18181b;
+}
+.theme-light.ui-panel {
+  background-color: #ffffff;
+  border-color: rgba(9, 9, 11, 0.12);
+  color: #18181b;
+}

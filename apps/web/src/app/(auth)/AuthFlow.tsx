@@ -1,0 +1,288 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import React from "react";
+import { motion } from "motion/react";
+import { Bot, CheckCircle2, Loader2, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { Toaster, toast } from "sonner";
+import { loginWithTelegram, type TelegramAuthPayload } from "@/lib/api/auth";
+import { Button } from "@/design/components/ui/Button";
+
+type AuthMode = "login" | "signup";
+
+const modeCopy: Record<
+  AuthMode,
+  {
+    title: string;
+    subtitle: string;
+    primaryAction: string;
+    secondaryHref: string;
+    secondaryText: string;
+    secondaryAction: string;
+  }
+> = {
+  login: {
+    title: "Вход в LeadVirt.ai",
+    subtitle: "Войдите через Telegram, чтобы открыть рабочий кабинет.",
+    primaryAction: "Войти через Telegram",
+    secondaryHref: "/signup",
+    secondaryText: "Новый аккаунт?",
+    secondaryAction: "Зарегистрироваться"
+  },
+  signup: {
+    title: "Запуск LeadVirt.ai",
+    subtitle: "Создайте workspace через Telegram и перейдите к настройке.",
+    primaryAction: "Продолжить через Telegram",
+    secondaryHref: "/login",
+    secondaryText: "Уже есть доступ?",
+    secondaryAction: "Войти"
+  }
+};
+
+const highlights = ["Без пароля", "Подписанный Telegram вход", "Workspace из БД"];
+const telegramBotUsername = process.env.NEXT_PUBLIC_TELEGRAM_LOGIN_BOT?.trim() ?? "";
+
+declare global {
+  interface Window {
+    leadvirtTelegramAuth?: (payload: TelegramAuthPayload) => void;
+  }
+}
+
+function TelegramLoginButton({
+  label,
+  loading,
+  onAuth
+}: {
+  label: string;
+  loading: boolean;
+  onAuth: (payload: TelegramAuthPayload) => void;
+}) {
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    window.leadvirtTelegramAuth = onAuth;
+    const container = containerRef.current;
+    if (!container || !telegramBotUsername) {
+      return () => {
+        delete window.leadvirtTelegramAuth;
+      };
+    }
+
+    container.innerHTML = "";
+    const script = document.createElement("script");
+    script.src = "https://telegram.org/js/telegram-widget.js?22";
+    script.async = true;
+    script.setAttribute("data-telegram-login", telegramBotUsername);
+    script.setAttribute("data-size", "large");
+    script.setAttribute("data-radius", "16");
+    script.setAttribute("data-userpic", "false");
+    script.setAttribute("data-request-access", "write");
+    script.setAttribute("data-lang", "ru");
+    script.setAttribute("data-min-width", "300");
+    script.setAttribute("data-max-width", "360");
+    script.setAttribute("data-onauth", "leadvirtTelegramAuth(user)");
+    container.appendChild(script);
+
+    return () => {
+      container.innerHTML = "";
+      delete window.leadvirtTelegramAuth;
+    };
+  }, [onAuth]);
+
+  if (telegramBotUsername) {
+    return (
+      <div className="group relative mx-auto h-12 w-full max-w-[360px]">
+        <div
+          ref={containerRef}
+          className={[
+            "absolute inset-0 z-10 flex h-12 w-full items-center justify-center",
+            "[&_iframe]:!h-12 [&_iframe]:!w-full [&_iframe]:!min-w-full [&_iframe]:rounded-2xl",
+            loading ? "pointer-events-none opacity-40" : ""
+          ].join(" ")}
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 rounded-2xl border border-emerald-300/25 bg-gradient-to-r from-emerald-400 to-teal-400 px-4 text-sm font-semibold text-zinc-950 shadow-lg shadow-emerald-950/30 transition duration-200 group-hover:from-emerald-300 group-hover:to-teal-300 group-hover:shadow-emerald-900/40"
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          <span className="truncate">{label}</span>
+        </div>
+        {loading ? (
+          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-2xl bg-zinc-950/45">
+            <Loader2 className="h-5 w-5 animate-spin text-emerald-100" />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <Button
+      type="button"
+      className="h-12 w-full rounded-2xl text-sm font-semibold"
+      disabled={loading}
+      onClick={() =>
+        onAuth({
+          id: 100000001,
+          first_name: "Local",
+          last_name: "Telegram",
+          username: "leadvirt_local",
+          auth_date: Math.floor(Date.now() / 1000),
+          hash: "local-playwright-mock"
+        })
+      }
+    >
+      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+      {label}
+    </Button>
+  );
+}
+
+export function AuthFlow({ mode }: { mode: AuthMode }) {
+  const router = useRouter();
+  const copy = modeCopy[mode];
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  const handleTelegramAuth = React.useCallback(
+    async (payload: TelegramAuthPayload) => {
+      setError("");
+      setLoading(true);
+
+      try {
+        const me = await loginWithTelegram(payload);
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem("leadvirt.demo.session");
+          window.localStorage.setItem(
+            "leadvirt.auth.session",
+            JSON.stringify({
+              email: me.email,
+              phone: me.phone,
+              name: me.name,
+              tenantId: me.tenantId,
+              role: me.role,
+              authMode: me.authMode,
+              expiresAt: me.expiresAt,
+              passwordChangeRequired: me.passwordChangeRequired
+            })
+          );
+        }
+
+        toast.success(me.isNewUser ? "Workspace создан" : "Добро пожаловать");
+        router.push(mode === "signup" || me.isNewUser ? "/onboarding" : "/app");
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Не удалось войти через Telegram");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [mode, router]
+  );
+
+  return (
+    <main className="relative min-h-screen overflow-hidden bg-zinc-950 text-zinc-50">
+      <Toaster
+        theme="dark"
+        position="bottom-right"
+        toastOptions={{
+          classNames: {
+            toast: "!rounded-2xl !border !border-white/10 !bg-zinc-900 !text-zinc-100 !shadow-2xl",
+            description: "!text-zinc-400",
+            actionButton: "!bg-emerald-400 !text-zinc-950",
+            cancelButton: "!bg-white/10 !text-zinc-300"
+          }
+        }}
+      />
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.018)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.018)_1px,transparent_1px)] bg-[size:4rem_4rem]" />
+        <div className="absolute -top-32 right-[8%] h-[32rem] w-[32rem] rounded-full bg-emerald-500/10 blur-[140px]" />
+        <div className="absolute bottom-[-12rem] left-[10%] h-[36rem] w-[36rem] rounded-full bg-indigo-500/10 blur-[160px]" />
+      </div>
+
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-6 sm:px-6 lg:px-8">
+        <header className="flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600">
+              <Bot className="h-5 w-5 text-zinc-950" />
+            </span>
+            <span className="text-lg font-bold tracking-tight">AI Администратор</span>
+          </Link>
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/">На сайт</Link>
+          </Button>
+        </header>
+
+        <section className="grid flex-1 items-center gap-8 py-10 lg:grid-cols-[1fr_440px] lg:gap-14">
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, ease: "easeOut" }}
+            className="hidden lg:block"
+          >
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-sm font-medium text-emerald-300">
+              <Sparkles className="h-4 w-4" />
+              LeadVirt.ai workspace
+            </div>
+            <h1 className="max-w-2xl text-5xl font-bold leading-tight tracking-tight">
+              AI-администратор уже принимает заявки и ведёт диалоги.
+            </h1>
+            <p className="mt-5 max-w-xl text-base leading-7 text-zinc-400">
+              Вход без пароля: Telegram подтверждает личность, LeadVirt открывает tenant workspace.
+            </p>
+            <div className="mt-8 grid max-w-xl gap-3 sm:grid-cols-3">
+              {highlights.map((item) => (
+                <div key={item} className="rounded-2xl border border-white/8 bg-white/[0.04] p-4">
+                  <CheckCircle2 className="mb-3 h-5 w-5 text-emerald-400" />
+                  <p className="text-sm font-semibold text-zinc-100">{item}</p>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: 0.05, ease: "easeOut" }}
+            className="mx-auto w-full max-w-md"
+          >
+            <div className="rounded-[2rem] border border-white/10 bg-zinc-900/70 p-5 shadow-2xl shadow-emerald-950/20 backdrop-blur-xl sm:p-7">
+              <div className="mb-6 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold tracking-tight text-zinc-50">{copy.title}</h2>
+                  <p className="mt-1 text-sm text-zinc-400">{copy.subtitle}</p>
+                </div>
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10">
+                  <ShieldCheck className="h-5 w-5 text-emerald-400" />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <TelegramLoginButton label={copy.primaryAction} loading={loading} onAuth={(payload) => void handleTelegramAuth(payload)} />
+
+                {!telegramBotUsername ? (
+                  <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+                    Telegram bot username не задан. Для production укажите NEXT_PUBLIC_TELEGRAM_LOGIN_BOT.
+                  </div>
+                ) : null}
+
+                {error ? (
+                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                    {error}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-5 flex items-center justify-center gap-2 text-sm text-zinc-500">
+                <span>{copy.secondaryText}</span>
+                <Link className="font-semibold text-emerald-400 hover:text-emerald-300" href={copy.secondaryHref}>
+                  {copy.secondaryAction}
+                </Link>
+              </div>
+            </div>
+          </motion.div>
+        </section>
+      </div>
+    </main>
+  );
+}

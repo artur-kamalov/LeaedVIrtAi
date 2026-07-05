@@ -1,0 +1,15 @@
+node_modules
+.next
+dist
+coverage
+.turbo
+.logs
+test-results
+.env
+.env.local
+.env.*.local
+*.log
+artifacts/screenshots
+artifacts/playwright/*.png
+playwright-report
+*.tsbuildinfo

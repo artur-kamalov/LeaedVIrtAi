@@ -1,0 +1,16 @@
+.git
+.turbo
+.logs
+coverage
+dist
+node_modules
+test-results
+**/.next
+**/dist
+**/node_modules
+**/*.tsbuildinfo
+.env
+.env.*
+!.env.example
+LeadVirt-React-design-only
+leadvirt_codex_docs_package_v2

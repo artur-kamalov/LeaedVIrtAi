@@ -1,0 +1,193 @@
+name: Deploy LeadVirt.ru
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+concurrency:
+  group: leadvirt-ru-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+  DEPLOY_HOST: ${{ vars.LEADVIRT_DEPLOY_HOST || '193.187.92.88' }}
+  DEPLOY_USER: ${{ vars.LEADVIRT_DEPLOY_USER || 'deploy' }}
+  DEPLOY_ROOT: /opt/leadvirt
+  DEPLOY_ENV_FILE: /opt/leadvirt/secrets/.env
+  PUBLIC_URL: https://leadvirt.ru
+  NEXT_PUBLIC_API_URL: https://leadvirt.ru/api
+  NEXT_PUBLIC_APP_URL: https://leadvirt.ru
+  NEXT_PUBLIC_WEB_URL: https://leadvirt.ru
+  NEXT_PUBLIC_DEMO_MODE: "false"
+  NEXT_PUBLIC_TELEGRAM_LOGIN_BOT: LeadVirtAi_bot
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          corepack enable
+          corepack pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: corepack pnpm --filter @leadvirt/db db:generate
+
+      - name: Typecheck shared types
+        run: corepack pnpm --filter @leadvirt/types typecheck
+
+      - name: Verify API
+        run: |
+          corepack pnpm --filter @leadvirt/api typecheck
+          corepack pnpm --filter @leadvirt/api lint
+          corepack pnpm --filter @leadvirt/api build
+
+      - name: Verify Web
+        run: |
+          corepack pnpm --filter @leadvirt/web typecheck
+          corepack pnpm --filter @leadvirt/web lint
+          corepack pnpm --filter @leadvirt/web build
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-24.04
+    needs: verify
+    environment: leadvirt-ru
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create deploy package
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/scripts artifacts/playwright
+          package_path="$RUNNER_TEMP/leadvirt-release-${GITHUB_SHA}.tar.gz"
+          tar \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.env' \
+            --exclude='**/.env' \
+            --exclude='**/.env.local' \
+            --exclude='**/.env.*.local' \
+            --exclude='node_modules' \
+            --exclude='**/node_modules' \
+            --exclude='**/.next' \
+            --exclude='**/dist' \
+            --exclude='**/*.tsbuildinfo' \
+            --exclude='.turbo' \
+            --exclude='.logs' \
+            --exclude='test-results' \
+            --exclude='artifacts/screenshots' \
+            --exclude='LeadVirt-React-design-only' \
+            --exclude='leadvirt_codex_docs_package_v2' \
+            -czf "$package_path" \
+            apps \
+            backend \
+            deploy \
+            docs \
+            packages \
+            artifacts/scripts \
+            artifacts/playwright \
+            .dockerignore \
+            .env.example \
+            .gitignore \
+            .prettierignore \
+            .prettierrc \
+            agents.md \
+            docker-compose.yml \
+            Dockerfile \
+            eslint.config.mjs \
+            package.json \
+            pnpm-lock.yaml \
+            pnpm-workspace.yaml \
+            README.md \
+            tsconfig.base.json \
+            turbo.json
+          tar -tzf "$package_path" >/dev/null
+          echo "PACKAGE_PATH=$package_path" >> "$GITHUB_ENV"
+
+      - name: Install SSH key
+        env:
+          LEADVIRT_DEPLOY_SSH_KEY: ${{ secrets.LEADVIRT_DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${LEADVIRT_DEPLOY_SSH_KEY}" ]; then
+            echo "::error::Missing LEADVIRT_DEPLOY_SSH_KEY secret"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$LEADVIRT_DEPLOY_SSH_KEY" > ~/.ssh/leadvirt_deploy_key
+          chmod 600 ~/.ssh/leadvirt_deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload release
+        run: |
+          set -euo pipefail
+          scp -i ~/.ssh/leadvirt_deploy_key \
+            "$PACKAGE_PATH" \
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/leadvirt-release-${GITHUB_SHA}.tar.gz"
+
+      - name: Deploy on VPS
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/leadvirt_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+            "DEPLOY_ROOT='$DEPLOY_ROOT' DEPLOY_ENV_FILE='$DEPLOY_ENV_FILE' PUBLIC_URL='$PUBLIC_URL' RELEASE_SHA='$GITHUB_SHA' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          release_id="${RELEASE_SHA:0:12}"
+          archive="/tmp/leadvirt-release-${RELEASE_SHA}.tar.gz"
+          release_dir="$DEPLOY_ROOT/releases/$release_id"
+          current_link="$DEPLOY_ROOT/current"
+
+          mkdir -p "$DEPLOY_ROOT/releases"
+          rm -rf "$release_dir"
+          mkdir -p "$release_dir"
+          tar -xzf "$archive" -C "$release_dir"
+          mkdir -p "$release_dir/artifacts" "$release_dir/deploy/certbot/www"
+          cp "$release_dir/deploy/nginx.https.conf" "$release_dir/deploy/nginx.conf"
+          if [ -L "$current_link" ]; then
+            ln -sfn "$release_dir" "$current_link"
+          elif [ -e "$current_link" ]; then
+            backup_dir="$DEPLOY_ROOT/current.backup.$(date +%Y%m%d%H%M%S)"
+            mv "$current_link" "$backup_dir"
+            ln -s "$release_dir" "$current_link"
+          else
+            ln -s "$release_dir" "$current_link"
+          fi
+
+          cd "$current_link"
+          docker compose --env-file "$DEPLOY_ENV_FILE" -f deploy/docker-compose.staging.yml up -d --build --force-recreate --remove-orphans migrate api worker web nginx
+          docker compose --env-file "$DEPLOY_ENV_FILE" -f deploy/docker-compose.staging.yml ps
+
+          curl -fsS "$PUBLIC_URL/health" >/dev/null
+          auth_status="$(curl -sS -o /dev/null -w '%{http_code}' "$PUBLIC_URL/api/auth/me")"
+          if [ "$auth_status" != "401" ]; then
+            echo "Expected /api/auth/me without cookie to return 401, got $auth_status" >&2
+            exit 1
+          fi
+
+          find "$DEPLOY_ROOT/releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
+            | sort -rn \
+            | tail -n +6 \
+            | cut -d' ' -f2- \
+            | xargs -r rm -rf
+          rm -f "$archive"
+          REMOTE

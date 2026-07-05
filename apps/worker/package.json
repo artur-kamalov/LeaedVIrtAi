@@ -1,0 +1,25 @@
+{
+  "name": "@leadvirt/worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/apps/worker/src/main.js",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@leadvirt/ai": "workspace:*",
+    "@leadvirt/config": "workspace:*",
+    "@leadvirt/db": "workspace:*",
+    "@leadvirt/types": "workspace:*",
+    "bullmq": "^5.56.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.3",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}

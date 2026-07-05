@@ -1,0 +1,5 @@
+ALTER TABLE "User"
+  ADD COLUMN IF NOT EXISTS "twoFactorEnabled" BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS "twoFactorSecretEncrypted" TEXT,
+  ADD COLUMN IF NOT EXISTS "twoFactorRecoveryCodes" JSONB,
+  ADD COLUMN IF NOT EXISTS "twoFactorConfirmedAt" TIMESTAMP(3);

@@ -1,0 +1,127 @@
+import { expect, test } from "@playwright/test";
+import { loginAsCleanUser } from "./helpers/auth";
+
+const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
+const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
+
+test.beforeEach(async ({ page }) => {
+  await loginAsCleanUser(page, apiBase);
+});
+const conversationId = "pw-actions-conversation";
+const leadId = "lead-actions";
+
+function lead(status = "IN_PROGRESS") {
+  return {
+    id: leadId,
+    tenantId: "tenant-demo",
+    name: "Action API Client",
+    phone: null,
+    email: null,
+    companyName: null,
+    source: "Telegram bot",
+    channelType: "TELEGRAM",
+    status,
+    temperature: "WARM",
+    valueAmount: 12000,
+    currency: "RUB",
+    interest: "Action API service",
+    summary: "Conversation action smoke",
+    assignedToUserId: null,
+    assignedToName: "API Manager",
+    lastMessageAt: "2026-06-22T10:00:00.000Z",
+    createdAt: "2026-06-22T09:55:00.000Z",
+  };
+}
+
+function conversation(status = "IN_PROGRESS") {
+  return {
+    id: conversationId,
+    tenantId: "tenant-demo",
+    leadId,
+    channel: {
+      id: "channel-demo",
+      tenantId: "tenant-demo",
+      type: "TELEGRAM",
+      status: "ACTIVE",
+      name: "Telegram bot",
+      lastHealthAt: null,
+    },
+    channelType: "TELEGRAM",
+    status: "OPEN",
+    subject: "Action API dialog",
+    lastMessageAt: "2026-06-22T10:00:00.000Z",
+    aiEnabled: true,
+    handoffRequested: false,
+    lead: lead(status),
+    lastMessage: "Нужна консультация",
+    unreadCount: 1,
+    messages: [
+      {
+        id: "message-action-1",
+        tenantId: "tenant-demo",
+        conversationId,
+        direction: "INBOUND",
+        senderType: "CUSTOMER",
+        text: "Нужна консультация",
+        status: "RECEIVED",
+        createdAt: "2026-06-22T10:00:00.000Z",
+      },
+    ],
+    events: [],
+  };
+}
+
+test("conversation side-panel actions call lead APIs with the API lead id", async ({ page }) => {
+  let crmCalled = false;
+  let taskTitle = "";
+  let appointmentTitle = "";
+  let qualifiedStatus = "";
+  let currentStatus = "IN_PROGRESS";
+
+  await page.route(`**/api/leads/${leadId}/actions/send-to-crm`, async (route) => {
+    crmCalled = true;
+    currentStatus = "SENT_TO_CRM";
+    await route.fulfill({ json: { data: lead(currentStatus) } });
+  });
+
+  await page.route(`**/api/leads/${leadId}/actions/create-task`, async (route) => {
+    const body = route.request().postDataJSON() as { title?: string };
+    taskTitle = body.title ?? "";
+    await route.fulfill({ json: { data: { id: "task-actions", title: taskTitle } } });
+  });
+
+  await page.route(`**/api/leads/${leadId}/actions/book-appointment`, async (route) => {
+    const body = route.request().postDataJSON() as { title?: string };
+    appointmentTitle = body.title ?? "";
+    currentStatus = "BOOKED";
+    await route.fulfill({ json: { data: { id: "booking-actions", title: appointmentTitle } } });
+  });
+
+  await page.route(`**/api/leads/${leadId}`, async (route) => {
+    const body = route.request().postDataJSON() as { status?: string };
+    qualifiedStatus = body.status ?? "";
+    currentStatus = qualifiedStatus;
+    await route.fulfill({ json: { data: lead(currentStatus) } });
+  });
+
+  await page.route(`**/api/conversations/${conversationId}`, async (route) => {
+    await route.fulfill({ json: { data: conversation(currentStatus) } });
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${webBase}/app/inbox/${conversationId}`, { waitUntil: "networkidle" });
+
+  await expect(page.getByText("Action API Client")).toBeVisible();
+  await page.getByRole("button", { name: /Отправить в CRM/ }).click();
+  await expect.poll(() => crmCalled).toBe(true);
+
+  await page.getByRole("button", { name: /Создать задачу/ }).click();
+  await expect.poll(() => taskTitle).toBe("Связаться с лидом из диалога");
+
+  await page.getByRole("button", { name: /Записать на приём/ }).click();
+  await expect.poll(() => appointmentTitle).toBe("Action API service");
+
+  await page.getByRole("button", { name: /Отметить квалифицированным/ }).click();
+  await expect.poll(() => qualifiedStatus).toBe("QUALIFIED");
+});
+

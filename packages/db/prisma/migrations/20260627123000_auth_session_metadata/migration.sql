@@ -1,0 +1,2 @@
+ALTER TABLE "AuthSession" ADD COLUMN IF NOT EXISTS "ipAddress" TEXT;
+ALTER TABLE "AuthSession" ADD COLUMN IF NOT EXISTS "userAgent" TEXT;
