@@ -99,7 +99,6 @@ jobs:
             --exclude='leadvirt_codex_docs_package_v2' \
             -czf "$package_path" \
             apps \
-            backend \
             deploy \
             docs \
             packages \
