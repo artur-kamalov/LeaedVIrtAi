@@ -120,12 +120,7 @@ export function LandingPage() {
         {/* HERO SECTION */}
         <section className="container mx-auto px-6 pt-10 pb-24 lg:pt-20 lg:pb-32">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-8 items-center">
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, ease: "easeOut" }}
-              className="max-w-2xl"
-            >
+            <div className="max-w-2xl">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/70 border border-zinc-800 text-sm font-medium text-emerald-400 mb-6">
                 <span className="relative flex h-2 w-2">
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
@@ -149,15 +144,11 @@ export function LandingPage() {
                   <Link href="/demo" className="leading-none">Смотреть демо</Link>
                 </Button>
               </div>
-            </motion.div>
+            </div>
 
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 1, delay: 0.2 }}
-            >
+            <div>
               <HeroVisual />
-            </motion.div>
+            </div>
           </div>
         </section>
 

@@ -5,6 +5,7 @@ const webUrl = process.env.LEADVIRT_WEB_URL ?? "http://localhost:3001";
 test("landing page renders smoothly enough during first scroll", async ({ page }) => {
   await page.goto(webUrl, { waitUntil: "domcontentloaded" });
   await page.locator("main").waitFor({ state: "visible" });
+  await page.waitForTimeout(1000);
   await page.screenshot({
     path: "artifacts/playwright/landing-performance.png",
     fullPage: false,
