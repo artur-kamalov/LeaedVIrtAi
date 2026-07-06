@@ -19,6 +19,61 @@ services:
     volumes:
       - leadvirt_redis_data:/data
 
+  qdrant:
+    image: qdrant/qdrant:v1.15.5
+    container_name: leadvirt-qdrant
+    ports:
+      - "${QDRANT_HOST_PORT:-6333}:6333"
+    volumes:
+      - leadvirt_qdrant_data:/qdrant/storage
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: leadvirt-prometheus
+    profiles:
+      - observability
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/observability/prometheus.local.yml:/etc/prometheus/prometheus.yml:ro
+      - leadvirt_prometheus_data:/prometheus
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: leadvirt-tempo
+    profiles:
+      - observability
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    ports:
+      - "3200:3200"
+      - "4318:4318"
+    volumes:
+      - ./deploy/observability/tempo.yml:/etc/tempo/tempo.yml:ro
+      - leadvirt_tempo_data:/var/tempo
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: leadvirt-grafana
+    profiles:
+      - observability
+    ports:
+      - "3003:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - leadvirt_grafana_data:/var/lib/grafana
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - tempo
+
 volumes:
   leadvirt_postgres_data:
   leadvirt_redis_data:
+  leadvirt_qdrant_data:
+  leadvirt_prometheus_data:
+  leadvirt_grafana_data:
+  leadvirt_tempo_data:

@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { AI_PROVIDER_TOKEN, type AiMessage, type AiProvider } from "@leadvirt/ai";
 import type { Prisma } from "@leadvirt/db";
-import type { WidgetConfig, WidgetConversationMessage, WidgetMessageResponse, WidgetPosition } from "@leadvirt/types";
+import type { AiReplyJobData, WidgetConfig, WidgetConversationMessage, WidgetMessageResponse, WidgetPosition } from "@leadvirt/types";
 import { PrismaService } from "../database/prisma.service.js";
 import { WorkflowsService } from "../workflows/workflows.service.js";
+import { AiReplyQueueService } from "../ai/ai-reply-queue.service.js";
 import type { SendWidgetMessageDto, WidgetCustomerDto } from "./dto/send-widget-message.dto.js";
 
 type WidgetChannel = Prisma.ChannelGetPayload<{
@@ -128,6 +129,7 @@ export class WidgetService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AI_PROVIDER_TOKEN) private readonly aiProvider: AiProvider,
+    @Inject(AiReplyQueueService) private readonly aiReplyQueue: AiReplyQueueService,
     @Inject(WorkflowsService) private readonly workflowsService: WorkflowsService
   ) {}
 
@@ -184,7 +186,7 @@ export class WidgetService {
         return this.responseForSession(channel, sessionId, defaultAiState);
       }
 
-      await this.prisma.message.create({
+      const inboundMessage = await this.prisma.message.create({
         data: {
           tenantId: channel.tenantId,
           conversationId: conversation.id,
@@ -210,7 +212,7 @@ export class WidgetService {
         }
       });
 
-      const aiState = await this.generateAiReply(channel, conversation, text, now);
+      const aiState = await this.generateAiReply(channel, conversation, inboundMessage.id, text, now);
       await this.workflowsService.runForEvent({
         tenantId: channel.tenantId,
         eventType: "message.received",
@@ -427,7 +429,13 @@ export class WidgetService {
     return metadata;
   }
 
-  private async generateAiReply(channel: WidgetChannel, conversation: WidgetConversation, text: string, receivedAt: Date): Promise<WidgetAiState> {
+  private async generateAiReply(
+    channel: WidgetChannel,
+    conversation: WidgetConversation,
+    triggerMessageId: string,
+    text: string,
+    receivedAt: Date
+  ): Promise<WidgetAiState> {
     const config = this.mapConfig(channel);
     const messages: AiMessage[] = [
       ...conversation.messages.map((message) => ({
@@ -436,6 +444,43 @@ export class WidgetService {
       })),
       { role: "user", content: text }
     ];
+
+    if (this.aiReplyQueue.enabled) {
+      const jobData: AiReplyJobData = {
+        tenantId: channel.tenantId,
+        conversationId: conversation.id,
+        triggerMessageId,
+        text,
+        businessName: config.businessName,
+        ...(channel.tenant.businessType ? { businessType: channel.tenant.businessType } : {}),
+        leadId: conversation.leadId,
+        ...(conversation.lead?.status ? { leadStatus: conversation.lead.status } : {}),
+        source: "widget",
+        receivedAt: receivedAt.toISOString()
+      };
+      const queueResult = await this.aiReplyQueue.enqueue(jobData);
+      if (queueResult.queued) {
+        if (conversation.leadId) {
+          await this.prisma.leadEvent.create({
+            data: {
+              tenantId: channel.tenantId,
+              leadId: conversation.leadId,
+              type: "widget_ai_reply_queued",
+              title: "Widget AI reply queued",
+              message: text,
+              metadata: { conversationId: conversation.id, jobId: queueResult.jobId ?? null }
+            }
+          });
+        }
+        return {
+          replied: false,
+          handoffRequired: false,
+          confidence: 0,
+          intent: "queued"
+        };
+      }
+    }
+
     const [extraction, aiReply, recommendation] = await Promise.all([
       this.aiProvider.extractLeadFields({
         tenantId: channel.tenantId,

@@ -31,6 +31,41 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/leadvirt_ci?schema=public
+      REDIS_URL: redis://localhost:6380
+      PORT: "4001"
+      APP_URL: http://localhost:3001
+      API_URL: http://localhost:4001
+      CORS_ORIGINS: http://localhost:3001
+      TELEGRAM_LOGIN_BOT_TOKEN: 123456:leadvirt-test-token
+      AI_PROVIDER: mock
+      AI_ENABLE_REAL_PROVIDER: "false"
+      AI_REPLY_MODE: queue
+      RAG_QDRANT_ENABLED: "false"
 
     steps:
       - name: Checkout
@@ -49,6 +84,9 @@ jobs:
       - name: Generate Prisma client
         run: corepack pnpm --filter @leadvirt/db db:generate
 
+      - name: Prepare quality gate database
+        run: corepack pnpm --filter @leadvirt/db db:migrate
+
       - name: Typecheck shared types
         run: corepack pnpm --filter @leadvirt/types typecheck
 
@@ -64,6 +102,55 @@ jobs:
           corepack pnpm --filter @leadvirt/web lint
           corepack pnpm --filter @leadvirt/web build
 
+      - name: Verify Worker
+        run: |
+          corepack pnpm --filter @leadvirt/worker typecheck
+          corepack pnpm --filter @leadvirt/worker lint
+          corepack pnpm --filter @leadvirt/worker build
+
+      - name: Verify AI quality gate
+        run: corepack pnpm run qa:ai:quality
+
+      - name: Verify AI clean Telegram acceptance
+        env:
+          LEADVIRT_API_BASE: http://localhost:4001/api
+          WORKER_ENABLE_PROCESSORS: "true"
+          WORKER_METRICS_PORT: "4002"
+          WORKER_METRICS_URL: http://localhost:4002/metrics
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/logs
+          cleanup() {
+            if [ -f artifacts/logs/ci-api.pid ]; then kill "$(cat artifacts/logs/ci-api.pid)" 2>/dev/null || true; fi
+            if [ -f artifacts/logs/ci-worker.pid ]; then kill "$(cat artifacts/logs/ci-worker.pid)" 2>/dev/null || true; fi
+          }
+          trap cleanup EXIT
+          corepack pnpm --filter @leadvirt/api dev > artifacts/logs/ci-api.log 2> artifacts/logs/ci-api.err.log &
+          echo "$!" > artifacts/logs/ci-api.pid
+          WORKER_ENABLE_PROCESSORS=true WORKER_METRICS_PORT=4002 corepack pnpm --filter @leadvirt/worker dev > artifacts/logs/ci-worker.log 2> artifacts/logs/ci-worker.err.log &
+          echo "$!" > artifacts/logs/ci-worker.pid
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:4001/health >/dev/null 2>&1 && curl -fsS http://localhost:4002/metrics >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" = "60" ]; then
+              echo "API/worker did not become ready" >&2
+              tail -n 120 artifacts/logs/ci-api.log artifacts/logs/ci-api.err.log artifacts/logs/ci-worker.log artifacts/logs/ci-worker.err.log || true
+              exit 1
+            fi
+            sleep 2
+          done
+          corepack pnpm run qa:ai:acceptance
+
+      - name: Upload AI eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-eval-report
+          path: artifacts/reports/*.json
+          if-no-files-found: ignore
+          retention-days: 14
+
   deploy:
     name: Deploy
     runs-on: ubuntu-24.04
@@ -77,7 +164,7 @@ jobs:
       - name: Create deploy package
         run: |
           set -euo pipefail
-          mkdir -p artifacts/scripts artifacts/playwright
+          mkdir -p artifacts/scripts artifacts/playwright artifacts/evals
           package_path="$RUNNER_TEMP/leadvirt-release-${GITHUB_SHA}.tar.gz"
           tar \
             --exclude='.git' \
@@ -102,6 +189,7 @@ jobs:
             deploy \
             docs \
             packages \
+            artifacts/evals \
             artifacts/scripts \
             artifacts/playwright \
             .dockerignore \

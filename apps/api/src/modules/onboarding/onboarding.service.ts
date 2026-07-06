@@ -3,11 +3,15 @@ import type { OnboardingState } from "@leadvirt/types";
 import type { Prisma } from "@leadvirt/db";
 import type { RequestContext } from "../../common/request-context.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { KnowledgeService } from "../knowledge/knowledge.service.js";
 import type { CompleteOnboardingStepDto, UpdateOnboardingDto } from "./dto/update-onboarding.dto.js";
 
 @Injectable()
 export class OnboardingService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(KnowledgeService) private readonly knowledgeService: KnowledgeService
+  ) {}
 
   async state(context: RequestContext): Promise<OnboardingState> {
     const state = await this.ensureState(context);
@@ -27,6 +31,8 @@ export class OnboardingService {
         data: data as Prisma.InputJsonObject
       }
     });
+    await this.syncTenantProfile(context, data);
+    await this.knowledgeService.syncOnboardingSources(context, data);
     await this.log(context, "onboarding.updated", { currentStep: state.currentStep });
     return this.mapState(state);
   }
@@ -76,6 +82,29 @@ export class OnboardingService {
 
   private completedSteps(value: Prisma.JsonValue | null): string[] {
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  }
+
+  private async syncTenantProfile(context: RequestContext, data: Record<string, unknown>) {
+    const companyInfo = this.record(data.companyInfo);
+    const name = this.text(companyInfo.name);
+    const businessType = this.text(data.businessType);
+    if (!name && !businessType) return;
+
+    await this.prisma.tenant.update({
+      where: { id: context.tenantId },
+      data: {
+        ...(name ? { name } : {}),
+        ...(businessType ? { businessType } : {})
+      }
+    });
+  }
+
+  private record(value: unknown): Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  }
+
+  private text(value: unknown) {
+    return typeof value === "string" ? value.trim() : "";
   }
 
   private async log(context: RequestContext, action: string, payload: Prisma.JsonObject) {

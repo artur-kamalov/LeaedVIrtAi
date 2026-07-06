@@ -1,11 +1,13 @@
 ﻿import { Body, Controller, Get, Inject, Patch, Post, UseGuards } from "@nestjs/common";
 import { CurrentContext } from "../../common/decorators/current-context.decorator.js";
+import { Roles } from "../../common/decorators/roles.decorator.js";
+import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { RequestContext } from "../../common/request-context.js";
 import { WorkspaceAuthGuard } from "../auth/workspace-auth.guard.js";
 import { BillingService } from "./billing.service.js";
 import { ChangeSubscriptionPlanDto } from "./dto/change-subscription-plan.dto.js";
 
-@UseGuards(WorkspaceAuthGuard)
+@UseGuards(WorkspaceAuthGuard, RolesGuard)
 @Controller("billing")
 export class BillingController {
   constructor(@Inject(BillingService) private readonly billingService: BillingService) {}
@@ -20,6 +22,7 @@ export class BillingController {
     return { data: await this.billingService.paymentMethod(context) };
   }
 
+  @Roles("OWNER", "ADMIN")
   @Post("payment-method/change-request")
   async requestPaymentMethodChange(@CurrentContext() context: RequestContext) {
     return { data: await this.billingService.requestPaymentMethodChange(context) };
@@ -35,11 +38,13 @@ export class BillingController {
     return { data: await this.billingService.currentSubscription(context) };
   }
 
+  @Roles("OWNER", "ADMIN")
   @Patch("current-subscription")
   async changeSubscriptionPlan(@CurrentContext() context: RequestContext, @Body() dto: ChangeSubscriptionPlanDto) {
     return { data: await this.billingService.changePlan(context, dto) };
   }
 
+  @Roles("OWNER", "ADMIN")
   @Post("current-subscription/cancel")
   async cancelSubscription(@CurrentContext() context: RequestContext) {
     return { data: await this.billingService.cancelSubscription(context) };

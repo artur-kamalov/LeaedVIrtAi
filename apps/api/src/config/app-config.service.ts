@@ -57,4 +57,28 @@ export class AppConfigService {
   get aiVerbosity() {
     return this.env.AI_VERBOSITY;
   }
+
+  get aiTenantDailyTokenBudget() {
+    return this.env.AI_TENANT_DAILY_TOKEN_BUDGET;
+  }
+
+  get aiTenantMonthlyTokenBudget() {
+    return this.env.AI_TENANT_MONTHLY_TOKEN_BUDGET;
+  }
+
+  get ragQdrantEnabled() {
+    return this.env.RAG_QDRANT_ENABLED;
+  }
+
+  get ragQdrantUrl() {
+    return this.env.RAG_QDRANT_URL;
+  }
+
+  get ragQdrantApiKey() {
+    return this.env.RAG_QDRANT_API_KEY;
+  }
+
+  get ragQdrantCollection() {
+    return this.env.RAG_QDRANT_COLLECTION;
+  }
 }

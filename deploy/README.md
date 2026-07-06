@@ -36,6 +36,24 @@ curl -fsS https://leadvirt.ru/health
 
 Current public env uses `https://leadvirt.ru` and `AUTH_COOKIE_SECURE=true`.
 
+## AI Acceptance Smoke
+
+After a release is deployed, run the clean Telegram AI acceptance smoke from the current release:
+
+```bash
+cd /opt/leadvirt/current
+sh deploy/run-ai-acceptance.sh
+```
+
+The smoke expects the running API to use `AI_REPLY_MODE=queue`, because it validates the production path: Telegram auth, onboarding knowledge, Webhook/API intake, queued LangGraph reply, worker delivery, RAG evidence, tool calls, audit, usage, and worker metrics.
+
+Container defaults:
+
+```text
+LEADVIRT_API_BASE=http://api:4001/api
+WORKER_METRICS_URL=http://127.0.0.1:4002/metrics
+```
+
 If the HTTPS/domain config must be reapplied:
 
 ```bash
@@ -52,3 +70,25 @@ Staging operator credentials are stored on the server at:
 ```
 
 Reverse proxy: nginx. HTTP redirects to HTTPS for `leadvirt.ru`; `www.leadvirt.ru` redirects to the apex domain.
+
+## Observability Profile
+
+Prometheus and Grafana are optional and do not start with the normal app stack.
+
+Local:
+
+```bash
+docker compose --profile observability up -d prometheus grafana
+```
+
+Local Grafana: `http://localhost:3003` (`admin` / `admin`). Prometheus scrapes API `localhost:4001/metrics` and worker `localhost:4002/metrics` through `host.docker.internal`. Tempo receives OTLP HTTP traces on `http://localhost:4318/v1/traces`.
+
+Staging:
+
+```bash
+docker compose --env-file /opt/leadvirt/secrets/.env -f deploy/docker-compose.staging.yml --profile observability up -d prometheus grafana
+```
+
+Staging binds Prometheus and Grafana to `127.0.0.1`; access them through SSH port forwarding. Set `GRAFANA_ADMIN_PASSWORD` in `/opt/leadvirt/secrets/.env` before enabling.
+
+OpenTelemetry tracing is opt-in. Set `OTEL_ENABLED=true` and point `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to the profile Tempo endpoint or another OTLP HTTP collector. The app emits manual spans for HTTP requests, queue publishing, worker jobs, LangGraph runs/nodes, and channel delivery.

@@ -12,6 +12,7 @@ export type Route =
   | "pipeline"
   | "automation"
   | "analytics"
+  | "audit"
   | "integrations"
   | "billing"
   | "settings";
@@ -33,6 +34,7 @@ const routePaths: Record<Route, string> = {
   pipeline: "/app/leads",
   automation: "/app/automations",
   analytics: "/app/analytics",
+  audit: "/app/audit",
   integrations: "/app/integrations",
   billing: "/app/billing",
   settings: "/app/settings"
@@ -68,6 +70,7 @@ function stateForPath(pathname: string): Pick<NavState, "route" | "params"> {
   if (pathname === "/app/leads") return { route: "pipeline", params: {} };
   if (pathname === "/app/automations") return { route: "automation", params: {} };
   if (pathname === "/app/analytics") return { route: "analytics", params: {} };
+  if (pathname === "/app/audit") return { route: "audit", params: {} };
   if (pathname === "/app/integrations") return { route: "integrations", params: {} };
   if (pathname === "/app/billing") return { route: "billing", params: {} };
   if (pathname === "/app/settings") return { route: "settings", params: {} };

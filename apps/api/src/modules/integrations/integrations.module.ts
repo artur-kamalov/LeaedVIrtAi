@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { RolesGuard } from "../../common/guards/roles.guard.js";
 import { TelegramModule } from "../telegram/telegram.module.js";
 import { WebhookModule } from "../webhook/webhook.module.js";
 import { IntegrationsController } from "./integrations.controller.js";
@@ -7,7 +8,7 @@ import { IntegrationsService } from "./integrations.service.js";
 @Module({
   imports: [TelegramModule, WebhookModule],
   controllers: [IntegrationsController],
-  providers: [IntegrationsService],
+  providers: [IntegrationsService, RolesGuard],
   exports: [IntegrationsService]
 })
 export class IntegrationsModule {}

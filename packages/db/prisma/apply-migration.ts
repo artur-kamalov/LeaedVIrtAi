@@ -30,6 +30,14 @@ const userPhoneMigrationUrl = new URL(
   "./migrations/20260705120000_user_phone/migration.sql",
   import.meta.url,
 );
+const businessKnowledgeSourcesMigrationUrl = new URL(
+  "./migrations/20260705133000_business_knowledge_sources/migration.sql",
+  import.meta.url,
+);
+const businessKnowledgeChunksMigrationUrl = new URL(
+  "./migrations/20260705143000_business_knowledge_chunks/migration.sql",
+  import.meta.url,
+);
 
 function getDatabaseUrl() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -224,6 +232,32 @@ async function hasUserPhone(prisma: PrismaClient) {
   return rows[0]?.exists ?? false;
 }
 
+async function hasBusinessKnowledgeSources(prisma: PrismaClient) {
+  const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = 'BusinessKnowledgeSource'
+    ) AS "exists"
+  `;
+
+  return rows[0]?.exists ?? false;
+}
+
+async function hasBusinessKnowledgeChunks(prisma: PrismaClient) {
+  const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = 'BusinessKnowledgeChunk'
+    ) AS "exists"
+  `;
+
+  return rows[0]?.exists ?? false;
+}
+
 async function applySqlFile(prisma: PrismaClient, url: URL) {
   const sql = await readFile(url, "utf8");
   const statements = sql
@@ -294,6 +328,20 @@ async function main() {
     } else {
       const statementCount = await applySqlFile(prisma, userPhoneMigrationUrl);
       console.log(`Applied user_phone migration (${statementCount} statements).`);
+    }
+
+    if (await hasBusinessKnowledgeSources(prisma)) {
+      console.log("Business knowledge source schema already exists; skipping business_knowledge_sources migration.");
+    } else {
+      const statementCount = await applySqlFile(prisma, businessKnowledgeSourcesMigrationUrl);
+      console.log(`Applied business_knowledge_sources migration (${statementCount} statements).`);
+    }
+
+    if (await hasBusinessKnowledgeChunks(prisma)) {
+      console.log("Business knowledge chunk schema already exists; skipping business_knowledge_chunks migration.");
+    } else {
+      const statementCount = await applySqlFile(prisma, businessKnowledgeChunksMigrationUrl);
+      console.log(`Applied business_knowledge_chunks migration (${statementCount} statements).`);
     }
   } finally {
     await prisma.$disconnect();

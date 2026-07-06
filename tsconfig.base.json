@@ -21,6 +21,7 @@
       "@leadvirt/config": ["packages/config/src/index.ts"],
       "@leadvirt/db": ["packages/db/src/index.ts"],
       "@leadvirt/ai": ["packages/ai/src/index.ts"],
+      "@leadvirt/observability": ["packages/observability/src/index.ts"],
       "@leadvirt/integrations": ["packages/integrations/src/index.ts"]
     }
   }

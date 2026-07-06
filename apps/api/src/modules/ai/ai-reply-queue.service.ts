@@ -1,4 +1,5 @@
 import { Inject, Injectable, type OnModuleDestroy } from "@nestjs/common";
+import { SpanKind, withSpan } from "@leadvirt/observability";
 import { Queue, type ConnectionOptions } from "bullmq";
 import type { AiReplyJobData } from "@leadvirt/types";
 import { AppConfigService } from "../../config/app-config.service.js";
@@ -46,15 +47,26 @@ export class AiReplyQueueService implements OnModuleDestroy {
     const jobId = `ai-reply:${data.conversationId}:${data.triggerMessageId}`;
 
     try {
-      const queue = this.getQueue();
-      const job = await queue.add("generate-reply", data, {
-        jobId,
-        attempts: 3,
-        backoff: { type: "exponential", delay: 1000 },
-        removeOnComplete: { count: 1000 },
-        removeOnFail: { count: 5000 }
+      return await withSpan("queue.publish ai.reply", {
+        kind: SpanKind.PRODUCER,
+        attributes: {
+          "messaging.system": "bullmq",
+          "messaging.destination.name": "ai.reply",
+          "leadvirt.tenant_id": data.tenantId,
+          "leadvirt.conversation_id": data.conversationId,
+          "leadvirt.source": data.source
+        }
+      }, async () => {
+        const queue = this.getQueue();
+        const job = await queue.add("generate-reply", data, {
+          jobId,
+          attempts: 3,
+          backoff: { type: "exponential", delay: 1000 },
+          removeOnComplete: { count: 1000 },
+          removeOnFail: { count: 5000 }
+        });
+        return { queued: true, jobId: job.id ?? jobId };
       });
-      return { queued: true, jobId: job.id ?? jobId };
     } catch (error) {
       return {
         queued: false,

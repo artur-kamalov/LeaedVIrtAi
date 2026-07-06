@@ -1,5 +1,345 @@
 # Decision Log
 
+## 2026-07-06: Staging AI Acceptance Uses Queue Mode
+
+Decision: Post-deploy staging AI acceptance must run against the queued runtime path with `AI_REPLY_MODE=queue`.
+
+Context: The main release scenario depends on public intake creating an `ai.reply` job, the worker running LangGraph, and `channels.sendMessage` delivering the AI response. A sync staging mode can make the acceptance smoke fail for the wrong reason or skip the worker path that production needs.
+
+Consequences:
+
+- `deploy/env.staging.example` now defaults `AI_REPLY_MODE` to `queue`.
+- `deploy/run-ai-acceptance.sh` fails fast if the running API service is not in queue mode.
+- The script runs `qa:ai:acceptance` inside the worker container with Docker-network API and local worker metrics URLs.
+
+## 2026-07-06: Add Clean Telegram AI Acceptance Smoke
+
+Decision: LeadVirt now has `qa:ai:acceptance` for the first full local AI runtime acceptance path. The smoke creates a clean Telegram-auth workspace, syncs onboarding knowledge, creates a tenant Webhook/API channel, sends public intake, waits for queued LangGraph and channel delivery, and verifies grounded price/slot output, RAG evidence, tool calls, usage/cost, AI audit, worker metrics, dashboard, inbox, lead detail, and activity timeline.
+
+Context: The release gate needs one high-signal scenario that proves real workspace data flows from onboarding to RAG, AI actions, product APIs, and observability without demo fallback.
+
+Consequences:
+
+- Local acceptance can run deterministically with `AI_PROVIDER=mock`, `AI_REPLY_MODE=queue`, and DB fallback RAG.
+- The LeadVirt.ru GitHub Actions verify job now starts Redis plus local API/worker processes and runs `qa:ai:acceptance` before deploy.
+- The same smoke should be rerun against staging/production-like env with the intended Telegram token and AI provider before external testers.
+- The smoke caught and fixed a runtime `RolesGuard` injection issue that made RBAC-protected endpoints return 500.
+
+## 2026-07-06: Tag And Redact AI Eval Artifacts
+
+Decision: LeadVirt now uses `redactAndTagSensitiveData` for AI prompt/eval-shaped artifacts. The deterministic quality gate report and real-provider eval report are sanitized before writing, and real-provider judge payloads are redacted before they are sent to the judge model. Reports include `piiTags` and `redactionApplied`.
+
+Context: Phase 6 security hardening requires PII tagging before observability/eval handling and broader redaction for prompts and eval artifacts, not only runtime tool metadata.
+
+Consequences:
+
+- `qa:pii:redaction` verifies redaction plus tag detection for email, phone, token, and secret categories.
+- `qa:ai:eval-redaction` verifies prompt/eval-shaped payload sanitization.
+- `qa:ai:quality` continues to enforce golden-set gates while writing sanitized reports.
+
+## 2026-07-06: Add Tenant-Scoped AI Audit Surface
+
+Decision: LeadVirt now exposes `/api/ai-audit` for OWNER, ADMIN, and MANAGER roles and renders `/app/audit` as an API-backed product screen. The audit surface combines `AiUsageLog` rows with AI-related `AuditLog` rows and redacts sensitive metadata before returning it to the client.
+
+Context: Operators need to inspect AI decisions, quality gates, tool calls, retrieved context references, delivery events, and DLQ failures without querying the database directly.
+
+Consequences:
+
+- `qa:ai:audit` verifies tenant isolation and redaction for audit data.
+- `qa:ai:audit-ui` verifies the API-backed UI path, redacted payload display, and forbidden-role error state.
+- The UI has empty/error states and never falls back to demo data.
+- Follow-up work should add tighter PII tagging for prompts/eval artifacts.
+
+## 2026-07-06: Extend Product RBAC Matrix
+
+Decision: Billing mutations now require OWNER or ADMIN. Integration actions and workflow mutations/tests require OWNER, ADMIN, or MANAGER. Read endpoints remain available to authenticated workspace users unless a more sensitive policy is needed later.
+
+Context: Phase 6 authorization should cover the main product mutation surfaces before the AI audit UI lands, while keeping existing read-heavy product screens usable for lower-privilege roles.
+
+Consequences:
+
+- `qa:rbac:product-matrix` verifies billing, integrations, and workflows role boundaries at controller metadata level.
+- Billing plan/payment changes are more restrictive than operational workflow/integration actions.
+- Remaining Phase 6 authorization work is mostly audit UI permissions and any later per-field ABAC rules.
+
+## 2026-07-05: Extend RBAC And ABAC To Channels And AI Tools
+
+Decision: Channel create/update endpoints now require OWNER, ADMIN, or MANAGER. AI tool execution now verifies the conversation belongs to the tenant, the tool lead matches the conversation lead when present, and task assignees belong to the same tenant.
+
+Context: Knowledge RBAC protects the RAG base, but public channel configuration and AI tool mutations are also sensitive surfaces. The worker must not mutate tenant data using a foreign conversation id or assign tasks to users outside the tenant.
+
+Consequences:
+
+- `qa:rbac:channels` verifies VIEWER/AGENT cannot mutate channels.
+- `qa:ai:tool-abac` verifies foreign conversation and foreign assignee cases are skipped before DB mutation.
+- Remaining Phase 6 authorization work is a broader role matrix for billing, integrations, workflows, and audit UI operations.
+
+## 2026-07-05: Enforce RBAC On Knowledge Source Mutations
+
+Decision: LeadVirt now has reusable API `@Roles` metadata and a `RolesGuard`. Knowledge source create, update, archive, and reindex endpoints are restricted to OWNER, ADMIN, and MANAGER. VIEWER and AGENT retain read/search access but cannot mutate RAG knowledge.
+
+Context: Tenant filtering prevents cross-customer leakage, but Phase 6 also needs role boundaries inside a tenant so low-privilege users cannot alter business knowledge used by AI replies.
+
+Consequences:
+
+- `qa:rbac:knowledge` verifies read access for VIEWER and write denial for VIEWER/AGENT.
+- The guard is reusable for channel settings, tool/action APIs, and later AI audit UI operations.
+- Follow-up work should decide exact role matrix for channels, integrations, billing, and AI tool execution.
+
+## 2026-07-05: Redact PII And Secrets In Runtime Observability Payloads
+
+Decision: LeadVirt has a shared redaction helper in `@leadvirt/observability` for emails, phone-like values, Telegram bot tokens, and secret-bearing object keys. HTTP logs use normalized routes instead of raw URLs, OpenTelemetry error messages/stacks are redacted, and AI graph tool-call inputs are redacted before they are stored in metadata, usage logs, lead events, or audit logs.
+
+Context: AI runtime traces and audit payloads are necessary for debugging, but they must not casually expose customer emails, phones, bot tokens, webhook secrets, or provider tokens.
+
+Consequences:
+
+- `qa:pii:redaction` covers text and nested-object redaction.
+- Business/user data can still live in first-class product records where needed; debug metadata gets the redacted version.
+- Follow-up Phase 6 work should add explicit PII tagging/classification and ensure eval reports/prompts follow the same policy.
+
+## 2026-07-05: Start Phase 6 With Tenant Isolation Smokes
+
+Decision: LeadVirt now has tenant isolation smokes for DB fallback RAG and Qdrant RAG. `qa:ai:isolation` checks DB search filtering, and `qa:ai:qdrant-isolation` indexes two tenants into a temporary Qdrant collection and verifies tenant-filtered retrieval.
+
+Context: Phase 6 security work should first guard against the most severe AI/RAG failure: one customer seeing another customer's business knowledge.
+
+Consequences:
+
+- The smoke forces `RAG_QDRANT_ENABLED=false` for deterministic local coverage.
+- The test covers tenant filtering in `KnowledgeService.search` and cleanup through tenant cascade deletes.
+- The Qdrant smoke uses a temporary collection and creates real users/memberships so reindex audit logging follows the production path.
+- Remaining Phase 6 security work is PII redaction, RBAC/ABAC enforcement, and AI audit UI.
+
+## 2026-07-05: Expose AI Quality And Budget Signals In Prometheus
+
+Decision: LeadVirt exports AI quality-gate outcomes and tenant budget blocks as Prometheus metrics, and the `LeadVirt AI Runtime` Grafana dashboard includes panels for quality reasons, budget blocks, and blocked-token volume.
+
+Context: Usage logs are useful for audit, but operators need live signals when answers are being blocked by quality gates or tenant token budgets.
+
+Consequences:
+
+- `leadvirt_ai_quality_gate_total` tracks passed/blocked quality outcomes by source and reason.
+- `leadvirt_ai_budget_blocks_total` tracks calls blocked by daily/monthly token budgets.
+- `leadvirt_ai_budget_blocked_tokens_total` tracks estimated token volume blocked by budget guard.
+- `qa:ai:budget` now verifies both `BUDGET_BLOCKED` DB logging and Prometheus budget metrics.
+
+## 2026-07-05: Make OpenTelemetry Tracing Opt-In Through OTLP
+
+Decision: API and worker now start OpenTelemetry only when `OTEL_ENABLED=true`. Traces export through the OTLP HTTP endpoint in `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT`. The optional observability profile includes Tempo and provisions it as a Grafana datasource.
+
+Context: Manual spans are useful for diagnosing AI runtime latency and failure paths, but local development and normal deploys should not require a tracing backend.
+
+Consequences:
+
+- API request logs include trace/span ids when spans are created.
+- Spans cover HTTP requests, queue publishing, worker jobs, LangGraph graph/nodes, provider stages, tool execution, persistence, and channel delivery.
+- The first implementation exports traces only when explicitly enabled.
+- Next observability work should add cost/quality panels and, later, trace-to-log/metric correlation.
+
+## 2026-07-05: Keep Prometheus And Grafana Optional Behind A Compose Profile
+
+Decision: Prometheus and Grafana are added through an `observability` Docker Compose profile. Normal local/staging app startup does not launch them. Local Prometheus scrapes `host.docker.internal:4001` and `host.docker.internal:4002`; staging scrapes the internal `api` and `worker` services.
+
+Context: LeadVirt needs dashboard definitions for AI runtime health, but observability services should not consume ports/resources during ordinary development or deploys.
+
+Consequences:
+
+- Local Grafana uses `localhost:3003` to avoid the reserved LeadVirt web port `3001`.
+- Staging Prometheus/Grafana bind to `127.0.0.1` and should be reached through SSH port forwarding.
+- The first dashboard covers AI graph throughput/duration, worker jobs, channel delivery, API requests, DLQ, and handoff ratio.
+- Future work should add cost panels from `AiUsageLog` and OpenTelemetry traces.
+
+## 2026-07-05: Enforce Tenant AI Token Budgets Before Provider Calls
+
+Decision: LeadVirt wraps the configured AI provider in `BudgetedAiProvider` for API and worker runtimes. `AI_TENANT_DAILY_TOKEN_BUDGET` and `AI_TENANT_MONTHLY_TOKEN_BUDGET` default to `0` (disabled); positive values block calls before the provider is invoked when tenant usage plus the estimated request would exceed the limit.
+
+Context: Real-provider usage needs a fail-closed cost guard before broader external traffic. The existing `AiUsageLog` already tracks token estimates, so the first control can use those records without a new table.
+
+Consequences:
+
+- Budget-blocked calls write an `AiUsageLog` row with `status=BUDGET_BLOCKED`.
+- The guard applies to sync API AI paths and queued worker LangGraph paths.
+- `qa:ai:budget` verifies blocking and usage-log persistence.
+- This is token-based MVP control; exact provider-reported token/cost accounting can be added when provider usage metadata is stored.
+
+## 2026-07-05: Start Observability With Prometheus Metrics Before Full Tracing
+
+Decision: Phase 5 observability starts with a small in-repo Prometheus text metrics layer instead of adding a new dependency first. The API exposes `/metrics`, and the worker exposes `/metrics` on `WORKER_METRICS_PORT` unless `WORKER_METRICS_ENABLED=false`.
+
+Context: LeadVirt needs immediate runtime visibility for API latency, worker retries/DLQ, LangGraph runs, and channel delivery before the full OpenTelemetry and Grafana stack is wired.
+
+Consequences:
+
+- API metrics include request totals and request duration histograms by method, normalized route, and status.
+- Worker metrics include job totals/duration, DLQ counters, AI graph totals/duration, handoff labels, and outbound channel delivery outcomes.
+- No external observability package is required for this first layer.
+- Remaining Phase 5 work is OpenTelemetry spans, Grafana dashboards, and per-tenant AI cost/budget enforcement.
+
+## 2026-07-05: Add Deterministic Golden Set Gate Before LLM Judge Evals
+
+Decision: Phase 4 starts with a deterministic `qa:ai:quality` gate over `artifacts/evals/ai-golden-set.json`. The gate uses the local mock provider and validates graph metadata, retrieved chunk content, tool calls, lead/conversation state, booking drafts, handoff tasks, usage logs, and quality-gate reasons.
+
+Context: Before introducing RAGAS, LLM judges, and real-provider variance, LeadVirt needs a fast CI-safe regression that proves the core business workflow remains intact.
+
+Consequences:
+
+- The first golden cases cover grounded pricing, booking with an available slot, human escalation, and missing-grounding fallback.
+- The script reports pass rate, average score, and retrieval hit rate.
+- `qa:ai:quality` can become the required CI gate while larger real-provider evals stay optional or scheduled.
+- Future work should expand the golden set per pilot niche and add judge/RAGAS metrics on top of this deterministic baseline.
+- Pilot-niche coverage currently includes beauty, auto detailing, education/course booking, and clinic handoff behavior.
+
+## 2026-07-05: Make AI Quality Gate Required In Deploy Verification
+
+Decision: The LeadVirt.ru GitHub Actions verify job now starts Postgres, applies DB migrations, and runs `qa:ai:quality` before deployment can proceed.
+
+Context: The AI golden set should block deploys when core pricing, booking, escalation, or missing-grounding behavior regresses.
+
+Consequences:
+
+- Deploy verification now requires a disposable CI database.
+- `artifacts/evals` is included in release packages so quality scripts stay runnable from deployed source.
+- Real-provider evals remain separate from the required deterministic gate.
+
+## 2026-07-05: Keep Real-Provider Evals Explicit And Budget-Gated
+
+Decision: Real-provider quality checks live in optional `qa:ai:real-eval`, which skips unless `AI_EVAL_ENABLE_REAL_PROVIDER=true` is set. The script runs selected golden cases through the real OpenAI provider and asks an LLM judge to score grounding, business correctness, action correctness, and safety.
+
+Context: Real-provider evals are useful before releases and model changes, but they cost money and can vary. The deterministic mock-backed `qa:ai:quality` remains the required CI gate.
+
+Consequences:
+
+- Operators must explicitly opt in with `AI_EVAL_ENABLE_REAL_PROVIDER=true`, `AI_PROVIDER=openai`, `AI_ENABLE_REAL_PROVIDER=true`, and `AI_API_KEY`.
+- `AI_EVAL_CASE_IDS` and `AI_EVAL_MAX_CASES` control spend.
+- The script reports judge pass rate, average judge score, and deterministic contract score.
+- Future work should add broader retrieval-quality suites and trend comparisons across model changes.
+
+## 2026-07-05: Persist AI Eval Reports With Retrieval Metrics
+
+Decision: AI eval scripts now write JSON reports under `artifacts/reports/`, including required-term recall and retrieved-chunk precision as lightweight RAGAS-style retrieval metrics. The LeadVirt.ru verify workflow uploads these reports as the `ai-eval-report` artifact.
+
+Context: Console output is not enough for release diagnosis. We need a small, inspectable artifact that explains why an AI quality gate passed or failed without committing generated reports to source control.
+
+Consequences:
+
+- `artifacts/reports/` is ignored by git.
+- `qa:ai:quality` writes `ai-quality-gate-report.json`.
+- `qa:ai:real-eval` writes `ai-real-provider-eval-report.json`, including skip metadata when real-provider eval is not enabled.
+- CI keeps AI eval reports for short-term inspection while deterministic quality remains the required gate.
+
+## 2026-07-05: Verify The Main AI Loop Through Public Intake
+
+Decision: The main AI runtime regression now has `qa:ai:public-loop`, which creates a clean tenant/user/session, syncs onboarding knowledge, reindexes/searches RAG, sends a public Webhook/API lead, waits for `ai.reply` and `channels.sendMessage`, then verifies booking draft, inbox, dashboard, and queue completion.
+
+Context: Isolated graph, queue-routing, and delivery smokes prove individual pieces. Before moving to evals and observability, LeadVirt needs one compact test that exercises the user journey from business knowledge to public lead response.
+
+Consequences:
+
+- The smoke uses a DB-backed session instead of credential signup so it remains compatible with Telegram-only auth policy.
+- It cleans created tenant/user/channel/webhook data after the run.
+- It requires local API/worker on `localhost:4001` and Redis/Postgres/Qdrant from the standard LeadVirt dev stack.
+- Phase 4 can now focus on golden sets and quality gates on top of a working public loop.
+
+## 2026-07-05: Deliver Queued Public AI Messages Through A Separate Worker
+
+Decision: Queued Telegram and Webhook/API AI messages are delivered by the `channels.sendMessage` worker after LangGraph writes the AI message. Delivery validates tenant ownership, conversation channel, channel type, active status, message status, and adapter support before sending.
+
+Context: AI generation, RAG, quality gates, and tool calls belong to `ai.reply`, but external channel delivery has separate retries, provider ids, and failure modes. Keeping delivery as a separate queue makes status transitions and DLQ handling explicit.
+
+Consequences:
+
+- Public AI messages are created as `QUEUED`, then `channels.sendMessage` updates them to `SENT` or `FAILED`.
+- Adapter status and provider external message ids are stored in message metadata under `delivery`.
+- Delivery success writes `channel.message.sent` audit logs.
+- `qa:channels:delivery` verifies delivery, metadata, audit logging, and duplicate idempotency.
+- Future real Telegram/Webhook adapters can replace the current stub behavior without changing the AI graph contract.
+
+## 2026-07-05: Queue Public AI Replies Before External Delivery
+
+Decision: Public Widget, Webhook/API, and Telegram intake endpoints publish AI replies to the `ai.reply` queue when `AI_REPLY_MODE=queue`. Widget can read the queued answer later from conversation messages; Webhook/API and Telegram return `outboundStatus=queued` until a dedicated outbound delivery worker sends through channel adapters.
+
+Context: The LangGraph worker now owns RAG, quality gates, tool calls, usage logs, and audit persistence. Keeping public intake synchronous would bypass that runtime and make behavior different from queued inbox replies. External delivery is a separate concern from AI generation and should not be faked as sent.
+
+Consequences:
+
+- Public endpoints no longer call the AI provider synchronously in queue mode.
+- `AiReplySource` includes `telegram`, and route-level `qa:ai:queue-routing` verifies widget, webhook, and Telegram jobs reach `ai.reply`.
+- Worker-created Telegram/Webhook AI messages are stored as `QUEUED` with `outboundStatus=queued`.
+- Next Phase 3 work is a `channels.sendMessage` delivery worker for Telegram/Webhook status transitions and retry/DLQ behavior.
+
+## 2026-07-05: Treat Final Worker Failures As Audited DLQ Events
+
+Decision: Worker jobs run through a timeout wrapper and final-attempt failures are captured as DLQ events. The worker logs DLQ payloads and writes tenant-scoped audit records when the failed job contains `tenantId`.
+
+Context: BullMQ already handles retries and failed sets, but LeadVirt needs an operator-visible trace for AI job failures before full Prometheus/Grafana work lands. A lightweight audit record gives immediate tenant-scoped diagnosis without adding new tables yet.
+
+Consequences:
+
+- `WORKER_JOB_TIMEOUT_MS` controls processor-level timeout; default is 30 seconds.
+- `worker.job.dlq` audit records include queue name, job id, attempts, failure reason, and a redacted job data summary.
+- `worker:dlq:inspect` lists failed jobs across configured queues from Redis.
+- `qa:worker:dlq` verifies timeout behavior and DLQ audit capture.
+- Future observability should convert these events into Prometheus counters and Grafana panels.
+
+## 2026-07-05: Treat AI Tool Calls As Validated Draft Actions First
+
+Decision: LangGraph worker tool calls are zod-validated, tenant-scoped database mutations that create internal draft actions first: lead field updates, lead notes, status changes, booking proposals, and handoff tasks. External irreversible side effects stay out of the first tool layer.
+
+Context: LeadVirt needs tool-calling for real CRM workflow, but early production safety matters more than broad autonomy. A booking proposal can create a draft booking and manager-visible event, while real confirmations, refunds, discounts, and external CRM pushes need stronger policy gates and operator review.
+
+Consequences:
+
+- Tool payloads are parsed before execution and every tool checks the lead belongs to the current tenant.
+- AI-created booking records are `DRAFT` and marked as requiring manager confirmation.
+- Tool results are stored in AI message metadata, usage logs, lead events, and audit logs.
+- `qa:ai:graph` covers tool execution, draft booking creation, lead note creation, status change, and duplicate idempotency.
+- Later tool work can add stricter schemas for external CRM sync, calendar confirmation, and order creation.
+
+## 2026-07-05: Start LangGraph Runtime At The Existing AI Reply Queue Boundary
+
+Decision: The first production LangGraph.js runtime is attached to the existing BullMQ `ai.reply` worker queue. The API enqueue contract stays unchanged, while the worker now executes named graph nodes for normalization, tenant context loading, RAG context retrieval, intent classification, draft response, tool-call decision, quality gate, and audit persistence.
+
+Context: LeadVirt already had a queued AI reply path with idempotent job ids and provider abstraction. Replacing that worker internals first gives a real graph runtime without disrupting widget, webhook, Telegram, or inbox enqueue flows.
+
+Consequences:
+
+- `@leadvirt/worker` owns the LangGraph dependency and orchestration code.
+- Invalid `ai.reply` jobs now fail instead of falling back to demo tenant data.
+- AI messages, usage logs, lead events, and audit logs include graph run metadata and retrieved knowledge references.
+- The first quality gate can force a safe manager-follow-up reply when grounding is missing or confidence is too low.
+- Remaining Phase 3 work is moving remaining sync reply paths to queue mode where appropriate and adding route-level regression coverage.
+
+## 2026-07-05: Bootstrap RAG With Deterministic Local Embeddings And Optional Qdrant
+
+Decision: The first LeadVirt RAG foundation uses tenant-scoped knowledge chunks, deterministic local hash embeddings, and optional Qdrant indexing/search. Qdrant is enabled by environment and DB vector fallback remains available for local/degraded operation.
+
+Context: The immediate milestone is to prove tenant isolation, onboarding-to-knowledge sync, reindexing, search contracts, and Qdrant plumbing before wiring the LangGraph worker. A deterministic local embedding provider keeps tests repeatable and avoids spending real LLM/embedding budget while the RAG pipeline shape is still being stabilized.
+
+Consequences:
+
+- `BusinessKnowledgeChunk` stores source version, content hash, embedding metadata, vector point id, and index timestamps.
+- `/api/knowledge/sources/reindex` chunks active tenant sources and indexes them into Qdrant when `RAG_QDRANT_ENABLED=true`.
+- `/api/knowledge/sources/search` always applies tenant scoping and can fall back to DB vector similarity if Qdrant is unavailable.
+- The local hash embedding provider is a bootstrap mechanism, not the final semantic retrieval quality layer.
+- Production-quality RAG still needs semantic embeddings, hybrid retrieval, rerank, retrieval evals, and drift checks.
+
+## 2026-07-05: Use LangGraph And Qdrant For The Production AI Runtime
+
+Decision: The production AI runtime will use LangGraph for deterministic stateful agent orchestration and Qdrant for tenant-filtered RAG. AutoGen is reserved for simulations, agent-lab experiments, and regression test generation rather than the main runtime.
+
+Context: LeadVirt needs a reliable business workflow for incoming leads: load tenant context, retrieve business knowledge, draft an answer, call CRM/booking tools, pass quality gates, and audit every action. A state graph is a better fit for that production path than unconstrained multi-agent conversation.
+
+Consequences:
+
+- The first AI build should focus on a queued worker running a LangGraph pipeline.
+- RAG storage should be Qdrant with mandatory `tenant_id` payload filters.
+- Eval combines RAGAS where useful with custom business golden sets for booking, escalation, and policy safety.
+- OpenTelemetry, Prometheus, and Grafana are the target observability stack.
+- Reliability work must include retries, timeouts, DLQ, idempotency, and tool-call audit logs.
+- Security work must include PII redaction, RBAC/ABAC checks, and cross-tenant isolation tests.
+- Detailed implementation phases live in `docs/AI_RUNTIME_IMPLEMENTATION_PLAN.md`.
+
 ## 2026-07-05: Keep Product Providers Off Public Landing
 
 Decision: The root Next layout no longer wraps every route in `DesignProviders`; product/demo/onboarding routes opt into those providers where their components need nav/theme context.

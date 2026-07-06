@@ -1,9 +1,42 @@
 # LeadVirt Checklist
 
-Last updated: 2026-07-05
+Last updated: 2026-07-06
 
 ## Done
 
+- [x] Started AI runtime Phase 1 with tenant-scoped business knowledge sources, `/api/knowledge/sources`, onboarding-to-knowledge sync, extended onboarding business fields, and focused API smoke coverage.
+- [x] Implemented AI runtime Phase 2 foundation: Qdrant compose services, tenant knowledge chunks, deterministic local embeddings, reindex/search API, Qdrant-backed indexing, DB fallback search, and focused onboarding-to-RAG smoke coverage.
+- [x] Started AI runtime Phase 3 with a queued LangGraph.js `ai.reply` worker path, named graph nodes, RAG context metadata, quality gate fallback, audit/usage logging, idempotent duplicate handling, and `qa:ai:graph` smoke coverage.
+- [x] Added Phase 3 zod-validated AI tool schemas and tenant-scoped execution for lead update, lead note creation, status change, draft booking proposal, and handoff task creation; `qa:ai:graph` now verifies tool results, booking draft, note, status change, and duplicate idempotency.
+- [x] Added Phase 3 worker reliability foundation with processor timeout wrapper, final-attempt DLQ audit capture, `worker:dlq:inspect`, and `qa:worker:dlq` timeout/failure smoke coverage.
+- [x] Moved public Widget, Webhook/API, and Telegram AI reply intake to `ai.reply` queue mode when `AI_REPLY_MODE=queue`; added `qa:ai:queue-routing` route-level smoke for public endpoint queue publishing.
+- [x] Added Phase 3 `channels.sendMessage` delivery worker for queued Webhook/API and Telegram AI messages with tenant/channel checks, adapter send, `QUEUED -> SENT/FAILED` status transitions, audit logging, and `qa:channels:delivery` smoke coverage.
+- [x] Added `qa:ai:public-loop` smoke for the main clean-account scenario: session-backed clean tenant, onboarding knowledge, RAG reindex/search, public Webhook/API lead, queued LangGraph reply, `channels.sendMessage` delivery, booking draft, inbox, and dashboard verification.
+- [x] Started Phase 4 LLMOps with `artifacts/evals/ai-golden-set.json` and `qa:ai:quality`, covering grounded pricing, booking draft, human handoff, and missing-grounding quality gate behavior with pass-rate/score/retrieval thresholds.
+- [x] Added `qa:ai:quality` to the LeadVirt.ru GitHub Actions verify job with a Postgres service and migration step, and included `artifacts/evals` in deploy packages.
+- [x] Expanded `qa:ai:quality` pilot-niche coverage to beauty, auto detailing, education/course booking, and clinic handoff cases; current deterministic golden set passes 7/7.
+- [x] Added optional `qa:ai:real-eval` for real-provider golden-set runs with an LLM judge; it skips unless `AI_EVAL_ENABLE_REAL_PROVIDER=true` is set.
+- [x] Added RAGAS-style retrieval metrics and persisted eval reports: `qa:ai:quality` now writes `artifacts/reports/ai-quality-gate-report.json`, `qa:ai:real-eval` writes a real/skip report, and GitHub Actions uploads AI eval reports as artifacts.
+- [x] Started Phase 5 observability with a lightweight Prometheus metrics foundation: API `/metrics`, API HTTP request counters/latency, worker `/metrics`, worker job/DLQ counters, AI graph duration/status, and outbound channel delivery outcomes.
+- [x] Added Phase 5 per-tenant AI token budget guard with `AI_TENANT_DAILY_TOKEN_BUDGET`, `AI_TENANT_MONTHLY_TOKEN_BUDGET`, pre-call blocking, `BUDGET_BLOCKED` usage logs, and `qa:ai:budget` coverage.
+- [x] Added optional Prometheus/Grafana observability profile with local/staging scrape configs and a provisioned `LeadVirt AI Runtime` dashboard.
+- [x] Added opt-in OpenTelemetry tracing foundation with OTLP HTTP exporter support and manual spans for API requests, queue publishing, worker jobs, LangGraph graph/nodes, and channel delivery.
+- [x] Added Tempo to the optional observability profile and provisioned it as a Grafana trace datasource for OTLP HTTP traces.
+- [x] Added richer AI runtime cost/quality panels and metrics: quality-gate outcome counters, budget-block counters, blocked-token counters, and dashboard panels for quality reasons plus budget blocks/tokens.
+- [x] Started Phase 6 security hardening with `qa:ai:isolation` and `qa:ai:qdrant-isolation`, covering DB fallback and Qdrant tenant-filtered RAG isolation.
+- [x] Added a shared PII/secret redaction helper for observability/runtime payloads, redacted HTTP log route actions, OpenTelemetry error messages/stacks, and AI graph tool-call metadata stored in message metadata, usage logs, lead events, and audit logs.
+- [x] Added reusable API `@Roles`/`RolesGuard` RBAC enforcement and restricted knowledge source create/update/archive/reindex endpoints to OWNER, ADMIN, and MANAGER; `qa:rbac:knowledge` verifies VIEWER/AGENT denial and read access.
+- [x] Extended Phase 6 RBAC/ABAC to channel create/update endpoints and AI tool execution: channel mutations require OWNER/ADMIN/MANAGER, tool calls verify tenant conversation ownership, lead-conversation consistency, and same-tenant assignees.
+- [x] Extended the Phase 6 product RBAC matrix to billing, integrations, and workflows: billing plan/payment mutations require OWNER/ADMIN; integration actions and workflow mutations/tests require OWNER/ADMIN/MANAGER; `qa:rbac:product-matrix` verifies the matrix.
+- [x] Added Phase 6 AI audit surface: tenant-scoped `/api/ai-audit`, `qa:ai:audit` redaction/isolation smoke, and `/app/audit` UI for usage logs, quality gates, tool calls, retrieved context, and AI-related audit events.
+- [x] Added `qa:ai:audit-ui` Playwright coverage for `/app/audit`, verifying API-backed audit events, payload redaction, and forbidden-role error state.
+- [x] Added Phase 6 PII tagging for observability payloads and prompt/eval artifact redaction: `redactAndTagSensitiveData`, sanitized quality/real-eval reports, sanitized real-provider judge payloads, and `qa:ai:eval-redaction`.
+- [x] Fixed `RolesGuard` runtime injection so RBAC-protected endpoints use Nest `Reflector` correctly instead of returning 500; re-verified `qa:rbac:knowledge` and `qa:rbac:product-matrix`.
+- [x] Added and passed `qa:ai:acceptance`: clean Telegram-auth workspace, onboarding knowledge/catalog/availability, Webhook/API intake, queued LangGraph reply, grounded price/slot answer, RAG evidence, tool calls, delivery, usage, audit, worker metrics, dashboard, inbox, lead detail, and activity timeline.
+- [x] Added `qa:ai:acceptance` to the LeadVirt.ru GitHub Actions verify job with Redis, API/worker startup, worker build checks, deterministic Telegram auth token, queue mode, and DB fallback RAG.
+- [x] Added `deploy/run-ai-acceptance.sh` and switched the staging env example to `AI_REPLY_MODE=queue` so post-deploy staging acceptance validates the real queued AI path inside Docker Compose.
+- [x] Stabilized root TS smoke scripts by using `pnpm exec tsx` without the Windows-breaking extra `--`; re-verified `qa:ai:acceptance`, `qa:ai:quality`, and `qa:pii:redaction`.
+- [x] Documented the AI runtime implementation plan in `docs/AI_RUNTIME_IMPLEMENTATION_PLAN.md` and recorded the LangGraph/Qdrant production-runtime decision in `docs/DECISION_LOG.md`.
 - [x] Fixed Landing initial-load stutter while preserving animations: landing now renders mostly as server HTML, product providers moved off the root layout, expensive blur/image work was reduced, Niches motion loads on scroll, and focused performance/scroll Playwright smokes were added.
 - [x] Optimized only the Landing first-screen hero appearance by moving hero entrance/visual animation frames from Framer Motion to CSS keyframes while preserving the animated cards, central node, and gradient SVG flow line; verified with web typecheck/lint/build and Playwright screenshots on `localhost:3001`.
 - [x] Created a local root `.env` for LeadVirt `localhost:3001`/`localhost:4001` development and scrubbed `AI_API_KEY` from `.env.example`.
@@ -404,6 +437,7 @@ Last updated: 2026-07-05
 
 ## Active / Next
 
+- [ ] Push/deploy the current AI runtime branch, confirm GitHub Actions `qa:ai:acceptance` passes, then run `qa:ai:acceptance` once inside staging with the real Telegram login token and intended AI provider settings before inviting external testers.
 - [x] Resolved OpenAI access from staging via the FR AI gateway; direct staging host egress was blocked by `403 unsupported_country_region_territory`, but gateway egress returns valid OpenAI responses.
 - [x] Verified real OpenAI provider smoke with `AI_PROVIDER=openai`, `AI_ENABLE_REAL_PROVIDER=true`, `AI_DEFAULT_MODEL=gpt-5.5`, `AI_REASONING_EFFORT=low`, and `AI_VERBOSITY=low`; `qa:ai:provider` passed all reply, extraction, recommendation, summary, and intent contract checks.
 - [ ] Enable 2FA for `staging-admin@leadvirt.ai` before broad external access.
@@ -425,6 +459,9 @@ corepack pnpm --filter @leadvirt/types typecheck
 corepack pnpm --filter @leadvirt/api typecheck
 corepack pnpm --filter @leadvirt/api lint
 corepack pnpm --filter @leadvirt/api build
+corepack pnpm --filter @leadvirt/worker typecheck
+corepack pnpm --filter @leadvirt/worker lint
+corepack pnpm --filter @leadvirt/worker build
 corepack pnpm --filter @leadvirt/db db:validate
 corepack pnpm --filter @leadvirt/db db:generate
 corepack pnpm --filter @leadvirt/db db:migrate
@@ -442,6 +479,26 @@ corepack pnpm run qa:auth:identifier-policy
 corepack pnpm run qa:auth:telegram
 corepack pnpm run qa:auth:staging-ready
 corepack pnpm run qa:ai:provider
+corepack pnpm run qa:ai:graph
+corepack pnpm run qa:ai:queue-routing
+corepack pnpm run qa:ai:public-loop
+corepack pnpm run qa:ai:acceptance
+corepack pnpm run qa:ai:quality
+corepack pnpm run qa:ai:budget
+corepack pnpm run qa:ai:isolation
+corepack pnpm run qa:ai:qdrant-isolation
+corepack pnpm run qa:ai:real-eval
+corepack pnpm run qa:pii:redaction
+corepack pnpm run qa:ai:eval-redaction
+corepack pnpm run qa:rbac:knowledge
+corepack pnpm run qa:rbac:channels
+corepack pnpm run qa:rbac:product-matrix
+corepack pnpm run qa:ai:tool-abac
+corepack pnpm run qa:ai:audit
+corepack pnpm run qa:ai:audit-ui
+corepack pnpm run qa:channels:delivery
+corepack pnpm run qa:worker:dlq
+corepack pnpm run worker:dlq:inspect
 corepack pnpm run release:public-ready
 corepack pnpm run db:cleanup:pilot
 corepack pnpm run qa:visual
@@ -452,6 +509,8 @@ corepack pnpm dlx @playwright/test test artifacts/playwright/dashboard-api.spec.
 corepack pnpm dlx @playwright/test test artifacts/playwright/dashboard-clean-user.spec.ts --reporter=line
 corepack pnpm dlx @playwright/test test artifacts/playwright/auth-flow.spec.ts --reporter=line
 corepack pnpm dlx @playwright/test test artifacts/playwright/onboarding-api.spec.ts --reporter=line
+corepack pnpm dlx @playwright/test test artifacts/playwright/onboarding-knowledge-sources.spec.ts --reporter=line
+corepack pnpm dlx @playwright/test test artifacts/playwright/onboarding-knowledge-ui.spec.ts --reporter=line
 corepack pnpm dlx @playwright/test test artifacts/playwright/analytics-api.spec.ts --reporter=line
 corepack pnpm dlx @playwright/test test artifacts/playwright/integrations-api.spec.ts --reporter=line
 corepack pnpm dlx @playwright/test test artifacts/playwright/automation-api.spec.ts --reporter=line
@@ -486,6 +545,8 @@ corepack pnpm dlx @playwright/test test artifacts/playwright/product-layout-iden
 - Stop `next dev` before `next build` if Next reports missing page modules during page-data collection; this can happen when dev and build write `.next` at the same time.
 - Prisma CLI validation requires `DATABASE_URL` in the shell environment; the API runtime still has its local default through `AppConfigService`.
 - API, worker, `qa:ai:provider`, and `release:public-ready` load the nearest root `.env` locally before reading AI/provider settings; deployment-provided environment variables still take precedence. `AI_PROVIDER=openai` uses mock AI until `AI_ENABLE_REAL_PROVIDER=true`.
+- `qa:ai:real-eval` is budget-gated: it exits as skipped unless `AI_EVAL_ENABLE_REAL_PROVIDER=true`, `AI_PROVIDER=openai`, `AI_ENABLE_REAL_PROVIDER=true`, and `AI_API_KEY` are present. Use `AI_EVAL_CASE_IDS` and `AI_EVAL_MAX_CASES` to control cost.
+- AI eval reports are generated under `artifacts/reports/` and ignored by git; the LeadVirt.ru verify workflow uploads them as `ai-eval-report`.
 - Settings Security is API-backed for password changes, session revocation, and TOTP 2FA setup/disable/recovery-code flows.
 - Billing plan selection, cancellation, manual payment-method change requests, and invoice downloads are API-backed for manual MVP subscriptions; hosted checkout/payment-provider enforcement remains follow-up billing work.
 - `qa:auth:guard` is a real local API/DB smoke; run it with LeadVirt API available on `localhost:4001` or set `LEADVIRT_API_BASE`.

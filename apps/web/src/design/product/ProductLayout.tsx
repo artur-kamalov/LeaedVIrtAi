@@ -9,6 +9,7 @@ import {
   KanbanSquare,
   Workflow,
   BarChart3,
+  ShieldCheck,
   Plug,
   Settings,
   Search,
@@ -51,6 +52,7 @@ const navItems: { id: Route; label: string; icon: LucideIcon }[] = [
   { id: "pipeline", label: "Воронка / CRM", icon: KanbanSquare },
   { id: "automation", label: "Автоматизация", icon: Workflow },
   { id: "analytics", label: "Аналитика", icon: BarChart3 },
+  { id: "audit", label: "AI audit", icon: ShieldCheck },
   { id: "integrations", label: "Интеграции", icon: Plug },
   { id: "settings", label: "Настройки", icon: Settings },
 ];

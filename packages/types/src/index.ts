@@ -33,6 +33,16 @@ export type WorkflowStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "ARCHIVED";
 export type WorkflowStepType = "TRIGGER" | "AI_MESSAGE" | "QUESTION" | "CONDITION" | "ACTION" | "DELAY" | "HANDOFF" | "END";
 export type PricingPlanCode = "START" | "PROFESSIONAL" | "BUSINESS" | "CORPORATE";
 
+export type BusinessKnowledgeSourceType =
+  | "BUSINESS_PROFILE"
+  | "CATALOG"
+  | "AVAILABILITY"
+  | "FAQ"
+  | "POLICY"
+  | "ESCALATION";
+
+export type BusinessKnowledgeSourceStatus = "DRAFT" | "ACTIVE" | "ARCHIVED";
+
 export type IntegrationProvider =
   | "AMOCRM"
   | "BITRIX24"
@@ -381,6 +391,90 @@ export interface OnboardingState {
   completedAt?: string | null;
 }
 
+export interface BusinessKnowledgeSource {
+  id: string;
+  tenantId: string;
+  type: BusinessKnowledgeSourceType;
+  status: BusinessKnowledgeSourceStatus;
+  source: string;
+  sourceKey: string;
+  title: string;
+  content: string;
+  structuredData?: unknown;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BusinessKnowledgeChunk {
+  id: string;
+  tenantId: string;
+  sourceId: string;
+  sourceVersion: number;
+  chunkIndex: number;
+  content: string;
+  contentHash: string;
+  tokenEstimate: number;
+  embeddingProvider: string;
+  embeddingModel: string;
+  vectorPointId?: string | null;
+  metadata?: unknown;
+  embeddedAt?: string | null;
+  indexedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BusinessKnowledgeSearchResult {
+  chunk: BusinessKnowledgeChunk;
+  source: BusinessKnowledgeSource;
+  score: number;
+}
+
+export interface AiAuditSummary {
+  totalEvents: number;
+  usageLogs: number;
+  auditLogs: number;
+  success: number;
+  handoff: number;
+  failed: number;
+  budgetBlocked: number;
+  toolCalls: number;
+  lastEventAt: string | null;
+}
+
+export interface AiAuditItem {
+  id: string;
+  kind: "usage" | "audit";
+  createdAt: string;
+  action: string;
+  status: string;
+  provider?: string | null;
+  model?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  conversationId?: string | null;
+  conversationSubject?: string | null;
+  leadId?: string | null;
+  leadName?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  estimatedCost?: string | null;
+  latencyMs?: number | null;
+  errorMessage?: string | null;
+  graphRunId?: string | null;
+  quality?: unknown;
+  toolCalls?: unknown[] | undefined;
+  toolResults?: unknown[] | undefined;
+  retrievedContext?: unknown[] | undefined;
+  payload?: Record<string, unknown> | null;
+}
+
+export interface AiAuditResponse {
+  summary: AiAuditSummary;
+  items: AiAuditItem[];
+}
+
 export type WidgetPosition = "bottom-right" | "bottom-left";
 
 export interface WidgetConfig {
@@ -450,7 +544,7 @@ export interface AiDraftReply {
   handoffRequired: boolean;
 }
 
-export type AiReplySource = "inbox" | "widget" | "webhook" | "worker-test";
+export type AiReplySource = "inbox" | "widget" | "webhook" | "telegram" | "worker-test";
 
 export interface AiReplyJobData {
   tenantId: string;
@@ -464,4 +558,16 @@ export interface AiReplyJobData {
   source: AiReplySource;
   requestedByUserId?: string | null;
   receivedAt: string;
+}
+
+export type ChannelSendMessageSource = "telegram" | "webhook";
+
+export interface ChannelSendMessageJobData {
+  tenantId: string;
+  conversationId: string;
+  messageId: string;
+  source: ChannelSendMessageSource;
+  graphRunId?: string | null;
+  triggerMessageId?: string | null;
+  requestedAt: string;
 }

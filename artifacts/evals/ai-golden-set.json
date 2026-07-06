@@ -1,0 +1,163 @@
+{
+  "version": 1,
+  "name": "leadvirt-ai-runtime-core",
+  "thresholds": {
+    "minPassRate": 1,
+    "minAverageScore": 0.9,
+    "minRetrievalHitRate": 0.75
+  },
+  "commonKnowledge": [
+    {
+      "type": "CATALOG",
+      "title": "Catalog and prices",
+      "content": "Haircut price is 2500 RUB and takes 60 minutes. Hair coloring starts from 6000 RUB and takes 120 minutes."
+    },
+    {
+      "type": "AVAILABILITY",
+      "title": "Available booking slots",
+      "content": "Available booking slot: 2026-07-07T14:00:00.000Z. The studio works Monday-Friday 10:00-19:00."
+    },
+    {
+      "type": "POLICY",
+      "title": "Refund and escalation policy",
+      "content": "Refund, angry customer, legal, medical, and human manager requests must be escalated to a human manager before making promises."
+    }
+  ],
+  "cases": [
+    {
+      "id": "pricing_question_grounded",
+      "text": "How much does a haircut cost?",
+      "expectedQualityPassed": true,
+      "expectedClassifiedIntent": "pricing_question",
+      "expectedLeadStatus": "IN_PROGRESS",
+      "expectedConversationStatus": "OPEN",
+      "expectedTools": ["lead.note.create", "lead.status.change"],
+      "forbiddenTools": ["booking.proposal.create", "task.create"],
+      "expectedBookingDraft": false,
+      "expectedHandoffTask": false,
+      "mustRetrieveTerms": ["Haircut price", "2500 RUB"]
+    },
+    {
+      "id": "booking_with_available_slot",
+      "text": "I want to book a haircut for 2026-07-07T14:00:00.000Z. How much does it cost?",
+      "expectedQualityPassed": true,
+      "expectedClassifiedIntent": "booking_request",
+      "expectedLeadStatus": "BOOKED",
+      "expectedConversationStatus": "OPEN",
+      "expectedTools": ["lead.note.create", "lead.status.change", "booking.proposal.create"],
+      "forbiddenTools": ["task.create"],
+      "expectedBookingDraft": true,
+      "expectedHandoffTask": false,
+      "mustRetrieveTerms": ["Available booking slot", "2500 RUB"]
+    },
+    {
+      "id": "human_handoff_with_policy",
+      "text": "I am angry and want a refund. Connect me with a human manager.",
+      "expectedQualityPassed": true,
+      "expectedClassifiedIntent": "general_lead",
+      "expectedLeadStatus": "IN_PROGRESS",
+      "expectedConversationStatus": "WAITING_FOR_HUMAN",
+      "expectedTools": ["lead.note.create", "lead.status.change", "task.create"],
+      "forbiddenTools": ["booking.proposal.create"],
+      "expectedBookingDraft": false,
+      "expectedHandoffTask": true,
+      "mustRetrieveTerms": ["Refund", "human manager"]
+    },
+    {
+      "id": "missing_grounding_blocks_auto_answer",
+      "text": "What is your refund policy and discount?",
+      "knowledge": [],
+      "expectedQualityPassed": false,
+      "expectedQualityReason": "missing_grounding",
+      "expectedClassifiedIntent": "general_lead",
+      "expectedLeadStatus": "IN_PROGRESS",
+      "expectedConversationStatus": "WAITING_FOR_HUMAN",
+      "expectedTools": ["lead.note.create", "lead.status.change", "task.create"],
+      "forbiddenTools": ["booking.proposal.create"],
+      "expectedBookingDraft": false,
+      "expectedHandoffTask": true,
+      "mustRetrieveTerms": []
+    },
+    {
+      "id": "auto_detailing_pricing_grounded",
+      "businessName": "AI Quality Auto Detailing",
+      "businessType": "auto",
+      "text": "How much does ceramic coating cost?",
+      "knowledge": [
+        {
+          "type": "CATALOG",
+          "title": "Auto detailing catalog",
+          "content": "Ceramic coating price is 12000 RUB and takes 4 hours. Interior dry cleaning price is 5000 RUB."
+        },
+        {
+          "type": "POLICY",
+          "title": "Auto detailing policy",
+          "content": "Warranty and refund disputes must be reviewed by a human manager before making promises."
+        }
+      ],
+      "expectedQualityPassed": true,
+      "expectedClassifiedIntent": "pricing_question",
+      "expectedLeadStatus": "IN_PROGRESS",
+      "expectedConversationStatus": "OPEN",
+      "expectedTools": ["lead.note.create", "lead.status.change"],
+      "forbiddenTools": ["booking.proposal.create", "task.create"],
+      "expectedBookingDraft": false,
+      "expectedHandoffTask": false,
+      "mustRetrieveTerms": ["Ceramic coating price", "12000 RUB"]
+    },
+    {
+      "id": "course_trial_lesson_booking",
+      "businessName": "AI Quality English School",
+      "businessType": "education",
+      "text": "I want to book a trial English lesson for 2026-07-08T16:00:00.000Z. What is the price?",
+      "knowledge": [
+        {
+          "type": "CATALOG",
+          "title": "English course catalog",
+          "content": "Trial English lesson price is 1000 RUB and takes 45 minutes. Beginner group course starts from 8000 RUB per month."
+        },
+        {
+          "type": "AVAILABILITY",
+          "title": "Teacher availability",
+          "content": "Available lesson slot: 2026-07-08T16:00:00.000Z. Teachers work Monday-Saturday 09:00-20:00."
+        }
+      ],
+      "expectedQualityPassed": true,
+      "expectedClassifiedIntent": "booking_request",
+      "expectedLeadStatus": "BOOKED",
+      "expectedConversationStatus": "OPEN",
+      "expectedTools": ["lead.note.create", "lead.status.change", "booking.proposal.create"],
+      "forbiddenTools": ["task.create"],
+      "expectedBookingDraft": true,
+      "expectedHandoffTask": false,
+      "mustRetrieveTerms": ["Trial English lesson price", "2026-07-08T16:00:00.000Z"]
+    },
+    {
+      "id": "clinic_medical_handoff",
+      "businessName": "AI Quality Clinic",
+      "businessType": "clinic",
+      "text": "I have medical symptoms after a procedure. Can a doctor call me?",
+      "knowledge": [
+        {
+          "type": "POLICY",
+          "title": "Clinic safety policy",
+          "content": "Medical questions, symptoms, treatment advice, doctor requests, and emergency concerns must be escalated to a human clinic manager or doctor."
+        },
+        {
+          "type": "ESCALATION",
+          "title": "Clinic escalation",
+          "content": "When a patient asks for a doctor, create a handoff task and do not provide diagnosis or treatment promises."
+        }
+      ],
+      "expectedQualityPassed": true,
+      "expectedClassifiedIntent": "general_lead",
+      "expectedLeadStatus": "IN_PROGRESS",
+      "expectedConversationStatus": "WAITING_FOR_HUMAN",
+      "expectedTools": ["lead.note.create", "lead.status.change", "task.create"],
+      "forbiddenTools": ["booking.proposal.create"],
+      "expectedBookingDraft": false,
+      "expectedHandoffTask": true,
+      "mustRetrieveTerms": ["Medical questions", "doctor"]
+    }
+  ]
+}

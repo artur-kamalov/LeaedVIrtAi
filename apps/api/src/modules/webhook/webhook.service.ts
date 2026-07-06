@@ -3,8 +3,10 @@ import { Inject, Injectable, NotFoundException, UnauthorizedException } from "@n
 import { AI_PROVIDER_TOKEN, type AiMessage, type AiProvider } from "@leadvirt/ai";
 import type { Prisma } from "@leadvirt/db";
 import { WebhookAdapter, type NormalizedInboundMessage, type SendMessageResult } from "@leadvirt/integrations";
+import type { AiReplyJobData } from "@leadvirt/types";
 import { PrismaService } from "../database/prisma.service.js";
 import { WorkflowsService } from "../workflows/workflows.service.js";
+import { AiReplyQueueService } from "../ai/ai-reply-queue.service.js";
 
 type GenericWebhookChannel = Prisma.ChannelGetPayload<{
   include: { tenant: true };
@@ -67,6 +69,7 @@ export class WebhookService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AI_PROVIDER_TOKEN) private readonly aiProvider: AiProvider,
+    @Inject(AiReplyQueueService) private readonly aiReplyQueue: AiReplyQueueService,
     @Inject(WorkflowsService) private readonly workflowsService: WorkflowsService
   ) {}
 
@@ -110,7 +113,7 @@ export class WebhookService {
     try {
       const conversation = await this.upsertConversation(channel, normalized, body);
       const inboundMessage = await this.createInboundMessage(channel, conversation, normalized);
-      const aiResult = await this.generateAndQueueReply(channel, conversation, normalized);
+      const aiResult = await this.generateAndQueueReply(channel, conversation, normalized, inboundMessage?.id ?? normalized.externalMessageId);
       await this.workflowsService.runForEvent({
         tenantId: channel.tenantId,
         eventType: "message.received",
@@ -373,7 +376,8 @@ export class WebhookService {
   private async generateAndQueueReply(
     channel: GenericWebhookChannel,
     conversation: GenericWebhookConversation,
-    inbound: NormalizedInboundMessage
+    inbound: NormalizedInboundMessage,
+    triggerMessageId: string
   ) {
     const text = inbound.text ?? "";
     const messages: AiMessage[] = [
@@ -383,6 +387,50 @@ export class WebhookService {
       })),
       { role: "user", content: text }
     ];
+
+    if (this.aiReplyQueue.enabled) {
+      const jobData: AiReplyJobData = {
+        tenantId: channel.tenantId,
+        conversationId: conversation.id,
+        triggerMessageId,
+        text,
+        businessName: channel.tenant.name,
+        ...(channel.tenant.businessType ? { businessType: channel.tenant.businessType } : {}),
+        leadId: conversation.leadId,
+        ...(conversation.lead?.status ? { leadStatus: conversation.lead.status } : {}),
+        source: "webhook",
+        receivedAt: inbound.timestamp
+      };
+      const queueResult = await this.aiReplyQueue.enqueue(jobData);
+      if (queueResult.queued) {
+        const outbound: SendMessageResult = {
+          externalMessageId: queueResult.jobId ?? `ai-reply:${conversation.id}:${triggerMessageId}`,
+          status: "queued"
+        };
+        if (conversation.leadId) {
+          await this.prisma.leadEvent.create({
+            data: {
+              tenantId: channel.tenantId,
+              leadId: conversation.leadId,
+              type: "webhook_ai_reply_queued",
+              title: "Webhook/API AI reply queued",
+              message: text,
+              metadata: {
+                conversationId: conversation.id,
+                externalMessageId: outbound.externalMessageId,
+                outboundStatus: outbound.status
+              }
+            }
+          });
+        }
+        return {
+          messageId: null,
+          reply: null,
+          outbound
+        };
+      }
+    }
+
     const [extraction, aiReply, recommendation] = await Promise.all([
       this.aiProvider.extractLeadFields({
         tenantId: channel.tenantId,

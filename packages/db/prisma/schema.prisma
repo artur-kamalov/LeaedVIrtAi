@@ -172,6 +172,21 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum BusinessKnowledgeSourceType {
+  BUSINESS_PROFILE
+  CATALOG
+  AVAILABILITY
+  FAQ
+  POLICY
+  ESCALATION
+}
+
+enum BusinessKnowledgeSourceStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
 model Tenant {
   id           String       @id @default(cuid())
   name         String
@@ -206,6 +221,8 @@ model Tenant {
   apiKeys             ApiKey[]
   authSessions        AuthSession[]
   onboardingState     OnboardingState?
+  knowledgeSources    BusinessKnowledgeSource[]
+  knowledgeChunks     BusinessKnowledgeChunk[]
 
   @@index([status])
 }
@@ -804,4 +821,54 @@ model OnboardingState {
   updatedAt      DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model BusinessKnowledgeSource {
+  id             String                        @id @default(cuid())
+  tenantId       String
+  type           BusinessKnowledgeSourceType
+  status         BusinessKnowledgeSourceStatus @default(ACTIVE)
+  source         String                        @default("manual")
+  sourceKey      String
+  title          String
+  content        String
+  structuredData Json?
+  version        Int                           @default(1)
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
+  deletedAt      DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chunks BusinessKnowledgeChunk[]
+
+  @@unique([tenantId, sourceKey])
+  @@index([tenantId, type, status])
+  @@index([tenantId, updatedAt])
+}
+
+model BusinessKnowledgeChunk {
+  id                String   @id @default(cuid())
+  tenantId          String
+  sourceId          String
+  sourceVersion     Int
+  chunkIndex        Int
+  content           String
+  contentHash       String
+  tokenEstimate     Int      @default(0)
+  embeddingProvider String   @default("leadvirt-local-hash")
+  embeddingModel    String   @default("hash-v1")
+  vectorPointId     String?  @unique
+  metadata          Json?
+  embeddedAt        DateTime?
+  indexedAt         DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+
+  tenant Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  source BusinessKnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, chunkIndex])
+  @@index([tenantId, sourceId])
+  @@index([tenantId, updatedAt])
 }

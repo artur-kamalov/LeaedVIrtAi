@@ -1,9 +1,16 @@
 import { Queue, Worker, type ConnectionOptions } from "bullmq";
 import { loadEnvFile } from "@leadvirt/config";
+import { shutdownOpenTelemetry, startOpenTelemetry } from "@leadvirt/observability";
 import { queueNames } from "./queues/queue-names.js";
-import { processLeadVirtJob, type LeadVirtJobData } from "./processors/processor-registry.js";
+import type { LeadVirtJobData } from "./processors/processor-registry.js";
+import { captureDeadLetterJob, isFinalAttempt, processLeadVirtJobWithReliability, workerJobTimeoutMs } from "./reliability/worker-reliability.js";
+import { startWorkerMetricsServer } from "./observability/metrics-server.js";
 
 loadEnvFile();
+startOpenTelemetry({
+  serviceName: "leadvirt-worker",
+  environment: process.env.APP_ENV ?? process.env.NODE_ENV
+});
 
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6380";
 const enableProcessors = process.env.WORKER_ENABLE_PROCESSORS === "true";
@@ -28,13 +35,16 @@ function createConnectionOptions(): ConnectionOptions {
 }
 
 async function bootstrap() {
+  startWorkerMetricsServer();
+
   console.log(
     JSON.stringify({
       service: "LeadVirt.ai worker",
       status: "starting",
       redisUrl,
       queues: queueNames,
-      processorsEnabled: enableProcessors
+      processorsEnabled: enableProcessors,
+      jobTimeoutMs: workerJobTimeoutMs()
     }),
   );
 
@@ -51,7 +61,7 @@ async function bootstrap() {
     (name) =>
       new Worker<LeadVirtJobData>(
         name,
-        (job) => processLeadVirtJob(name, job),
+        (job) => processLeadVirtJobWithReliability(name, job),
         { connection },
       ),
   );
@@ -65,11 +75,42 @@ async function bootstrap() {
       console.log(JSON.stringify({ queue: job.queueName, jobId: job.id, status: "completed" }));
     });
     worker.on("failed", (job, error) => {
-      console.error(JSON.stringify({ queue: job?.queueName, jobId: job?.id, status: "failed", error: error.message }));
+      const queueName = worker.name as (typeof queueNames)[number];
+      if (isFinalAttempt(job)) {
+        void captureDeadLetterJob(queueName, job, error).catch((captureError) => {
+          console.error(
+            JSON.stringify({
+              queue: job?.queueName ?? queueName,
+              jobId: job?.id,
+              status: "dlq_capture_failed",
+              error: captureError instanceof Error ? captureError.message : String(captureError)
+            })
+          );
+        });
+        return;
+      }
+      console.error(
+        JSON.stringify({
+          queue: job?.queueName ?? queueName,
+          jobId: job?.id,
+          status: "failed_retrying",
+          attemptsMade: job?.attemptsMade ?? null,
+          attempts: job?.opts.attempts ?? 1,
+          error: error.message
+        })
+      );
     });
   }
 
   console.log("LeadVirt.ai worker processors are running.");
 }
+
+process.on("SIGTERM", () => {
+  void shutdownOpenTelemetry().finally(() => process.exit(0));
+});
+
+process.on("SIGINT", () => {
+  void shutdownOpenTelemetry().finally(() => process.exit(0));
+});
 
 void bootstrap();

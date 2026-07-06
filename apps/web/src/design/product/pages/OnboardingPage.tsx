@@ -39,6 +39,11 @@ interface CompanyInfo {
   description: string;
   hours: string;
   avgCheck: string;
+  servicesCatalog: string;
+  availability: string;
+  faq: string;
+  policies: string;
+  escalationRules: string;
 }
 
 const TOTAL_STEPS = 6;
@@ -121,6 +126,11 @@ function companyInfoFromData(data: Record<string, unknown>): CompanyInfo {
     description: typeof record.description === "string" ? record.description : "",
     hours: typeof record.hours === "string" ? record.hours : "",
     avgCheck: typeof record.avgCheck === "string" ? record.avgCheck : "",
+    servicesCatalog: typeof record.servicesCatalog === "string" ? record.servicesCatalog : "",
+    availability: typeof record.availability === "string" ? record.availability : "",
+    faq: typeof record.faq === "string" ? record.faq : "",
+    policies: typeof record.policies === "string" ? record.policies : "",
+    escalationRules: typeof record.escalationRules === "string" ? record.escalationRules : "",
   };
 }
 
@@ -364,6 +374,7 @@ function StepCompanyInfo({
   });
   const inputCls =
     "w-full h-11 bg-white/5 border border-white/5 rounded-xl px-4 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:bg-white/[0.07] transition-colors";
+  const textareaCls = cn(inputCls, "h-auto py-3 resize-none leading-relaxed");
   return (
     <div className="space-y-6">
       <div>
@@ -387,7 +398,16 @@ function StepCompanyInfo({
             {...(field("description") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
             rows={3}
             placeholder="Чем занимается ваша компания, ваши преимущества..."
-            className={cn(inputCls, "h-auto py-3 resize-none leading-relaxed")}
+            className={textareaCls}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Каталог, услуги и цены</label>
+          <textarea
+            {...(field("servicesCatalog") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+            rows={5}
+            placeholder="Например: стрижка женская - 2500 ₽, 60 минут; окрашивание - от 6000 ₽; консультация - бесплатно."
+            className={textareaCls}
           />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -411,6 +431,42 @@ function StepCompanyInfo({
               className={inputCls}
             />
           </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Свободные окна и правила записи</label>
+          <textarea
+            {...(field("availability") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+            rows={4}
+            placeholder="Например: свободные окна вторник-четверг 12:00-17:00; запись минимум за 2 часа; перенос не позже чем за сутки."
+            className={textareaCls}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">FAQ и частые возражения</label>
+          <textarea
+            {...(field("faq") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+            rows={4}
+            placeholder="Например: можно ли с детьми, сколько держится результат, какие есть противопоказания, чем вы отличаетесь."
+            className={textareaCls}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Правила, ограничения, что нельзя обещать</label>
+          <textarea
+            {...(field("policies") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+            rows={4}
+            placeholder="Например: не обещать точную цену без консультации; не давать медицинских гарантий; скидки только после согласования."
+            className={textareaCls}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Когда звать человека</label>
+          <textarea
+            {...(field("escalationRules") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+            rows={3}
+            placeholder="Например: клиент злится, просит возврат, хочет нестандартную скидку, спрашивает юридические или медицинские детали."
+            className={textareaCls}
+          />
         </div>
       </div>
     </div>
@@ -544,7 +600,17 @@ export function OnboardingPage() {
   const [businessType, setBusinessType] = useState<string | null>(null);
   const [selectedChannels, setSelectedChannels] = useState<ChannelId[]>([]);
   const [scenario, setScenario] = useState<string | null>(null);
-  const [companyInfo, setCompanyInfo] = useState<CompanyInfo>({ name: "", description: "", hours: "", avgCheck: "" });
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo>({
+    name: "",
+    description: "",
+    hours: "",
+    avgCheck: "",
+    servicesCatalog: "",
+    availability: "",
+    faq: "",
+    policies: "",
+    escalationRules: "",
+  });
   const [crm, setCrm] = useState<string | null>(null);
 
   useEffect(() => {
@@ -629,7 +695,7 @@ export function OnboardingPage() {
     if (step === 0) return !!businessType;
     if (step === 1) return selectedChannels.length > 0;
     if (step === 2) return !!scenario;
-    if (step === 3) return companyInfo.name.trim().length > 0;
+    if (step === 3) return companyInfo.name.trim().length > 0 && companyInfo.description.trim().length > 0;
     if (step === 4) return !!crm;
     return true;
   };

@@ -10,6 +10,7 @@ test-results
 .env.*.local
 *.log
 artifacts/screenshots
+artifacts/reports
 artifacts/playwright/*.png
 playwright-report
 *.tsbuildinfo

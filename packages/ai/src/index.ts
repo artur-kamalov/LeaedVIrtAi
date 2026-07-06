@@ -94,6 +94,176 @@ export interface AiProvider {
 
 export const AI_PROVIDER_TOKEN = "LEADVIRT_AI_PROVIDER";
 
+export type AiBudgetType = "daily" | "monthly";
+
+export interface AiBudgetLimits {
+  dailyTokenBudget: number;
+  monthlyTokenBudget: number;
+}
+
+export interface AiBudgetBlockedRecord {
+  tenantId: string;
+  conversationId?: string | undefined;
+  actionType: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  budgetType: AiBudgetType;
+  limitTokens: number;
+  usedTokens: number;
+  requestedTokens: number;
+}
+
+export interface AiBudgetStore {
+  usedTokensSince(tenantId: string, since: Date): Promise<number>;
+  recordBlocked(record: AiBudgetBlockedRecord): Promise<void>;
+}
+
+export class AiBudgetExceededError extends Error {
+  constructor(
+    readonly budgetType: AiBudgetType,
+    readonly limitTokens: number,
+    readonly usedTokens: number,
+    readonly requestedTokens: number
+  ) {
+    super(`AI tenant ${budgetType} token budget exceeded: ${usedTokens} used + ${requestedTokens} requested > ${limitTokens} limit.`);
+    this.name = "AiBudgetExceededError";
+  }
+}
+
+function positiveBudget(value: number) {
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+function tokenEstimate(text: string) {
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function messageTokenEstimate(messages: AiMessage[]) {
+  return messages.reduce((total, message) => total + tokenEstimate(message.content) + 4, 0);
+}
+
+function utcDayStart(now: Date) {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+function utcMonthStart(now: Date) {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+interface BudgetCheckInput {
+  tenantId: string;
+  conversationId?: string | undefined;
+  actionType: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export class BudgetedAiProvider implements AiProvider {
+  readonly providerName?: string;
+  readonly modelName?: string;
+
+  constructor(
+    private readonly provider: AiProvider,
+    private readonly store: AiBudgetStore,
+    limits: AiBudgetLimits
+  ) {
+    if (provider.providerName !== undefined) this.providerName = provider.providerName;
+    if (provider.modelName !== undefined) this.modelName = provider.modelName;
+    this.limits = {
+      dailyTokenBudget: positiveBudget(limits.dailyTokenBudget),
+      monthlyTokenBudget: positiveBudget(limits.monthlyTokenBudget)
+    };
+  }
+
+  private readonly limits: AiBudgetLimits;
+
+  async generateReply(input: AiReplyInput): Promise<AiReplyResult> {
+    await this.enforceBudget({
+      tenantId: input.tenantId,
+      conversationId: input.conversationId,
+      actionType: "generate_reply",
+      inputTokens: messageTokenEstimate(input.messages) + tokenEstimate(input.businessName) + tokenEstimate(input.businessType ?? ""),
+      outputTokens: 320
+    });
+    return this.provider.generateReply(input);
+  }
+
+  async extractLeadFields(input: AiExtractionInput): Promise<AiExtractionResult> {
+    await this.enforceBudget({
+      tenantId: input.tenantId,
+      conversationId: input.conversationId,
+      actionType: "extract_lead_fields",
+      inputTokens: tokenEstimate(input.text),
+      outputTokens: 160
+    });
+    return this.provider.extractLeadFields(input);
+  }
+
+  async summarizeConversation(input: AiSummaryInput): Promise<AiSummaryResult> {
+    await this.enforceBudget({
+      tenantId: input.tenantId,
+      conversationId: input.conversationId,
+      actionType: "summarize_conversation",
+      inputTokens: messageTokenEstimate(input.messages),
+      outputTokens: 220
+    });
+    return this.provider.summarizeConversation(input);
+  }
+
+  async classifyIntent(input: AiIntentInput): Promise<AiIntentResult> {
+    await this.enforceBudget({
+      tenantId: input.tenantId,
+      actionType: "classify_intent",
+      inputTokens: tokenEstimate(input.text),
+      outputTokens: 64
+    });
+    return this.provider.classifyIntent(input);
+  }
+
+  async recommendNextAction(input: AiRecommendationInput): Promise<AiRecommendationResult> {
+    await this.enforceBudget({
+      tenantId: input.tenantId,
+      conversationId: input.conversationId,
+      actionType: "recommend_next_action",
+      inputTokens: tokenEstimate(input.text) + tokenEstimate(input.leadStatus ?? ""),
+      outputTokens: 128
+    });
+    return this.provider.recommendNextAction(input);
+  }
+
+  private async enforceBudget(input: BudgetCheckInput) {
+    const requestedTokens = input.inputTokens + input.outputTokens;
+    const now = new Date();
+    const checks = [
+      { type: "daily" as const, limit: this.limits.dailyTokenBudget, since: utcDayStart(now) },
+      { type: "monthly" as const, limit: this.limits.monthlyTokenBudget, since: utcMonthStart(now) }
+    ];
+
+    for (const check of checks) {
+      if (check.limit <= 0) continue;
+      const usedTokens = await this.store.usedTokensSince(input.tenantId, check.since);
+      if (usedTokens + requestedTokens <= check.limit) continue;
+
+      await this.store.recordBlocked({
+        tenantId: input.tenantId,
+        conversationId: input.conversationId,
+        actionType: input.actionType,
+        provider: this.provider.providerName ?? "unknown",
+        model: this.provider.modelName ?? "unknown",
+        inputTokens: input.inputTokens,
+        outputTokens: input.outputTokens,
+        budgetType: check.type,
+        limitTokens: check.limit,
+        usedTokens,
+        requestedTokens
+      });
+      throw new AiBudgetExceededError(check.type, check.limit, usedTokens, requestedTokens);
+    }
+  }
+}
+
 export type AiReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type AiVerbosity = "low" | "medium" | "high";
 
@@ -103,12 +273,23 @@ export class MockAiProvider implements AiProvider {
 
   generateReply(input: AiReplyInput): Promise<AiReplyResult> {
     const lastMessage = input.messages.at(-1)?.content.toLowerCase() ?? "";
+    const fullContext = input.messages.map((message) => message.content).join("\n").toLowerCase();
     const handoffRequired = /refund|angry|human|manager|legal|medical/.test(lastMessage);
     const wantsBooking = /book|appointment|schedule|запис|slot/.test(lastMessage);
+
+    const wantsPricing = /price|cost|ÑÑ‚Ð¾Ð¸Ð¼|Ñ†ÐµÐ½Ð°|ÑÐºÐ¾Ð»ÑŒÐºÐ¾/.test(lastMessage);
+    const hasHaircutPrice = /haircut/.test(fullContext) && /2500\s*rub|2500/.test(fullContext);
+    const slotMatch = fullContext.match(/\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}\.000z/);
+    const groundedReply =
+      hasHaircutPrice && (wantsBooking || wantsPricing)
+        ? `Haircut costs 2500 RUB.${slotMatch ? ` Available slot: ${slotMatch[0]}.` : ""} I can keep this as a draft booking for the manager.`
+        : null;
 
     return Promise.resolve({
       reply: handoffRequired
         ? "Я подключу менеджера и сохраню контекст лида."
+        : groundedReply
+          ? groundedReply
         : wantsBooking
           ? "Помогу с записью. Какой день и время удобны клиенту?"
           : "Спасибо, я квалифицирую заявку. Уточните услугу, удобное время и контакты.",
