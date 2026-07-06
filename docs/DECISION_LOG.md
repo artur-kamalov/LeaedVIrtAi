@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-06: Gate Native Instagram Work With Meta Preflight
+
+Decision: Use `qa:meta:instagram` as the external Meta readiness gate before implementing a native Instagram DM channel in LeadVirt.
+
+Context: The current product supports Instagram as a UI/channel type, but real inbound/outbound runtime delivery is implemented for Telegram and Webhook/API. Meta setup now has a visible Page, connected Instagram Professional account, granted messaging permissions, and a passing conversations query.
+
+Consequences:
+
+- Meta token checks can be repeated without logging user or page access tokens.
+- A native LeadVirt Instagram adapter still needs separate implementation for webhook verification, inbound normalization, outbound send, channel provisioning, and app-review production behavior.
+- First release can continue to rely on Telegram and Webhook/API until that adapter is built.
+
 ## 2026-07-06: Keep Demo Conversation Replay Client-Only
 
 Decision: The demo inbox conversation uses a client-only replay layer with timed messages and typing indicators. It overlays local demo conversation data and stops or reveals the script when the user interacts.
