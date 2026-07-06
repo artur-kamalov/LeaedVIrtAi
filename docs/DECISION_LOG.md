@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-06: Keep Demo Conversation Replay Client-Only
+
+Decision: The demo inbox conversation uses a client-only replay layer with timed messages and typing indicators. It overlays local demo conversation data and stops or reveals the script when the user interacts.
+
+Context: Sales demos need the first opened conversation to show the product's AI moment without creating fake records, background jobs, or API traffic.
+
+Consequences:
+
+- Replay is limited to `/demo/inbox/:conversationId` and does not affect `/app` conversations.
+- Demo users can skip or repeat the scenario, and manual actions stay usable.
+- The no-API demo boundary remains covered by `demo-data-boundary.spec.ts`.
+
 ## 2026-07-06: Run Demo As Local Browser Runtime
 
 Decision: `/demo` uses the real product UI routes with a client-side local API runtime instead of a DB-backed demo user. Demo clicks can mutate in-memory browser state, but no demo route sends API requests or writes to the database; page reload restores the seeded sales scenario.

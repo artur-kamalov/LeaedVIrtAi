@@ -4,6 +4,8 @@ Last updated: 2026-07-06
 
 ## Done
 
+- [x] Rewrote demo conversation copy so inbox threads follow coherent sales flows: intent, qualification, price/slot, confirmation, and next action.
+- [x] Added a demo-only live conversation replay in `/demo/inbox/:conversationId`: client/AI messages appear with typing indicators, replay can be skipped or repeated, manual actions pause the script, and no API/DB boundary remains enforced.
 - [x] Reworked `/demo` into an interactive no-API product demo across dashboard, inbox, leads, automations, analytics, audit, integrations, billing/settings, onboarding, and widget; local browser state resets on reload, and focused demo-boundary/browser smoke passed.
 - [x] Started AI runtime Phase 1 with tenant-scoped business knowledge sources, `/api/knowledge/sources`, onboarding-to-knowledge sync, extended onboarding business fields, and focused API smoke coverage.
 - [x] Implemented AI runtime Phase 2 foundation: Qdrant compose services, tenant knowledge chunks, deterministic local embeddings, reindex/search API, Qdrant-backed indexing, DB fallback search, and focused onboarding-to-RAG smoke coverage.

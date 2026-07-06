@@ -365,25 +365,33 @@ function buildInitialState(): DemoState {
 
   const conversations: ConversationDetail[] = [
     conversationForLead(leads[0], channels[3], "Нужна запись на окрашивание", [
-      makeMessage({ id: "demo-msg-anna-1", conversationId: "demo-conv-anna", senderType: "CUSTOMER", direction: "INBOUND", text: "Здравствуйте! Можно записаться на окрашивание и стрижку в пятницу?", createdAt: iso(18) }),
-      makeMessage({ id: "demo-msg-anna-2", conversationId: "demo-conv-anna", senderType: "AI", direction: "OUTBOUND", text: "Да, есть окна в пятницу в 15:30 и 18:00. Окрашивание со стрижкой обычно от 14 000 ₽, точнее скажем после консультации.", createdAt: iso(16) }),
-      makeMessage({ id: "demo-msg-anna-3", conversationId: "demo-conv-anna", senderType: "CUSTOMER", direction: "INBOUND", text: "Подойдёт 18:00. Нужно ли внести предоплату?", createdAt: iso(6) }),
+      makeMessage({ id: "demo-msg-anna-1", conversationId: "demo-conv-anna", senderType: "CUSTOMER", direction: "INBOUND", text: "Здравствуйте! Хочу окрашивание и стрижку. В пятницу после 17:00 есть свободное время?", createdAt: iso(18) }),
+      makeMessage({ id: "demo-msg-anna-2", conversationId: "demo-conv-anna", senderType: "AI", direction: "OUTBOUND", text: "Здравствуйте! Есть пятница 18:00 у мастера Алины. Чтобы точнее сориентировать по цене: волосы до плеч или длиннее?", createdAt: iso(16) }),
+      makeMessage({ id: "demo-msg-anna-3", conversationId: "demo-conv-anna", senderType: "CUSTOMER", direction: "INBOUND", text: "До плеч. Хочу тёплый блонд без сильного осветления.", createdAt: iso(12) }),
+      makeMessage({ id: "demo-msg-anna-4", conversationId: "demo-conv-anna", senderType: "AI", direction: "OUTBOUND", text: "Тогда ориентир 14 000-16 000 ₽ и около 3 часов. Забронировать пятницу 18:00?", createdAt: iso(9) }),
+      makeMessage({ id: "demo-msg-anna-5", conversationId: "demo-conv-anna", senderType: "CUSTOMER", direction: "INBOUND", text: "Да, забронируйте. Телефон +7 999 123-45-67.", createdAt: iso(6) }),
     ]),
     conversationForLead(leads[1], channels[0], "Мужская стрижка", [
-      makeMessage({ id: "demo-msg-dmitry-1", conversationId: "demo-conv-dmitry", senderType: "CUSTOMER", direction: "INBOUND", text: "Сколько стоит мужская стрижка и можно сегодня?", createdAt: iso(28) }),
-      makeMessage({ id: "demo-msg-dmitry-2", conversationId: "demo-conv-dmitry", senderType: "AI", direction: "OUTBOUND", text: "Стрижка от 2 800 ₽. Сегодня есть окна в 17:00 и 19:30. Записать вас?", createdAt: iso(25) }),
+      makeMessage({ id: "demo-msg-dmitry-1", conversationId: "demo-conv-dmitry", senderType: "CUSTOMER", direction: "INBOUND", text: "Добрый день. Нужна мужская стрижка сегодня после работы. Сколько стоит?", createdAt: iso(28) }),
+      makeMessage({ id: "demo-msg-dmitry-2", conversationId: "demo-conv-dmitry", senderType: "AI", direction: "OUTBOUND", text: "Стрижка стоит 2 800 ₽ и занимает около 45 минут. Сегодня свободно 19:30 у Никиты.", createdAt: iso(25) }),
+      makeMessage({ id: "demo-msg-dmitry-3", conversationId: "demo-conv-dmitry", senderType: "CUSTOMER", direction: "INBOUND", text: "19:30 подходит, запишите на Дмитрия.", createdAt: iso(22) }),
+      makeMessage({ id: "demo-msg-dmitry-4", conversationId: "demo-conv-dmitry", senderType: "AI", direction: "OUTBOUND", text: "Записала Дмитрия на сегодня 19:30. Напомню за 2 часа до визита.", createdAt: iso(20) }),
     ]),
     conversationForLead(leads[2], channels[1], "Укладка перед мероприятием", [
-      makeMessage({ id: "demo-msg-elena-1", conversationId: "demo-conv-elena", senderType: "CUSTOMER", direction: "INBOUND", text: "Нужна укладка завтра днём.", createdAt: iso(50) }),
-      makeMessage({ id: "demo-msg-elena-2", conversationId: "demo-conv-elena", senderType: "AI", direction: "OUTBOUND", text: "Нашла окно завтра в 16:00. Стоимость укладки от 4 200 ₽. Подтверждаю запись?", createdAt: iso(46) }),
-      makeMessage({ id: "demo-msg-elena-3", conversationId: "demo-conv-elena", senderType: "CUSTOMER", direction: "INBOUND", text: "Да, подтверждаю.", createdAt: iso(32) }),
+      makeMessage({ id: "demo-msg-elena-1", conversationId: "demo-conv-elena", senderType: "CUSTOMER", direction: "INBOUND", text: "Здравствуйте, нужна укладка завтра к вечеру. Мероприятие начинается в 18:00.", createdAt: iso(50) }),
+      makeMessage({ id: "demo-msg-elena-2", conversationId: "demo-conv-elena", senderType: "AI", direction: "OUTBOUND", text: "Есть окна завтра в 12:30 и 14:00. Для укладки до плеч стоимость от 4 200 ₽. Какая у вас длина волос?", createdAt: iso(46) }),
+      makeMessage({ id: "demo-msg-elena-3", conversationId: "demo-conv-elena", senderType: "CUSTOMER", direction: "INBOUND", text: "Ниже плеч, лучше 14:00.", createdAt: iso(34) }),
+      makeMessage({ id: "demo-msg-elena-4", conversationId: "demo-conv-elena", senderType: "AI", direction: "OUTBOUND", text: "Забронировала завтра 14:00. Ориентир по стоимости 4 800-5 500 ₽, мастер уточнит после оценки длины.", createdAt: iso(32) }),
     ]),
     conversationForLead(leads[3], channels[2], "Подарочный сертификат", [
-      makeMessage({ id: "demo-msg-igor-1", conversationId: "demo-conv-igor", senderType: "CUSTOMER", direction: "INBOUND", text: "Хочу купить сертификат на 28 000 ₽.", createdAt: iso(72) }),
-      makeMessage({ id: "demo-msg-igor-2", conversationId: "demo-conv-igor", senderType: "AI", direction: "OUTBOUND", text: "Передала заявку в CRM. Менеджер свяжется и отправит ссылку на оплату.", createdAt: iso(60) }),
+      makeMessage({ id: "demo-msg-igor-1", conversationId: "demo-conv-igor", senderType: "CUSTOMER", direction: "INBOUND", text: "Хочу подарочный сертификат на 28 000 ₽. Можно оплатить онлайн?", createdAt: iso(72) }),
+      makeMessage({ id: "demo-msg-igor-2", conversationId: "demo-conv-igor", senderType: "AI", direction: "OUTBOUND", text: "Да, оформим электронный сертификат. Подскажите имя получателя и куда отправить сертификат: WhatsApp или email?", createdAt: iso(66) }),
+      makeMessage({ id: "demo-msg-igor-3", conversationId: "demo-conv-igor", senderType: "CUSTOMER", direction: "INBOUND", text: "Получатель Ольга, отправьте в WhatsApp.", createdAt: iso(62) }),
+      makeMessage({ id: "demo-msg-igor-4", conversationId: "demo-conv-igor", senderType: "AI", direction: "OUTBOUND", text: "Передала менеджеру заявку: сертификат 28 000 ₽, получатель Ольга, отправка в WhatsApp. Сейчас пришлём ссылку на оплату.", createdAt: iso(60) }),
     ]),
     conversationForLead(leads[4], null, "Консультация по уходу", [
-      makeMessage({ id: "demo-msg-maria-1", conversationId: "demo-conv-maria", senderType: "CUSTOMER", direction: "INBOUND", text: "Какой уход выбрать после осветления?", createdAt: iso(4) }),
+      makeMessage({ id: "demo-msg-maria-1", conversationId: "demo-conv-maria", senderType: "CUSTOMER", direction: "INBOUND", text: "После осветления волосы стали сухими и путаются. Какой уход лучше выбрать?", createdAt: iso(4) }),
+      makeMessage({ id: "demo-msg-maria-2", conversationId: "demo-conv-maria", senderType: "AI", direction: "OUTBOUND", text: "Для начала подойдёт восстановление K18 или Olaplex. Чтобы выбрать точнее: ломкость по длине или больше сухие кончики?", createdAt: iso(2) }),
     ], 2),
   ];
 

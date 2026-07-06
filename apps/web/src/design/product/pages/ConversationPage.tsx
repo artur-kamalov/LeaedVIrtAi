@@ -21,6 +21,7 @@ import {
 import { Dropdown, DropdownItem, DropdownSeparator } from "../ui";
 import { toast } from "sonner";
 import { ProductLayout, BackButton } from "../ProductLayout";
+import { useProductMode } from "../ProductMode";
 import { Card, Avatar, ChannelBadge, StatusPill, TempPill } from "../shared";
 import type { ChatMessage, Lead } from "../types";
 import { useNav } from "../nav";
@@ -63,6 +64,48 @@ const quickReplies = [
   "Подтвердить запись",
   "Передать менеджеру",
 ];
+
+const demoReplayTypingMs = 900;
+const demoReplayGapMs = 2100;
+
+function liveTime() {
+  return new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
+
+function liveDemoMessage(id: string, from: ChatMessage["from"], text: string): ChatMessage {
+  return { id, from, text, time: liveTime() };
+}
+
+function demoReplayScript(conversationId: string, sourceMessages: ChatMessage[]) {
+  if (conversationId === "demo-conv-anna") {
+    return [
+      liveDemoMessage("demo-replay-anna-1", "client", "Здравствуйте! Хочу окрашивание и стрижку. В пятницу после 17:00 есть свободное время?"),
+      liveDemoMessage("demo-replay-anna-2", "ai", "Здравствуйте! Есть пятница 18:00 у мастера Алины. Чтобы точнее сориентировать по цене: волосы до плеч или длиннее?"),
+      liveDemoMessage("demo-replay-anna-3", "client", "До плеч. Хочу тёплый блонд без сильного осветления."),
+      liveDemoMessage("demo-replay-anna-4", "ai", "Тогда ориентир 8 000-10 000 ₽ и около 3 часов. Забронировать пятницу 18:00?"),
+      liveDemoMessage("demo-replay-anna-5", "client", "Да, забронируйте. Телефон +7 999 123-45-67."),
+      liveDemoMessage("demo-replay-anna-6", "ai", "Готово: закрепила пятницу 18:00, создала лид и передала менеджеру карточку с услугой, бюджетом и телефоном."),
+    ];
+  }
+
+  const normalized = sourceMessages.map((message, index) => ({ ...message, id: `demo-replay-${conversationId}-${index}`, time: liveTime() }));
+  if (normalized.length > 0 && normalized[normalized.length - 1].from === "client") {
+    normalized.push(
+      liveDemoMessage(
+        `demo-replay-${conversationId}-ai-followup`,
+        "ai",
+        "Спасибо! Я уточню детали, предложу ближайшее время и сохраню лид для менеджера."
+      )
+    );
+  }
+  return normalized;
+}
+
+function demoTypingLabel(from: ChatMessage["from"]) {
+  if (from === "client") return "Клиент печатает...";
+  if (from === "ai") return "AI отвечает...";
+  return "Менеджер печатает...";
+}
 
 function eventIconAndColor(type: string): Pick<TimelineItem, "icon" | "color"> {
   if (type.includes("crm")) return { icon: Database, color: "text-emerald-400" };
@@ -196,6 +239,56 @@ function MessageBubble({ msg, index, customerInitial }: { msg: ChatMessage; inde
   );
 }
 
+function TypingBubble({ from, customerInitial }: { from: ChatMessage["from"]; customerInitial: string }) {
+  const isClient = from === "client";
+  const isAI = from === "ai";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 6 }}
+      className={cn("flex gap-2.5 max-w-[85%] sm:max-w-[72%]", isClient ? "self-start" : "self-end flex-row-reverse")}
+    >
+      {isClient ? (
+        <div className="shrink-0 mt-1">
+          <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-zinc-300 text-xs font-semibold">
+            {customerInitial}
+          </div>
+        </div>
+      ) : null}
+      {isAI ? (
+        <div className="shrink-0 mt-1">
+          <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center">
+            <Bot className="w-3.5 h-3.5 text-emerald-400" />
+          </div>
+        </div>
+      ) : null}
+      <div
+        className={cn(
+          "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+          isClient && "bg-zinc-800 text-zinc-100 rounded-tl-sm",
+          isAI && "bg-emerald-500/15 border border-emerald-500/20 text-zinc-100 rounded-tr-sm"
+        )}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-400">{demoTypingLabel(from)}</span>
+          <span className="flex items-center gap-1">
+            {[0, 1, 2].map((dot) => (
+              <motion.span
+                key={dot}
+                animate={{ opacity: [0.35, 1, 0.35], y: [0, -2, 0] }}
+                transition={{ duration: 0.8, repeat: Infinity, delay: dot * 0.12 }}
+                className={cn("h-1.5 w-1.5 rounded-full", isAI ? "bg-emerald-300" : "bg-zinc-400")}
+              />
+            ))}
+          </span>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 /* ── Lead info panel ─────────────────────────────────────────── */
 type LeadAction = "crm" | "task" | "appointment" | "qualified";
 type ConversationAction = "handoff" | "close" | "open";
@@ -322,11 +415,15 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 
 /* ── Main page ───────────────────────────────────────────────── */
 export function ConversationPage() {
+  const { demo } = useProductMode();
   const { params } = useNav();
   const conversationId = typeof params.id === "string" && params.id.length > 0 ? params.id : "";
 
   const [apiConversation, setApiConversation] = useState<ConversationDetail | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [demoReplayMessages, setDemoReplayMessages] = useState<ChatMessage[]>([]);
+  const [demoReplayState, setDemoReplayState] = useState<"idle" | "playing" | "paused" | "done" | "skipped">("idle");
+  const [demoTypingFrom, setDemoTypingFrom] = useState<ChatMessage["from"] | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [showLeadInfo, setShowLeadInfo] = useState(false);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
@@ -336,6 +433,7 @@ export function ConversationPage() {
   const [pendingConversationAction, setPendingConversationAction] = useState<ConversationAction | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const demoReplayTimersRef = useRef<number[]>([]);
   const lead = apiConversation ? leadFromConversation(apiConversation) : null;
   const apiLeadId = apiConversation?.lead?.id ?? null;
   const timelineItems = timelineFromEvents(apiConversation?.events);
@@ -349,12 +447,72 @@ export function ConversationPage() {
           ? "AI выключен"
           : "AI ведёт диалог";
   const customerInitial = lead?.name.trim().charAt(0).toUpperCase() || "К";
+  const isDemoConversation = demo && conversationId.startsWith("demo-conv-");
+  const hasDemoReplay = isDemoConversation && demoReplayMessages.length > 0;
+
+  function clearDemoReplayTimers() {
+    demoReplayTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    demoReplayTimersRef.current = [];
+  }
+
+  function revealDemoReplay(state: "paused" | "done" | "skipped") {
+    clearDemoReplayTimers();
+    setDemoTypingFrom(null);
+    if (demoReplayMessages.length > 0) setMessages(demoReplayMessages);
+    setDemoReplayState(state);
+  }
+
+  function pauseDemoReplayForInteraction() {
+    if (demoReplayState === "playing") revealDemoReplay("paused");
+  }
+
+  function restartDemoReplay() {
+    if (!hasDemoReplay) return;
+    clearDemoReplayTimers();
+    setMessages([]);
+    setDemoTypingFrom(null);
+    setDemoReplayState("playing");
+  }
 
   useEffect(() => {
     const container = messagesScrollRef.current;
     if (!container) return;
     container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-  }, [messages]);
+  }, [messages, demoTypingFrom]);
+
+  useEffect(() => {
+    return () => {
+      clearDemoReplayTimers();
+    };
+  }, []);
+
+  useEffect(() => {
+    clearDemoReplayTimers();
+
+    if (!hasDemoReplay || demoReplayState !== "playing") return;
+
+    setMessages([]);
+    setDemoTypingFrom(null);
+
+    let offset = 500;
+    demoReplayMessages.forEach((message, index) => {
+      const typingTimer = window.setTimeout(() => {
+        setDemoTypingFrom(message.from);
+      }, offset);
+      const messageTimer = window.setTimeout(() => {
+        setMessages((current) => [...current, message]);
+        setDemoTypingFrom(null);
+        if (index === demoReplayMessages.length - 1) setDemoReplayState("done");
+      }, offset + demoReplayTypingMs);
+
+      demoReplayTimersRef.current.push(typingTimer, messageTimer);
+      offset += demoReplayTypingMs + demoReplayGapMs;
+    });
+
+    return () => {
+      clearDemoReplayTimers();
+    };
+  }, [conversationId, demoReplayMessages, demoReplayState, hasDemoReplay]);
 
   useEffect(() => {
     let active = true;
@@ -375,7 +533,18 @@ export function ConversationPage() {
         if (!active) return;
         setApiConversation(conversation);
         const nextMessages = messagesFromConversation(conversation);
-        setMessages(nextMessages);
+        if (demo && conversationId.startsWith("demo-conv-")) {
+          const replayMessages = demoReplayScript(conversationId, nextMessages);
+          setDemoReplayMessages(replayMessages);
+          setMessages([]);
+          setDemoTypingFrom(null);
+          setDemoReplayState(replayMessages.length > 0 ? "playing" : "idle");
+        } else {
+          setDemoReplayMessages([]);
+          setDemoTypingFrom(null);
+          setDemoReplayState("idle");
+          setMessages(nextMessages);
+        }
       })
       .catch(() => {
         if (!active) return;
@@ -389,7 +558,7 @@ export function ConversationPage() {
     return () => {
       active = false;
     };
-  }, [conversationId]);
+  }, [conversationId, demo]);
 
   if (!lead) {
     return (
@@ -413,6 +582,7 @@ export function ConversationPage() {
   async function handleSend() {
     const text = inputValue.trim();
     if (!text || isSending) return;
+    pauseDemoReplayForInteraction();
     const newMsg: ChatMessage = {
       id: `m${Date.now()}`,
       from: "manager",
@@ -446,6 +616,7 @@ export function ConversationPage() {
   }
 
   function handleQuickReply(text: string) {
+    pauseDemoReplayForInteraction();
     setInputValue(text);
   }
 
@@ -457,6 +628,7 @@ export function ConversationPage() {
 
   async function handleDraftAiReply() {
     if (isDraftingAiReply) return;
+    pauseDemoReplayForInteraction();
 
     if (!apiConversation) {
       toast.error("AI-подсказка доступна для API-диалога");
@@ -502,6 +674,7 @@ export function ConversationPage() {
 
   async function handleConversationAction(action: ConversationAction) {
     if (pendingConversationAction) return;
+    pauseDemoReplayForInteraction();
 
     if (!apiConversation) {
       toast.error("Действие доступно для API-диалога");
@@ -535,6 +708,7 @@ export function ConversationPage() {
   }
 
   async function handleLeadAction(action: LeadAction) {
+    pauseDemoReplayForInteraction();
     if (!apiLeadId) {
       toast.error("Действие доступно для API-лида");
       return;
@@ -656,6 +830,38 @@ export function ConversationPage() {
               </div>
             </div>
 
+            {hasDemoReplay && (
+              <div className="flex flex-col gap-2 border-b border-emerald-500/10 bg-emerald-500/[0.04] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-2 text-xs text-emerald-200">
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    {demoReplayState === "playing" ? <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /> : null}
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                  </span>
+                  <span className="truncate">
+                    {demoReplayState === "playing" ? "Live demo: клиент и AI общаются сейчас" : "Live demo диалога готов к повтору"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {demoReplayState === "playing" ? (
+                    <button
+                      type="button"
+                      onClick={() => revealDemoReplay("skipped")}
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10 hover:text-zinc-100"
+                    >
+                      Пропустить
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={restartDemoReplay}
+                    className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition-colors hover:bg-emerald-400/15"
+                  >
+                    Повторить demo
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Mobile collapsible lead info */}
             <AnimatePresence>
               {showLeadInfo && (
@@ -689,6 +895,9 @@ export function ConversationPage() {
                 {messages.map((msg, i) => (
                   <MessageBubble key={msg.id} msg={msg} index={i} customerInitial={customerInitial} />
                 ))}
+                <AnimatePresence>
+                  {demoTypingFrom ? <TypingBubble from={demoTypingFrom} customerInitial={customerInitial} /> : null}
+                </AnimatePresence>
                 <div ref={messagesEndRef} />
               </div>
             </div>

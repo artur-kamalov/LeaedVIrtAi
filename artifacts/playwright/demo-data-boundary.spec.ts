@@ -49,6 +49,10 @@ test("interactive demo routes use local browser data only", async ({ page }) => 
   }
 
   await page.goto(`${webBase}/demo/inbox/demo-conv-anna`, { waitUntil: "domcontentloaded" });
+  await expect(page.getByText("Live demo: клиент и AI общаются сейчас")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Хочу окрашивание и стрижку").first()).toBeVisible({ timeout: 10_000 });
+  await page.getByRole("button", { name: "Пропустить" }).click();
+  await expect(page.getByText("создала лид и передала менеджеру карточку")).toBeVisible();
   await page.getByPlaceholder("Написать сообщение...").fill("Подтверждаю запись в demo");
   await page.getByRole("button", { name: "Отправить сообщение" }).click();
   await expect(page.getByText("Подтверждаю запись в demo")).toBeVisible();
