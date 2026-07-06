@@ -12,6 +12,7 @@ const telegramSecret = process.env.LEADVIRT_PUBLIC_TELEGRAM_SECRET ?? "demo-tele
 const webhookKeyOverride = process.env.LEADVIRT_PUBLIC_WEBHOOK_KEY ?? "";
 const webhookSecret = process.env.LEADVIRT_PUBLIC_WEBHOOK_SECRET ?? "demo-webhook-secret";
 const widgetKeyOverride = process.env.LEADVIRT_PUBLIC_WIDGET_KEY ?? "";
+const includePacketSecrets = isTruthy(process.env.LEADVIRT_PILOT_PACKET_INCLUDE_SECRETS ?? "");
 
 function normalizeBase(value) {
   return value.trim().replace(/\/$/, "");
@@ -21,6 +22,16 @@ function normalizeApiBase(value) {
   const cleaned = normalizeBase(value);
   if (!cleaned) return "";
   return cleaned.endsWith("/api") ? cleaned : `${cleaned}/api`;
+}
+
+function isTruthy(value) {
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function packetSecret(value, envName) {
+  const explicit = process.env[envName]?.trim();
+  if (!explicit || includePacketSecrets) return value;
+  return `[set ${envName} locally]`;
 }
 
 function publicOrLocalApiBase() {
@@ -128,6 +139,8 @@ async function main() {
   const telegramKey = telegramKeyOverride || telegramChannel?.publicKey || "demo-telegram-webhook";
   const webhookKey = webhookKeyOverride || webhookChannel?.publicKey || "demo-generic-webhook";
   const widgetKey = widgetKeyOverride || widgetChannel?.publicKey || "demo-website-widget";
+  const telegramPacketSecret = packetSecret(telegramSecret, "LEADVIRT_PUBLIC_TELEGRAM_SECRET");
+  const webhookPacketSecret = packetSecret(webhookSecret, "LEADVIRT_PUBLIC_WEBHOOK_SECRET");
 
   const telegramEndpoint = endpointFromIntegration(telegramIntegration, {
     publicKey: telegramKey,
@@ -178,6 +191,7 @@ async function main() {
     `- Public API: ${publicApiBase || "not set"}`,
     `- Active packet web target: ${targetWebBase}`,
     `- Active packet API target: ${targetApiBase}`,
+    `- Header secrets: ${includePacketSecrets ? "included by LEADVIRT_PILOT_PACKET_INCLUDE_SECRETS" : "redacted when provided by env"}`,
     "",
     "## Operator Links",
     "",
@@ -204,7 +218,7 @@ async function main() {
     "",
     `- Endpoint: ${telegramUrl}`,
     `- Public key: ${telegramEndpoint.publicKey}`,
-    `- Header: ${telegramEndpoint.secretHeader}: ${telegramSecret}`,
+    `- Header: ${telegramEndpoint.secretHeader}: ${telegramPacketSecret}`,
     "",
     fencedJson(telegramEndpoint.samplePayload),
     "",
@@ -212,7 +226,7 @@ async function main() {
     "",
     `- Endpoint: ${webhookUrl}`,
     `- Public key: ${webhookEndpoint.publicKey}`,
-    `- Header: ${webhookEndpoint.secretHeader}: ${webhookSecret}`,
+    `- Header: ${webhookEndpoint.secretHeader}: ${webhookPacketSecret}`,
     "",
     fencedJson(webhookEndpoint.samplePayload),
     "",
@@ -236,7 +250,7 @@ async function main() {
     "```powershell",
     "$pilotId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()",
     `$telegramEndpoint = "${psString(telegramUrl)}"`,
-    `$telegramHeaders = @{ "${psString(telegramEndpoint.secretHeader)}" = "${psString(telegramSecret)}" }`,
+    `$telegramHeaders = @{ "${psString(telegramEndpoint.secretHeader)}" = "${psString(telegramPacketSecret)}" }`,
     "$telegramBody = @\"",
     "{",
     "  \"update_id\": \"packet-tg-$pilotId\",",
@@ -262,7 +276,7 @@ async function main() {
     "```powershell",
     "$pilotId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()",
     `$webhookEndpoint = "${psString(webhookUrl)}"`,
-    `$webhookHeaders = @{ "${psString(webhookEndpoint.secretHeader)}" = "${psString(webhookSecret)}" }`,
+    `$webhookHeaders = @{ "${psString(webhookEndpoint.secretHeader)}" = "${psString(webhookPacketSecret)}" }`,
     "$webhookBody = @\"",
     "{",
     "  \"eventId\": \"packet-webhook-$pilotId\",",

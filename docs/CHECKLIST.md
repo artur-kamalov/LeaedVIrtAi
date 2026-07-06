@@ -37,6 +37,12 @@ Last updated: 2026-07-06
 - [x] Added `deploy/run-ai-acceptance.sh` and switched the staging env example to `AI_REPLY_MODE=queue` so post-deploy staging acceptance validates the real queued AI path inside Docker Compose.
 - [x] Stabilized root TS smoke scripts by using `pnpm exec tsx` without the Windows-breaking extra `--`; re-verified `qa:ai:acceptance`, `qa:ai:quality`, and `qa:pii:redaction`.
 - [x] Made draft booking tool planning deterministic for explicit booking requests with an available slot, so staging real-provider acceptance does not depend on the recommendation model choosing `create_booking_draft`.
+- [x] Pushed and deployed the AI runtime branch to `leadvirt.ru`; GitHub Actions run `28768725262` passed verify, deploy, and required `qa:ai:acceptance`, then staging `deploy/run-ai-acceptance.sh` passed inside the worker container against the live Docker stack.
+- [x] Kept public URL preflight as operator-local QA instead of installing Playwright browsers into deployment images; `release:public-ready` can run non-browser gates with `LEADVIRT_PUBLIC_READY_SKIP_PUBLIC_PREFLIGHT=1` and marks the report accordingly.
+- [x] Confirmed `leadvirt.ru` public auth is Telegram-only with `AUTH_CREDENTIALS_ENABLED=false`; credential-operator 2FA is deferred until password/staff login is intentionally re-enabled.
+- [x] Restarted the local Master Budet backend on `localhost:4002` with the live LeadVirt bridge env, updated its side-by-side ports to `API_PORT=4002` and `CORS_ORIGIN=http://localhost:3002`, verified `/health`, and passed the focused `leadvirt-bridge.service.spec.ts`.
+- [x] Verified Master Budet uses a real live LeadVirt Webhook/API channel (`lvwh_...`) instead of `demo-generic-webhook`; `qa:pilot:public` passed 3/3 against `https://leadvirt.ru` for Webhook/API, then the disposable `Pilot Webhook Public ...` lead/conversation were removed from staging.
+- [x] Regenerated `docs/PILOT_PACKET.md` for `https://leadvirt.ru` and the real `lvwh_...` endpoint; live webhook secrets are redacted by default unless `LEADVIRT_PILOT_PACKET_INCLUDE_SECRETS=1` is explicitly set.
 - [x] Documented the AI runtime implementation plan in `docs/AI_RUNTIME_IMPLEMENTATION_PLAN.md` and recorded the LangGraph/Qdrant production-runtime decision in `docs/DECISION_LOG.md`.
 - [x] Fixed Landing initial-load stutter while preserving animations: landing now renders mostly as server HTML, product providers moved off the root layout, expensive blur/image work was reduced, Niches motion loads on scroll, and focused performance/scroll Playwright smokes were added.
 - [x] Optimized only the Landing first-screen hero appearance by moving hero entrance/visual animation frames from Framer Motion to CSS keyframes while preserving the animated cards, central node, and gradient SVG flow line; verified with web typecheck/lint/build and Playwright screenshots on `localhost:3001`.
@@ -438,16 +444,16 @@ Last updated: 2026-07-06
 
 ## Active / Next
 
-- [ ] Push/deploy the current AI runtime branch, confirm GitHub Actions `qa:ai:acceptance` passes, then run `qa:ai:acceptance` once inside staging with the real Telegram login token and intended AI provider settings before inviting external testers.
+- [x] Push/deploy the current AI runtime branch, confirm GitHub Actions `qa:ai:acceptance` passes, then run `qa:ai:acceptance` once inside staging with the real Telegram login token and intended AI provider settings before inviting external testers.
 - [x] Resolved OpenAI access from staging via the FR AI gateway; direct staging host egress was blocked by `403 unsupported_country_region_territory`, but gateway egress returns valid OpenAI responses.
 - [x] Verified real OpenAI provider smoke with `AI_PROVIDER=openai`, `AI_ENABLE_REAL_PROVIDER=true`, `AI_DEFAULT_MODEL=gpt-5.5`, `AI_REASONING_EFFORT=low`, and `AI_VERBOSITY=low`; `qa:ai:provider` passed all reply, extraction, recommendation, summary, and intent contract checks.
-- [ ] Enable 2FA for `staging-admin@leadvirt.ai` before broad external access.
-- [ ] Decide whether `release:public-ready` should install/use Playwright browsers in the deployment image or keep public URL preflight as an operator-local QA step.
-- [ ] Defer `leadvirt.ai` routing/localization until the English/global release track starts.
-- [ ] Restart/redeploy the Master Budet backend with the updated LeadVirt bridge env before inviting external testers.
-- [ ] Provision a real staging Webhook/API channel, copy its generated public key/secret into the Master Budet bridge env, and avoid `demo-generic-webhook` for external traffic.
-- [ ] Run `qa:pilot:public` against the first actual tunnel/staging URL before inviting external testers.
-- [ ] Regenerate `docs/PILOT_PACKET.md` after the first public tunnel/staging URL is configured.
+- [x] Enable 2FA for `staging-admin@leadvirt.ai` before broad external access, or confirm it is not applicable while `leadvirt.ru` remains Telegram-only with password login disabled.
+- [x] Decide whether `release:public-ready` should install/use Playwright browsers in the deployment image or keep public URL preflight as an operator-local QA step.
+- [x] Defer `leadvirt.ai` routing/localization until the English/global release track starts.
+- [x] Restart/redeploy the Master Budet backend with the updated LeadVirt bridge env before inviting external testers.
+- [x] Provision a real staging Webhook/API channel, copy its generated public key/secret into the Master Budet bridge env, and avoid `demo-generic-webhook` for external traffic.
+- [x] Run `qa:pilot:public` against the first actual tunnel/staging URL before inviting external testers.
+- [x] Regenerate `docs/PILOT_PACKET.md` after the first public tunnel/staging URL is configured, without committing live webhook secrets.
 - [ ] Add focused tests for functional behavior once API-backed features return.
 
 ## Current Verification Commands

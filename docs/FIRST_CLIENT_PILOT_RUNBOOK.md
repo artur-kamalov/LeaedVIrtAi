@@ -1,6 +1,6 @@
 # First Social Test Client Pilot Runbook
 
-Last updated: 2026-06-27
+Last updated: 2026-07-06
 
 This runbook is for the first controlled pilot clients coming from social traffic. The goal is to prove the manager-facing product loop, not final production operations.
 
@@ -66,6 +66,8 @@ It also writes the latest shareable readiness report to `docs/PILOT_READY_REPORT
 `qa:channels:provisioning` validates the first real-channel path by creating a temporary Webhook/API channel with a generated non-demo key and posting public intake through it.
 `provision:webhook-channel` logs into the target workspace, creates or reuses the Webhook/API channel, and prints the exact Master Budet env values. On non-local APIs it refuses demo public keys.
 `release:public-ready` is the public/staging one-command gate: strict auth readiness, real OpenAI provider env, Webhook/API provisioning, packet regeneration, and public URL preflight.
+
+Production deploy images intentionally do not include Playwright browsers. Run the full `release:public-ready` gate from an operator machine. If a server/container run is needed for non-browser gates only, set `LEADVIRT_PUBLIC_READY_SKIP_PUBLIC_PREFLIGHT=1`; then run `corepack pnpm run qa:pilot:public` separately from an operator machine before inviting testers.
 
 For public/staging release, set real AI env before running the gate:
 
@@ -159,6 +161,15 @@ $env:LEADVIRT_PROVISION_EMAIL="owner@example.com"
 $env:LEADVIRT_PROVISION_PASSWORD="..."
 corepack pnpm run release:public-ready
 ```
+
+For server/container non-browser release checks only:
+
+```bash
+$env:LEADVIRT_PUBLIC_READY_SKIP_PUBLIC_PREFLIGHT="1"
+corepack pnpm run release:public-ready
+```
+
+That report is intentionally marked `passed-with-skipped-public-preflight`, not a final tester-ready pass.
 
 After setting public URL env vars, regenerate the packet so it prints the public tester-facing links:
 

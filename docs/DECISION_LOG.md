@@ -1,5 +1,30 @@
 # Decision Log
 
+## 2026-07-06: Treat 2FA As Credential-Auth Gate Only
+
+Decision: `leadvirt.ru` stays Telegram-only for public auth with `AUTH_CREDENTIALS_ENABLED=false`. The staging credential operator's TOTP setup is not required for broad RU external access while password login is disabled.
+
+Context: LeadVirt 2FA protects credential sessions. The current RU release path uses Telegram Login, and enabling credential auth only for maintenance would temporarily widen the public auth surface.
+
+Consequences:
+
+- Do not re-enable password login just to enable 2FA for the inactive `staging-admin@leadvirt.ai` credential path.
+- If staff/credential login is re-enabled later, 2FA for privileged operator accounts becomes a required release gate.
+- Telegram-only operator access remains the active auth model for `leadvirt.ru`.
+
+## 2026-07-06: Keep Public URL Preflight Operator-Local
+
+Decision: Deployment/runtime images will not install Playwright browsers. `release:public-ready` remains the full operator-local release gate by default, and server/container non-browser runs may set `LEADVIRT_PUBLIC_READY_SKIP_PUBLIC_PREFLIGHT=1`.
+
+Context: The production API/web/worker images should stay small and focused on runtime. Public URL preflight is a browser smoke that validates the tester-facing route through Playwright, so it belongs on an operator machine or dedicated QA runner with browser dependencies installed.
+
+Consequences:
+
+- `release:public-ready` still runs `qa:pilot:public` by default.
+- When `LEADVIRT_PUBLIC_READY_SKIP_PUBLIC_PREFLIGHT=1` is set, the report status becomes `passed-with-skipped-public-preflight`.
+- A skipped public preflight is not enough before inviting testers; run `corepack pnpm run qa:pilot:public` separately from an operator machine.
+- Docker deploy images do not need Chromium/Playwright browser installation.
+
 ## 2026-07-06: Staging AI Acceptance Uses Queue Mode
 
 Decision: Post-deploy staging AI acceptance must run against the queued runtime path with `AI_REPLY_MODE=queue`.

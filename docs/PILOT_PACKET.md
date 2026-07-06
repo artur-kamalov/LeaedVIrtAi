@@ -1,6 +1,6 @@
 # LeadVirt Pilot Packet
 
-Generated: 2026-07-02T13:16:58.708Z
+Generated: 2026-07-06T05:20:24.374Z
 
 This packet is for the first controlled test-client sessions. It uses the current local API state when available and falls back to seeded demo keys.
 
@@ -8,21 +8,22 @@ This packet is for the first controlled test-client sessions. It uses the curren
 
 - Local web: http://localhost:3001 (ok (200))
 - Local API: http://localhost:4001/api (ok (200))
-- Public web: not set
-- Public API: not set
-- Active packet web target: http://localhost:3001
-- Active packet API target: http://localhost:4001/api
+- Public web: https://leadvirt.ru
+- Public API: https://leadvirt.ru/api
+- Active packet web target: https://leadvirt.ru
+- Active packet API target: https://leadvirt.ru/api
+- Header secrets: redacted when provided by env
 
 ## Operator Links
 
-- Landing: http://localhost:3001/
-- Product demo: http://localhost:3001/demo
-- Login/client cabinet: http://localhost:3001/login
-- Integrations readiness: http://localhost:3001/app/integrations
-- Inbox: http://localhost:3001/app/inbox
-- Pipeline: http://localhost:3001/app/leads
-- Automation: http://localhost:3001/app/automations
-- Widget demo: http://localhost:3001/widget/demo
+- Landing: https://leadvirt.ru/
+- Product demo: https://leadvirt.ru/demo
+- Login/client cabinet: https://leadvirt.ru/login
+- Integrations readiness: https://leadvirt.ru/app/integrations
+- Inbox: https://leadvirt.ru/app/inbox
+- Pipeline: https://leadvirt.ru/app/leads
+- Automation: https://leadvirt.ru/app/automations
+- Widget demo: https://leadvirt.ru/widget/demo
 
 ## Current Local Readiness
 
@@ -36,7 +37,7 @@ This packet is for the first controlled test-client sessions. It uses the curren
 
 ### Telegram
 
-- Endpoint: http://localhost:4001/api/public/channels/telegram/demo-telegram-webhook/webhook
+- Endpoint: https://leadvirt.ru/api/public/channels/telegram/demo-telegram-webhook/webhook
 - Public key: demo-telegram-webhook
 - Header: x-telegram-bot-api-secret-token: demo-telegram-secret
 
@@ -59,9 +60,9 @@ This packet is for the first controlled test-client sessions. It uses the curren
 
 ### Webhook/API
 
-- Endpoint: http://localhost:4001/api/public/channels/webhook/demo-generic-webhook/events
-- Public key: demo-generic-webhook
-- Header: x-leadvirt-webhook-secret: demo-webhook-secret
+- Endpoint: https://leadvirt.ru/api/public/channels/webhook/lvwh_8ebd05e2661fc484/events
+- Public key: lvwh_8ebd05e2661fc484
+- Header: x-leadvirt-webhook-secret: [set LEADVIRT_PUBLIC_WEBHOOK_SECRET locally]
 
 ```json
 {
@@ -81,13 +82,13 @@ This packet is for the first controlled test-client sessions. It uses the curren
 
 ### Website Widget
 
-- Demo page: http://localhost:3001/widget/demo
+- Demo page: https://leadvirt.ru/widget/demo
 - Public key: demo-website-widget
-- Config endpoint: http://localhost:4001/api/public/widget/demo-website-widget/config
-- Message endpoint: http://localhost:4001/api/public/widget/demo-website-widget/messages
+- Config endpoint: https://leadvirt.ru/api/public/widget/demo-website-widget/config
+- Message endpoint: https://leadvirt.ru/api/public/widget/demo-website-widget/messages
 
 ```html
-<script async src="http://localhost:3001/widget/embed.js" data-leadvirt-key="demo-website-widget"></script>
+<script async src="https://leadvirt.ru/widget/embed.js" data-leadvirt-key="demo-website-widget"></script>
 ```
 
 ## Manual Intake Smoke Commands
@@ -98,7 +99,7 @@ Run these from PowerShell when you want to create fresh test leads without openi
 
 ```powershell
 $pilotId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-$telegramEndpoint = "http://localhost:4001/api/public/channels/telegram/demo-telegram-webhook/webhook"
+$telegramEndpoint = "https://leadvirt.ru/api/public/channels/telegram/demo-telegram-webhook/webhook"
 $telegramHeaders = @{ "x-telegram-bot-api-secret-token" = "demo-telegram-secret" }
 $telegramBody = @"
 {
@@ -124,8 +125,8 @@ Invoke-RestMethod -Method Post -Uri $telegramEndpoint -Headers $telegramHeaders 
 
 ```powershell
 $pilotId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-$webhookEndpoint = "http://localhost:4001/api/public/channels/webhook/demo-generic-webhook/events"
-$webhookHeaders = @{ "x-leadvirt-webhook-secret" = "demo-webhook-secret" }
+$webhookEndpoint = "https://leadvirt.ru/api/public/channels/webhook/lvwh_8ebd05e2661fc484/events"
+$webhookHeaders = @{ "x-leadvirt-webhook-secret" = "[set LEADVIRT_PUBLIC_WEBHOOK_SECRET locally]" }
 $webhookBody = @"
 {
   "eventId": "packet-webhook-$pilotId",
@@ -150,7 +151,7 @@ Invoke-RestMethod -Method Post -Uri $webhookEndpoint -Headers $webhookHeaders -C
 
 ```powershell
 $pilotId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-$widgetEndpoint = "http://localhost:4001/api/public/widget/demo-website-widget/messages"
+$widgetEndpoint = "https://leadvirt.ru/api/public/widget/demo-website-widget/messages"
 $widgetBody = @"
 {
   "sessionId": "packet-widget-session-$pilotId",
@@ -160,8 +161,8 @@ $widgetBody = @"
     "name": "Pilot Widget Packet $pilotId",
     "phone": "+79991111111"
   },
-  "pageUrl": "http://localhost:3001/widget/demo",
-  "referrer": "http://localhost:3001"
+  "pageUrl": "https://leadvirt.ru/widget/demo",
+  "referrer": "https://leadvirt.ru"
 }
 "@
 Invoke-RestMethod -Method Post -Uri $widgetEndpoint -ContentType "application/json" -Body $widgetBody
@@ -191,8 +192,8 @@ corepack pnpm run qa:pilot:intake
 Public URL preflight:
 
 ```powershell
-$env:LEADVIRT_PUBLIC_WEB_BASE="https://your-public-web-url"
-$env:LEADVIRT_PUBLIC_API_BASE="https://your-public-api-url/api"
+$env:LEADVIRT_PUBLIC_WEB_BASE="https://leadvirt.ru"
+$env:LEADVIRT_PUBLIC_API_BASE="https://leadvirt.ru/api"
 corepack pnpm run qa:pilot:public
 ```
 

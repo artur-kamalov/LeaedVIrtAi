@@ -9,6 +9,7 @@ const reportPath = resolve(process.env.LEADVIRT_PUBLIC_READY_REPORT_OUT ?? "docs
 const publicWebBase = normalizeBase(process.env.LEADVIRT_PUBLIC_WEB_BASE ?? "");
 const publicApiBase = normalizeApiBase(process.env.LEADVIRT_PUBLIC_API_BASE ?? "");
 const selectedChannels = process.env.LEADVIRT_PUBLIC_CHANNELS?.trim() || "webhook";
+const skipPublicPreflight = isTruthy(process.env.LEADVIRT_PUBLIC_READY_SKIP_PUBLIC_PREFLIGHT ?? "");
 const steps = [];
 const childEnv = {
   ...process.env,
@@ -26,6 +27,10 @@ function normalizeApiBase(value) {
   const cleaned = normalizeBase(value);
   if (!cleaned) return "";
   return cleaned.endsWith("/api") ? cleaned : `${cleaned}/api`;
+}
+
+function isTruthy(value) {
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
 function findEnvFile(startDir = process.cwd()) {
@@ -199,6 +204,7 @@ function writeReport(status, reason = "") {
     `- Provision user: ${process.env.LEADVIRT_PROVISION_EMAIL?.trim() || "not set"}`,
     `- Webhook key captured: ${childEnv.LEADVIRT_PUBLIC_WEBHOOK_KEY ? "yes" : "no"}`,
     `- Webhook secret captured: ${childEnv.LEADVIRT_PUBLIC_WEBHOOK_SECRET ? "yes (redacted)" : "no"}`,
+    `- Public URL preflight: ${skipPublicPreflight ? "skipped by LEADVIRT_PUBLIC_READY_SKIP_PUBLIC_PREFLIGHT" : "required"}`,
     "",
     "## Steps",
     "",
@@ -245,6 +251,10 @@ function writeReport(status, reason = "") {
     lines.push("- Use the terminal output from `provision:webhook-channel` to configure Master Budet env.");
     lines.push("- Use `docs/PILOT_PACKET.md` for operator links and public smoke commands.");
     lines.push("- Do not commit webhook secrets into docs or source files.");
+  } else if (status === "passed-with-skipped-public-preflight") {
+    lines.push("- Use the terminal output from `provision:webhook-channel` to configure Master Budet env.");
+    lines.push("- Run `corepack pnpm run qa:pilot:public` from an operator machine with Playwright browser access before inviting testers.");
+    lines.push("- Do not commit webhook secrets into docs or source files.");
   } else {
     lines.push("- Required AI env for public release: `AI_PROVIDER=openai`, `AI_ENABLE_REAL_PROVIDER=true`, `AI_API_KEY`, and optionally `AI_DEFAULT_MODEL`.");
     lines.push("- Fix the failed step above, then rerun `corepack pnpm run release:public-ready`.");
@@ -259,14 +269,31 @@ function writeReport(status, reason = "") {
 
 console.log("LeadVirt Public Release Ready");
 console.log("This command checks strict auth readiness, provisions Webhook/API, regenerates the packet, and runs public URL preflight.");
+if (skipPublicPreflight) {
+  console.log("Public URL preflight will be skipped. Run qa:pilot:public separately from an operator machine before external testers.");
+}
 
 validateEnvironment();
 run("AI provider smoke", ["pnpm", "run", "qa:ai:provider"]);
 run("Strict auth readiness", ["pnpm", "run", "qa:auth:staging-ready"]);
 run("Provision Webhook/API channel", ["pnpm", "run", "provision:webhook-channel"], { captureWebhookEnv: true });
 run("Generate pilot packet", ["pnpm", "run", "pilot:packet"]);
-run("Public URL preflight", ["pnpm", "run", "qa:pilot:public"]);
+if (skipPublicPreflight) {
+  appendStep({
+    label: "Public URL preflight",
+    command: "corepack pnpm run qa:pilot:public",
+    status: "skipped",
+    reason: "Skipped by LEADVIRT_PUBLIC_READY_SKIP_PUBLIC_PREFLIGHT. Run this from an operator machine with Playwright browser access before inviting testers.",
+  });
+} else {
+  run("Public URL preflight", ["pnpm", "run", "qa:pilot:public"]);
+}
 
 console.log("");
-console.log("Public release checks passed.");
-writeReport("passed");
+if (skipPublicPreflight) {
+  console.log("Public release non-browser checks passed. Public URL preflight still needs an operator-local run.");
+  writeReport("passed-with-skipped-public-preflight");
+} else {
+  console.log("Public release checks passed.");
+  writeReport("passed");
+}
