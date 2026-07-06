@@ -121,14 +121,23 @@ export interface AiBudgetStore {
 }
 
 export class AiBudgetExceededError extends Error {
+  readonly budgetType: AiBudgetType;
+  readonly limitTokens: number;
+  readonly usedTokens: number;
+  readonly requestedTokens: number;
+
   constructor(
-    readonly budgetType: AiBudgetType,
-    readonly limitTokens: number,
-    readonly usedTokens: number,
-    readonly requestedTokens: number
+    budgetType: AiBudgetType,
+    limitTokens: number,
+    usedTokens: number,
+    requestedTokens: number
   ) {
     super(`AI tenant ${budgetType} token budget exceeded: ${usedTokens} used + ${requestedTokens} requested > ${limitTokens} limit.`);
     this.name = "AiBudgetExceededError";
+    this.budgetType = budgetType;
+    this.limitTokens = limitTokens;
+    this.usedTokens = usedTokens;
+    this.requestedTokens = requestedTokens;
   }
 }
 
@@ -163,12 +172,17 @@ interface BudgetCheckInput {
 export class BudgetedAiProvider implements AiProvider {
   readonly providerName?: string;
   readonly modelName?: string;
+  private readonly provider: AiProvider;
+  private readonly store: AiBudgetStore;
+  private readonly limits: AiBudgetLimits;
 
   constructor(
-    private readonly provider: AiProvider,
-    private readonly store: AiBudgetStore,
+    provider: AiProvider,
+    store: AiBudgetStore,
     limits: AiBudgetLimits
   ) {
+    this.provider = provider;
+    this.store = store;
     if (provider.providerName !== undefined) this.providerName = provider.providerName;
     if (provider.modelName !== undefined) this.modelName = provider.modelName;
     this.limits = {
@@ -176,8 +190,6 @@ export class BudgetedAiProvider implements AiProvider {
       monthlyTokenBudget: positiveBudget(limits.monthlyTokenBudget)
     };
   }
-
-  private readonly limits: AiBudgetLimits;
 
   async generateReply(input: AiReplyInput): Promise<AiReplyResult> {
     await this.enforceBudget({
