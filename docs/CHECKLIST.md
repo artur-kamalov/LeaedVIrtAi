@@ -4,10 +4,11 @@ Last updated: 2026-07-07
 
 ## Next
 
-- [ ] Add outbound Umnico delivery adapter for AI/operator replies through `POST /v1.3/messaging/<lead-id>/send` after inbound pilot is confirmed.
+No open Umnico onboarding tasks.
 
 ## Done
 
+- [x] Added Umnico onboarding to Integrations UI: client-entered token save through `PATCH /integrations/WEBHOOK_API/settings`, redacted `apiTokenStatus`, Umnico webhook URL with query secret, and no-SQL test lead buttons covered by `integrations-api.spec.ts`.
 - [x] Added Umnico inbound compatibility through the existing Webhook/API public channel: `message.incoming` normalization, query-string `secret` support for providers without custom headers, ignored handling for non-inbound Umnico events, provisioning output for `UMNICO_WEBHOOK_URL`, and passing local `qa:umnico:webhook`.
 - [x] Deployed Umnico inbound support to `leadvirt.ru`, passed live `qa:umnico:webhook` against `lvwh_8ebd05e2661fc484`, cleaned the disposable smoke lead/conversation/event, and registered Umnico webhook id `31397`.
 - [x] Repointed Umnico webhook id `31397` to Artur Kamalov workspace through dedicated channel `lvwh_de926322af19b128`, passed live `qa:umnico:webhook`, and cleaned the disposable smoke record.

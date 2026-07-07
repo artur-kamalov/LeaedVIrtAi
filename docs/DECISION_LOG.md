@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-07: Onboard Umnico From Integrations UI
+
+Decision: The Integrations page is the UI onboarding surface for Umnico-backed `WEBHOOK_API`: users enter the Umnico token, copy the Umnico webhook URL with `secret` query parameter, see `apiTokenStatus`, and send a test lead from the page.
+
+Context: Backend settings already store the token only on the Webhook/API channel and redact it from integration DTOs. Operators still needed SQL/manual provisioning steps to complete client setup.
+
+Consequences:
+
+- The UI sends `provider: "umnico"` and a new token only when the user enters one.
+- Existing tokens are shown only as `apiTokenStatus`, never prefilled into the browser form.
+- The no-SQL path is covered by `integrations-api.spec.ts` and backend redaction remains covered by `qa:umnico:settings`.
+
 ## 2026-07-07: Send Umnico Replies Through Channel Delivery
 
 Decision: LeadVirt sends Umnico-backed Webhook/API conversation replies through the worker `channels.sendMessage` queue and Umnico `POST /v1.3/messaging/<lead-id>/send`.

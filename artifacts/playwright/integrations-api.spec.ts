@@ -61,7 +61,7 @@ function integration(provider: string, status: "CONNECTED" | "DISCONNECTED") {
             processedAt: "2026-06-22T11:30:01.000Z",
           },
         ]
-      : []
+      : [],
   };
 }
 
@@ -73,8 +73,39 @@ function channel(type: string, publicKey: string) {
     status: "ACTIVE",
     name: type === "WEBSITE" ? "Website widget" : type,
     publicKey,
-    settings: {},
+    settings:
+      type === "WEBHOOK"
+        ? {
+            webhook: {
+              publicKey,
+              secret: "demo-webhook-secret",
+              acceptedHeaders: ["x-leadvirt-webhook-secret", "authorization"],
+            },
+          }
+        : {},
     lastHealthAt: "2026-06-22T12:00:00.000Z",
+  };
+}
+
+function webhookSettings(apiTokenStatus: "configured" | "missing" = "configured") {
+  return {
+    provider: "umnico",
+    apiTokenStatus,
+    endpointUrl: "https://api.umnico.com/v1.3",
+    webhook: {
+      provider: "umnico",
+      umnico: {
+        apiBase: "https://api.umnico.com/v1.3",
+        apiTokenStatus,
+      },
+    },
+  };
+}
+
+function webhookIntegration(status: "CONNECTED" | "DISCONNECTED" = "CONNECTED") {
+  return {
+    ...integration("WEBHOOK_API", status),
+    settings: webhookSettings(),
   };
 }
 
@@ -100,6 +131,7 @@ test("integrations page connects and disconnects through provider API", async ({
   let disconnectedProvider = "";
   const sampledProviders: string[] = [];
   let savedSettings: unknown = null;
+  let savedWebhookSettings: unknown = null;
 
   await page.route("**/api/integrations", async (route) => {
     await route.fulfill({
@@ -118,9 +150,9 @@ test("integrations page connects and disconnects through provider API", async ({
           },
           integration("RETAILCRM", "DISCONNECTED"),
           integration("TELEGRAM", "CONNECTED"),
-          integration("WEBHOOK_API", "CONNECTED")
-        ]
-      }
+          webhookIntegration("CONNECTED"),
+        ],
+      },
     });
   });
 
@@ -153,6 +185,18 @@ test("integrations page connects and disconnects through provider API", async ({
         data: {
           ...integration("AMOCRM", "CONNECTED"),
           settings: (savedSettings as { settings?: unknown }).settings ?? {},
+        },
+      },
+    });
+  });
+
+  await page.route("**/api/integrations/WEBHOOK_API/settings", async (route) => {
+    savedWebhookSettings = await route.request().postDataJSON();
+    await route.fulfill({
+      json: {
+        data: {
+          ...webhookIntegration("CONNECTED"),
+          settings: webhookSettings("configured"),
         },
       },
     });
@@ -194,7 +238,7 @@ test("integrations page connects and disconnects through provider API", async ({
           aiMessageId: null,
           outboundStatus: "queued",
           reply: null,
-          integration: integration("WEBHOOK_API", "CONNECTED"),
+          integration: webhookIntegration("CONNECTED"),
         },
       },
     });
@@ -207,19 +251,41 @@ test("integrations page connects and disconnects through provider API", async ({
   await expect(page.getByTestId("pilot-readiness-telegram")).toContainText("demo-telegram-webhook");
   await expect(page.getByTestId("pilot-readiness-webhook")).toContainText("demo-generic-webhook");
   await expect(page.getByTestId("pilot-readiness-widget")).toContainText("demo-website-widget");
-  await expect(page.getByTestId("pilot-readiness-widget-open")).toHaveAttribute("href", "/widget/demo");
+  await expect(page.getByTestId("pilot-readiness-widget-open")).toHaveAttribute(
+    "href",
+    "/widget/demo",
+  );
   await expect(page.getByTestId("api-webhook-endpoint")).toContainText(
-    "http://localhost:4001/api/public/channels/webhook/demo-generic-webhook/events"
+    "http://localhost:4001/api/public/channels/webhook/demo-generic-webhook/events",
   );
   await expect(page.getByTestId("api-webhook-publicKey")).toContainText("demo-generic-webhook");
-  await expect(page.getByTestId("api-webhook-secretHeader")).toContainText("x-leadvirt-webhook-secret");
+  await expect(page.getByTestId("api-webhook-secretHeader")).toContainText(
+    "x-leadvirt-webhook-secret",
+  );
   await expect(page.getByTestId("api-webhook-payload")).toContainText("leadvirt-sample-event");
+  await expect(page.getByTestId("api-webhook-umnicoWebhook")).toContainText(
+    "http://localhost:4001/api/public/channels/webhook/demo-generic-webhook/events?secret=demo-webhook-secret",
+  );
+  await expect(page.getByTestId("api-webhook-umnico-status")).toContainText("Umnico delivery");
+  await expect(page.getByTestId("api-webhook-umnico-status")).toContainText(
+    "Umnico token сохранён",
+  );
   await expect(page.getByText("sk-admin")).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Открыть API ключи" })).toHaveAttribute("href", "/app/settings?tab=api");
+  await expect(page.getByRole("link", { name: "Открыть API ключи" })).toHaveAttribute(
+    "href",
+    "/app/settings?tab=api",
+  );
   await page.getByTestId("pilot-readiness-telegram-sample").click();
   await expect.poll(() => sampledProviders).toContain("TELEGRAM");
   await page.getByTestId("pilot-readiness-webhook-sample").click();
   await expect.poll(() => sampledProviders).toContain("WEBHOOK_API");
+  const apiCardWebhookSamples = sampledProviders.filter(
+    (provider) => provider === "WEBHOOK_API",
+  ).length;
+  await page.getByTestId("api-webhook-sample").click();
+  await expect
+    .poll(() => sampledProviders.filter((provider) => provider === "WEBHOOK_API").length)
+    .toBe(apiCardWebhookSamples + 1);
 
   const amoCard = page.locator(".group").filter({ hasText: "amoCRM" }).first();
   await amoCard.getByRole("button", { name: /Настроить/ }).click();
@@ -231,12 +297,37 @@ test("integrations page connects and disconnects through provider API", async ({
   await page.getByLabel("Синхронизация включена").click();
   await page.getByLabel("Заметки").fill("Production CRM account");
   await page.getByRole("button", { name: "Сохранить настройки" }).click();
-  await expect.poll(() => (savedSettings as { settings?: { displayName?: string } } | null)?.settings?.displayName).toBe("amoCRM production");
-  await expect.poll(() => (savedSettings as { settings?: { endpointUrl?: string } } | null)?.settings?.endpointUrl).toBe("https://crm.example.test/webhook");
-  await expect.poll(() => (savedSettings as { settings?: { apiToken?: string } } | null)?.settings?.apiToken).toBe("secret-token-42");
-  await expect.poll(() => (savedSettings as { settings?: { syncEnabled?: boolean } } | null)?.settings?.syncEnabled).toBe(false);
-  await expect.poll(() => (savedSettings as { settings?: { notes?: string } } | null)?.settings?.notes).toBe("Production CRM account");
-  await expect.poll(() => (savedSettings as { settings?: { ui?: { configuredFrom?: string } } } | null)?.settings?.ui?.configuredFrom).toBe("integrations-page");
+  await expect
+    .poll(
+      () =>
+        (savedSettings as { settings?: { displayName?: string } } | null)?.settings?.displayName,
+    )
+    .toBe("amoCRM production");
+  await expect
+    .poll(
+      () =>
+        (savedSettings as { settings?: { endpointUrl?: string } } | null)?.settings?.endpointUrl,
+    )
+    .toBe("https://crm.example.test/webhook");
+  await expect
+    .poll(() => (savedSettings as { settings?: { apiToken?: string } } | null)?.settings?.apiToken)
+    .toBe("secret-token-42");
+  await expect
+    .poll(
+      () =>
+        (savedSettings as { settings?: { syncEnabled?: boolean } } | null)?.settings?.syncEnabled,
+    )
+    .toBe(false);
+  await expect
+    .poll(() => (savedSettings as { settings?: { notes?: string } } | null)?.settings?.notes)
+    .toBe("Production CRM account");
+  await expect
+    .poll(
+      () =>
+        (savedSettings as { settings?: { ui?: { configuredFrom?: string } } } | null)?.settings?.ui
+          ?.configuredFrom,
+    )
+    .toBe("integrations-page");
   await expect(page.getByRole("dialog", { name: /amoCRM: настройки/ })).toBeHidden();
 
   const telegramCard = page.locator(".group").filter({ hasText: "Telegram" }).first();
@@ -245,12 +336,77 @@ test("integrations page connects and disconnects through provider API", async ({
   const telegramDialog = page.getByRole("dialog", { name: /Telegram: настройки/ });
   await expect(telegramDialog).toBeVisible();
   await expect(telegramDialog.getByText("Публичный входящий endpoint")).toBeVisible();
-  await expect(telegramDialog.getByText("http://localhost:4001/api/public/channels/telegram/demo-telegram-webhook/webhook")).toBeVisible();
+  await expect(
+    telegramDialog.getByText(
+      "http://localhost:4001/api/public/channels/telegram/demo-telegram-webhook/webhook",
+    ),
+  ).toBeVisible();
   await expect(telegramDialog.getByText("demo-telegram-webhook", { exact: true })).toBeVisible();
   await expect(telegramDialog.getByText("x-telegram-bot-api-secret-token")).toBeVisible();
-  await expect(telegramDialog.getByText("I want to book an appointment from Telegram")).toBeVisible();
+  await expect(
+    telegramDialog.getByText("I want to book an appointment from Telegram"),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Отмена" }).click();
   await expect(telegramDialog).toBeHidden();
+
+  const webhookCard = page.locator(".group").filter({ hasText: "Webhook / API" }).first();
+  await webhookCard.getByRole("button", { name: /Настроить/ }).click();
+  await page.getByRole("menuitem", { name: /^Настроить$/ }).click();
+  const webhookDialog = page.getByRole("dialog", { name: /Webhook \/ API: Umnico onboarding/ });
+  await expect(webhookDialog).toBeVisible();
+  await expect(webhookDialog.getByTestId("umnico-token-status")).toContainText("Сохранён");
+  await expect(webhookDialog.getByTestId("umnico-webhook-url")).toContainText(
+    "http://localhost:4001/api/public/channels/webhook/demo-generic-webhook/events?secret=demo-webhook-secret",
+  );
+  await expect(webhookDialog.getByLabel("Umnico API URL")).toHaveValue(
+    "https://api.umnico.com/v1.3",
+  );
+  await expect(webhookDialog.getByLabel("Umnico API token")).toHaveValue("");
+  const modalWebhookSamples = sampledProviders.filter(
+    (provider) => provider === "WEBHOOK_API",
+  ).length;
+  await webhookDialog.getByTestId("umnico-settings-sample").click();
+  await expect
+    .poll(() => sampledProviders.filter((provider) => provider === "WEBHOOK_API").length)
+    .toBe(modalWebhookSamples + 1);
+  await webhookDialog.getByLabel("Umnico API token").fill("umnico-secret-token-43");
+  await expect(webhookDialog.getByLabel("Umnico API token")).toHaveValue("umnico-secret-token-43");
+  await webhookDialog.getByRole("button", { name: "Сохранить настройки" }).click();
+  await expect
+    .poll(
+      () =>
+        (savedWebhookSettings as { settings?: { provider?: string } } | null)?.settings?.provider,
+    )
+    .toBe("umnico");
+  await expect
+    .poll(
+      () =>
+        (savedWebhookSettings as { settings?: { apiToken?: string } } | null)?.settings?.apiToken,
+    )
+    .toBe("umnico-secret-token-43");
+  await expect
+    .poll(
+      () =>
+        (
+          savedWebhookSettings as {
+            settings?: { webhook?: { umnico?: { apiBase?: string; apiToken?: string } } };
+          } | null
+        )?.settings?.webhook?.umnico?.apiBase,
+    )
+    .toBe("https://api.umnico.com/v1.3");
+  await expect
+    .poll(
+      () =>
+        (
+          savedWebhookSettings as {
+            settings?: { webhook?: { umnico?: { apiToken?: string } } };
+          } | null
+        )?.settings?.webhook?.umnico?.apiToken,
+    )
+    .toBeUndefined();
+  await expect(
+    page.getByRole("dialog", { name: /Webhook \/ API: Umnico onboarding/ }),
+  ).toBeHidden();
 
   const retailCard = page.locator(".group").filter({ hasText: "RetailCRM" }).first();
   await expect(retailCard.getByRole("button", { name: /Подключить/ })).toBeVisible();
@@ -266,4 +422,3 @@ test("integrations page connects and disconnects through provider API", async ({
   await expect.poll(() => disconnectedProvider).toBe("RETAILCRM");
   await expect(retailCard.getByRole("button", { name: /Подключить/ })).toBeVisible();
 });
-

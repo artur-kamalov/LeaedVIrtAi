@@ -235,7 +235,7 @@ export function Modal({
         <DialogPrimitive.Content
           className={cn(
             themeClass,
-            "fixed left-1/2 top-1/2 z-[91] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-white/10 bg-zinc-900 p-6 text-zinc-50 shadow-2xl shadow-black/60",
+            "fixed left-1/2 top-1/2 z-[91] max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl border border-white/10 bg-zinc-900 p-6 text-zinc-50 shadow-2xl shadow-black/60",
             "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
             className
           )}

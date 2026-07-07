@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Channel, IntegrationAccount, IntegrationProvider } from "@leadvirt/types";
 import {
@@ -18,7 +18,6 @@ import {
   Zap,
   Settings,
   RefreshCw,
-  Plug,
   LogOut,
 } from "lucide-react";
 import { motion } from "motion/react";
@@ -43,8 +42,6 @@ import {
   ConfirmDialog,
   Modal,
   Select as BrandSelect,
-  Tip,
-  EmptyState,
 } from "../ui";
 
 /* ============================================================
@@ -227,6 +224,9 @@ function canSendSample(provider: IntegrationProvider) {
 }
 
 type SyncMode = "leads-to-service" | "two-way" | "events-only";
+type UmnicoTokenStatus = "configured" | "missing";
+
+const DEFAULT_UMNICO_API_BASE = "https://api.umnico.com/v1.3";
 
 interface IntegrationSettingsForm {
   displayName: string;
@@ -261,6 +261,13 @@ function booleanSetting(settings: Record<string, unknown>, key: string, fallback
   return typeof value === "boolean" ? value : fallback;
 }
 
+function firstString(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
 function syncModeSetting(settings: Record<string, unknown>): SyncMode {
   const value = settings.syncMode;
   return value === "two-way" || value === "events-only" || value === "leads-to-service"
@@ -268,25 +275,87 @@ function syncModeSetting(settings: Record<string, unknown>): SyncMode {
     : "leads-to-service";
 }
 
-function formFromSettings(integration: Integration, account?: IntegrationAccount | null): IntegrationSettingsForm {
+function webhookSettings(account?: IntegrationAccount | null) {
+  return asRecord(asRecord(account?.settings).webhook);
+}
+
+function umnicoSettings(account?: IntegrationAccount | null) {
   const settings = asRecord(account?.settings);
+  return isRecord(settings.umnico) ? settings.umnico : asRecord(webhookSettings(account).umnico);
+}
+
+function webhookProvider(account?: IntegrationAccount | null) {
+  const settings = asRecord(account?.settings);
+  return firstString(
+    settings.provider,
+    webhookSettings(account).provider,
+    umnicoSettings(account).provider,
+  );
+}
+
+function umnicoTokenStatus(account?: IntegrationAccount | null): UmnicoTokenStatus {
+  const settings = asRecord(account?.settings);
+  const status = firstString(settings.apiTokenStatus, umnicoSettings(account).apiTokenStatus);
+  return status === "configured" ? "configured" : "missing";
+}
+
+function isUmnicoWebhook(account?: IntegrationAccount | null) {
+  return (
+    webhookProvider(account)?.toLowerCase() === "umnico" ||
+    umnicoTokenStatus(account) === "configured"
+  );
+}
+
+function webhookChannel(channels?: Channel[] | null) {
+  return channels?.find((channel) => channel.type === "WEBHOOK") ?? null;
+}
+
+function webhookSecret(channel?: Channel | null) {
+  const settings = asRecord(channel?.settings);
+  const webhook = asRecord(settings.webhook);
+  return firstString(
+    webhook.secret,
+    webhook.webhookSecret,
+    settings.secret,
+    settings.webhookSecret,
+  );
+}
+
+function withSecretQuery(url: string, secret?: string) {
+  if (!url || !secret) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}secret=${encodeURIComponent(secret)}`;
+}
+
+function formFromSettings(
+  integration: Integration,
+  account?: IntegrationAccount | null,
+): IntegrationSettingsForm {
+  const settings = asRecord(account?.settings);
+  const isWebhookApi = integration.provider === "WEBHOOK_API";
+  const umnico = umnicoSettings(account);
 
   return {
     displayName: stringSetting(settings, "displayName", integration.name),
-    endpointUrl: stringSetting(settings, "endpointUrl"),
-    apiToken: stringSetting(settings, "apiToken"),
+    endpointUrl: isWebhookApi
+      ? (firstString(settings.endpointUrl, umnico.apiBase, DEFAULT_UMNICO_API_BASE) ??
+        DEFAULT_UMNICO_API_BASE)
+      : stringSetting(settings, "endpointUrl"),
+    apiToken: isWebhookApi ? "" : stringSetting(settings, "apiToken"),
     syncMode: syncModeSetting(settings),
     syncEnabled: booleanSetting(settings, "syncEnabled", true),
     notes: stringSetting(settings, "notes"),
   };
 }
 
-function settingsFromForm(currentSettings: Record<string, unknown>, form: IntegrationSettingsForm) {
-  return {
+function settingsFromForm(
+  currentSettings: Record<string, unknown>,
+  form: IntegrationSettingsForm,
+  provider: IntegrationProvider,
+) {
+  const base = {
     ...currentSettings,
     displayName: form.displayName.trim(),
     endpointUrl: form.endpointUrl.trim(),
-    apiToken: form.apiToken.trim(),
     syncMode: form.syncMode,
     syncEnabled: form.syncEnabled,
     notes: form.notes.trim(),
@@ -296,10 +365,47 @@ function settingsFromForm(currentSettings: Record<string, unknown>, form: Integr
       configuredAt: new Date().toISOString(),
     },
   };
+
+  if (provider === "WEBHOOK_API") {
+    const endpointUrl = form.endpointUrl.trim() || DEFAULT_UMNICO_API_BASE;
+    const apiToken = form.apiToken.trim();
+    const webhook = asRecord(currentSettings.webhook);
+    const umnico = asRecord(webhook.umnico);
+    const safeUmnico: Record<string, unknown> = { ...umnico };
+    const sanitized: Record<string, unknown> = { ...base };
+    delete sanitized.apiToken;
+    delete sanitized.umnicoApiToken;
+    delete safeUmnico.apiToken;
+    delete safeUmnico.token;
+    delete safeUmnico.jwt;
+    delete safeUmnico.accessToken;
+
+    return {
+      ...sanitized,
+      endpointUrl,
+      provider: "umnico",
+      ...(apiToken ? { apiToken } : {}),
+      webhook: {
+        ...webhook,
+        provider: "umnico",
+        umnico: {
+          ...safeUmnico,
+          apiBase: endpointUrl,
+        },
+      },
+    };
+  }
+
+  return {
+    ...base,
+    apiToken: form.apiToken.trim(),
+  };
 }
 
 function publicApiOrigin() {
-  return (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001/api").replace(/\/api\/?$/, "").replace(/\/$/, "");
+  return (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001/api")
+    .replace(/\/api\/?$/, "")
+    .replace(/\/$/, "");
 }
 
 function inboundEndpointUrl(endpointPath: string) {
@@ -352,7 +458,9 @@ function widgetReadiness(channel?: Channel | null) {
   return {
     ready,
     publicKey,
-    url: channel?.publicKey ? publicEndpointUrl(`/api/public/widget/${channel.publicKey}/config`) : "",
+    url: channel?.publicKey
+      ? publicEndpointUrl(`/api/public/widget/${channel.publicKey}/config`)
+      : "",
     signal: channel?.lastHealthAt
       ? `Последняя проверка: ${formatDateTime(channel.lastHealthAt)}`
       : ready
@@ -383,16 +491,19 @@ function Field({
 
 function EndpointCopyButton({ value, label = "Копировать" }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false);
+  const disabled = value.length === 0;
 
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={() => {
+        if (disabled) return;
         void navigator.clipboard?.writeText(value);
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1400);
       }}
-      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-emerald-500/30 hover:text-emerald-300"
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-emerald-500/30 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
     >
       {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
       {copied ? "Скопировано" : label}
@@ -436,7 +547,9 @@ function ReadinessTile({
       data-testid={testId}
       className={cn(
         "rounded-2xl border p-4",
-        ready ? "border-emerald-500/15 bg-emerald-500/[0.04]" : "border-amber-500/15 bg-amber-500/[0.04]"
+        ready
+          ? "border-emerald-500/15 bg-emerald-500/[0.04]"
+          : "border-amber-500/15 bg-amber-500/[0.04]",
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -449,7 +562,7 @@ function ReadinessTile({
             "shrink-0 border text-[11px]",
             ready
               ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-              : "border-amber-500/20 bg-amber-500/10 text-amber-300"
+              : "border-amber-500/20 bg-amber-500/10 text-amber-300",
           )}
         >
           {ready ? "Готов к пилоту" : "Нужна настройка"}
@@ -476,11 +589,14 @@ function ReadinessTile({
               asChild
               variant="outline"
               size="sm"
-              className={cn("h-8 w-full rounded-xl text-xs", disabled && "pointer-events-none opacity-50")}
+              className={cn(
+                "h-8 w-full rounded-xl text-xs",
+                disabled && "pointer-events-none opacity-50",
+              )}
             >
               <a href={actionHref} target="_blank" rel="noreferrer" data-testid={actionTestId}>
                 <ExternalLink className="h-3.5 w-3.5" />
-                {actionBusy ? actionBusyLabel ?? actionLabel : actionLabel}
+                {actionBusy ? (actionBusyLabel ?? actionLabel) : actionLabel}
               </a>
             </Button>
           ) : (
@@ -494,7 +610,7 @@ function ReadinessTile({
               data-testid={actionTestId}
             >
               <Send className="h-3.5 w-3.5" />
-              {actionBusy ? actionBusyLabel ?? actionLabel : actionLabel}
+              {actionBusy ? (actionBusyLabel ?? actionLabel) : actionLabel}
             </Button>
           )}
         </div>
@@ -531,7 +647,8 @@ function PilotReadinessPanel({
         <div>
           <p className="text-sm font-semibold text-zinc-100">Готовность входящих каналов</p>
           <p className="mt-1 text-xs leading-5 text-zinc-500">
-            Проверьте public key, endpoint и последние события перед запуском первого тестового трафика.
+            Проверьте public key, endpoint и последние события перед запуском первого тестового
+            трафика.
           </p>
         </div>
         <Pill className="w-fit border border-sky-500/20 bg-sky-500/10 text-xs text-sky-300">
@@ -587,7 +704,7 @@ function DarkInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
       {...props}
       className={cn(
         "w-full bg-white/5 border border-white/5 rounded-xl px-4 h-11 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all",
-        props.className
+        props.className,
       )}
     />
   );
@@ -599,7 +716,7 @@ function DarkTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) 
       {...props}
       className={cn(
         "w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all resize-none",
-        props.className
+        props.className,
       )}
     />
   );
@@ -621,7 +738,7 @@ function SettingsSwitch({
       onClick={() => onChange(!checked)}
       className={cn(
         "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus-visible:outline-none",
-        checked ? "bg-emerald-500" : "bg-white/10"
+        checked ? "bg-emerald-500" : "bg-white/10",
       )}
     >
       <motion.span
@@ -629,7 +746,7 @@ function SettingsSwitch({
         transition={{ type: "spring", stiffness: 500, damping: 32 }}
         className={cn(
           "pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg",
-          checked ? "translate-x-5" : "translate-x-0"
+          checked ? "translate-x-5" : "translate-x-0",
         )}
       />
     </button>
@@ -639,38 +756,64 @@ function SettingsSwitch({
 function IntegrationSettingsModal({
   integration,
   account,
+  channels,
   open,
   saving,
+  sampleBusy,
   onOpenChange,
   onSave,
+  onSendSample,
 }: {
   integration: Integration | null;
   account?: IntegrationAccount | null;
+  channels?: Channel[] | null;
   open: boolean;
   saving: boolean;
+  sampleBusy: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (form: IntegrationSettingsForm) => void;
+  onSendSample: () => void;
 }) {
   const [form, setForm] = useState<IntegrationSettingsForm>(() =>
-    integration ? formFromSettings(integration, account) : formFromSettings(INTEGRATIONS[0])
+    integration ? formFromSettings(integration, account) : formFromSettings(INTEGRATIONS[0]),
   );
+  const formSeedKeyRef = useRef("");
 
   useEffect(() => {
-    if (!open || !integration) return;
+    if (!open || !integration) {
+      formSeedKeyRef.current = "";
+      return;
+    }
+    const formSeedKey = `${integration.id}:${account?.id ?? "new"}`;
+    if (formSeedKeyRef.current === formSeedKey) return;
+    formSeedKeyRef.current = formSeedKey;
     setForm(formFromSettings(integration, account));
   }, [account, integration, open]);
 
   if (!integration) return null;
+  const isWebhookApi = integration.provider === "WEBHOOK_API";
   const inboundEndpoint = account?.inboundEndpoint ?? null;
   const fullEndpointUrl = inboundEndpoint ? inboundEndpointUrl(inboundEndpoint.endpointPath) : "";
-  const samplePayload = inboundEndpoint ? JSON.stringify(inboundEndpoint.samplePayload, null, 2) : "";
+  const umnicoWebhookUrl = isWebhookApi
+    ? withSecretQuery(fullEndpointUrl, webhookSecret(webhookChannel(channels)))
+    : "";
+  const samplePayload = inboundEndpoint
+    ? JSON.stringify(inboundEndpoint.samplePayload, null, 2)
+    : "";
+  const tokenStatus = umnicoTokenStatus(account);
+  const tokenConfigured = tokenStatus === "configured";
+  const umnicoDelivery = isUmnicoWebhook(account);
 
   return (
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title={`${integration.name}: настройки`}
-      description="Сохраните параметры подключения, которые будут использоваться при синхронизации лидов и событий."
+      title={isWebhookApi ? "Webhook / API: Umnico onboarding" : `${integration.name}: настройки`}
+      description={
+        isWebhookApi
+          ? "Подключите Umnico token к Webhook/API каналу и проверьте входящий тестовый лид."
+          : "Сохраните параметры подключения, которые будут использоваться при синхронизации лидов и событий."
+      }
       className="max-w-2xl"
       footer={
         <>
@@ -683,6 +826,50 @@ function IntegrationSettingsModal({
         </>
       }
     >
+      {isWebhookApi && (
+        <div
+          data-testid="umnico-onboarding-status"
+          className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3"
+        >
+          <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
+            <p className="text-xs uppercase tracking-widest text-zinc-500">Delivery</p>
+            <p
+              className={cn(
+                "mt-1 text-sm font-semibold",
+                umnicoDelivery ? "text-emerald-300" : "text-amber-300",
+              )}
+            >
+              {umnicoDelivery ? "Umnico" : "Не выбран"}
+            </p>
+          </div>
+          <div
+            className="rounded-2xl border border-white/5 bg-white/[0.03] p-3"
+            data-testid="umnico-token-status"
+          >
+            <p className="text-xs uppercase tracking-widest text-zinc-500">Token</p>
+            <p
+              className={cn(
+                "mt-1 text-sm font-semibold",
+                tokenConfigured ? "text-emerald-300" : "text-amber-300",
+              )}
+            >
+              {tokenConfigured ? "Сохранён" : "Нужен token"}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
+            <p className="text-xs uppercase tracking-widest text-zinc-500">Webhook</p>
+            <p
+              className={cn(
+                "mt-1 text-sm font-semibold",
+                umnicoWebhookUrl ? "text-emerald-300" : "text-amber-300",
+              )}
+            >
+              {umnicoWebhookUrl ? "URL готов" : "Нужен канал"}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Название подключения">
           <DarkInput
@@ -703,20 +890,32 @@ function IntegrationSettingsModal({
           />
         </Field>
 
-        <Field label="Endpoint / URL">
+        <Field
+          label={isWebhookApi ? "Umnico API URL" : "Endpoint / URL"}
+          hint={isWebhookApi ? "По умолчанию используется официальный API Umnico v1.3." : undefined}
+        >
           <DarkInput
-            aria-label="Endpoint URL"
-            placeholder="https://example.com/webhook"
+            aria-label={isWebhookApi ? "Umnico API URL" : "Endpoint URL"}
+            placeholder={isWebhookApi ? DEFAULT_UMNICO_API_BASE : "https://example.com/webhook"}
             value={form.endpointUrl}
             onChange={(event) => setForm((prev) => ({ ...prev, endpointUrl: event.target.value }))}
           />
         </Field>
 
-        <Field label="API token">
+        <Field
+          label={isWebhookApi ? "Umnico API token" : "API token"}
+          hint={
+            isWebhookApi && tokenConfigured
+              ? "Оставьте поле пустым, чтобы сохранить текущий token."
+              : undefined
+          }
+        >
           <DarkInput
-            aria-label="API token"
+            aria-label={isWebhookApi ? "Umnico API token" : "API token"}
             type="password"
-            placeholder="Введите токен"
+            placeholder={
+              isWebhookApi && tokenConfigured ? "Введите новый token для замены" : "Введите токен"
+            }
             value={form.apiToken}
             onChange={(event) => setForm((prev) => ({ ...prev, apiToken: event.target.value }))}
           />
@@ -726,7 +925,9 @@ function IntegrationSettingsModal({
       <div className="mt-4 rounded-2xl border border-white/5 bg-white/[0.03] p-4 flex items-center justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-zinc-200">Синхронизация включена</p>
-          <p className="text-xs text-zinc-500 mt-0.5">Отключите, чтобы сохранить подключение без автоматического обмена данными.</p>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Отключите, чтобы сохранить подключение без автоматического обмена данными.
+          </p>
         </div>
         <SettingsSwitch
           checked={form.syncEnabled}
@@ -740,7 +941,9 @@ function IntegrationSettingsModal({
             <div>
               <p className="text-sm font-semibold text-emerald-300">Публичный входящий endpoint</p>
               <p className="mt-0.5 text-xs text-zinc-500">
-                Используйте эти данные для первого пилота или внешней формы.
+                {isWebhookApi
+                  ? "Этот URL укажите в Umnico как webhook для входящих сообщений."
+                  : "Используйте эти данные для первого пилота или внешней формы."}
               </p>
             </div>
             <Pill className="border border-emerald-500/20 bg-emerald-500/10 text-emerald-300">
@@ -749,6 +952,21 @@ function IntegrationSettingsModal({
           </div>
 
           <div className="space-y-3">
+            {isWebhookApi && (
+              <div>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-zinc-400">Umnico webhook URL</span>
+                  <EndpointCopyButton value={umnicoWebhookUrl} />
+                </div>
+                <div
+                  data-testid="umnico-webhook-url"
+                  className="break-all rounded-xl border border-white/5 bg-zinc-950/60 px-3 py-2 font-mono text-xs text-zinc-200"
+                >
+                  {umnicoWebhookUrl || "Webhook channel secret недоступен"}
+                </div>
+              </div>
+            )}
+
             <div>
               <div className="mb-1 flex items-center justify-between gap-2">
                 <span className="text-xs font-medium text-zinc-400">Endpoint URL</span>
@@ -790,6 +1008,21 @@ function IntegrationSettingsModal({
                 {samplePayload}
               </pre>
             </div>
+
+            {isWebhookApi && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 w-full rounded-xl text-xs"
+                disabled={sampleBusy || !inboundEndpoint}
+                onClick={onSendSample}
+                data-testid="umnico-settings-sample"
+              >
+                <Send className="h-3.5 w-3.5" />
+                {sampleBusy ? "Отправляем..." : "Отправить тестовый лид"}
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -850,14 +1083,14 @@ function IntegrationCard({
             "relative rounded-2xl bg-zinc-900/50 border border-white/5 backdrop-blur-sm p-5 flex flex-col gap-4 h-full",
             "transition-all duration-300",
             "hover:border-white/10 hover:bg-zinc-900/80",
-            connected && "hover:shadow-[0_0_24px_-6px] hover:shadow-emerald-500/20"
+            connected && "hover:shadow-[0_0_24px_-6px] hover:shadow-emerald-500/20",
           )}
         >
           {/* Glow blob */}
           <div
             className={cn(
               "absolute -right-6 -top-6 w-24 h-24 rounded-full blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500",
-              integration.accentBg
+              integration.accentBg,
             )}
           />
 
@@ -866,7 +1099,7 @@ function IntegrationCard({
             <div
               className={cn(
                 "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0",
-                integration.accentBg
+                integration.accentBg,
               )}
             >
               <Icon className={cn("w-6 h-6", integration.accentColor)} />
@@ -874,7 +1107,7 @@ function IntegrationCard({
             <Pill
               className={cn(
                 "text-[11px] shrink-0",
-                "bg-white/5 text-zinc-400 border border-white/5"
+                "bg-white/5 text-zinc-400 border border-white/5",
               )}
             >
               {integration.category}
@@ -886,9 +1119,7 @@ function IntegrationCard({
             <span className="text-sm font-bold text-zinc-100 tracking-tight">
               {integration.name}
             </span>
-            <span className="text-xs text-zinc-500 leading-relaxed">
-              {integration.description}
-            </span>
+            <span className="text-xs text-zinc-500 leading-relaxed">{integration.description}</span>
           </div>
 
           {/* Footer */}
@@ -906,32 +1137,19 @@ function IntegrationCard({
                     </Button>
                   }
                 >
-                  <DropdownItem
-                    icon={Settings}
-                    onClick={onConfigure}
-                  >
+                  <DropdownItem icon={Settings} onClick={onConfigure}>
                     Настроить
                   </DropdownItem>
-                  <DropdownItem
-                    icon={RefreshCw}
-                    onClick={onTest}
-                  >
+                  <DropdownItem icon={RefreshCw} onClick={onTest}>
                     Проверить связь
                   </DropdownItem>
                   {canSendSample(integration.provider) && (
-                    <DropdownItem
-                      icon={Send}
-                      onClick={onSample}
-                    >
+                    <DropdownItem icon={Send} onClick={onSample}>
                       Тестовый входящий
                     </DropdownItem>
                   )}
                   <DropdownSeparator />
-                  <DropdownItem
-                    icon={LogOut}
-                    onClick={() => setConfirmOpen(true)}
-                    danger
-                  >
+                  <DropdownItem icon={LogOut} onClick={() => setConfirmOpen(true)} danger>
                     Отключить
                   </DropdownItem>
                 </Dropdown>
@@ -970,20 +1188,42 @@ function IntegrationCard({
 /* ============================================================
    API Card
    ============================================================ */
-type ApiCopyTarget = "endpoint" | "publicKey" | "secretHeader" | "payload";
+type ApiCopyTarget = "endpoint" | "umnicoWebhook" | "publicKey" | "secretHeader" | "payload";
 
-function ApiCard({ accounts }: { accounts: IntegrationAccount[] }) {
+function ApiCard({
+  accounts,
+  channels,
+  pendingId,
+  onSendSample,
+}: {
+  accounts: IntegrationAccount[];
+  channels?: Channel[] | null;
+  pendingId: string | null;
+  onSendSample: (integrationId: string) => void;
+}) {
   const [copied, setCopied] = useState<ApiCopyTarget | null>(null);
   const webhookAccount = accounts.find((account) => account.provider === "WEBHOOK_API");
   const endpoint = webhookAccount?.inboundEndpoint ?? null;
   const endpointUrl = endpoint ? inboundEndpointUrl(endpoint.endpointPath) : "";
-  const samplePayload = endpoint?.samplePayload ? JSON.stringify(endpoint.samplePayload, null, 2) : "";
+  const umnicoUrl = withSecretQuery(endpointUrl, webhookSecret(webhookChannel(channels)));
+  const tokenStatus = umnicoTokenStatus(webhookAccount);
+  const tokenConfigured = tokenStatus === "configured";
+  const umnicoDelivery = isUmnicoWebhook(webhookAccount);
+  const samplePayload = endpoint?.samplePayload
+    ? JSON.stringify(endpoint.samplePayload, null, 2)
+    : "";
   const rows: { id: ApiCopyTarget; label: string; value: string; empty: string }[] = [
     {
       id: "endpoint",
       label: "Webhook URL",
       value: endpointUrl,
       empty: "Подключите Webhook / API, чтобы получить URL",
+    },
+    {
+      id: "umnicoWebhook",
+      label: "Umnico webhook URL",
+      value: umnicoUrl,
+      empty: "Подключите Webhook / API, чтобы получить Umnico URL",
     },
     {
       id: "publicKey",
@@ -1007,7 +1247,7 @@ function ApiCard({ accounts }: { accounts: IntegrationAccount[] }) {
 
   function handleCopy(type: ApiCopyTarget, value: string) {
     if (!value) return;
-    navigator.clipboard.writeText(value).catch(() => {});
+    navigator.clipboard?.writeText(value).catch(() => {});
     setCopied(type);
     setTimeout(() => setCopied(null), 1800);
   }
@@ -1023,9 +1263,7 @@ function ApiCard({ accounts }: { accounts: IntegrationAccount[] }) {
           <div className="flex-1 min-w-0 flex flex-col gap-4">
             {rows.map((row) => (
               <div key={row.id}>
-                <p className="mb-1 text-xs uppercase tracking-widest text-zinc-500">
-                  {row.label}
-                </p>
+                <p className="mb-1 text-xs uppercase tracking-widest text-zinc-500">{row.label}</p>
                 <div
                   data-testid={`api-webhook-${row.id}`}
                   className="flex items-center gap-2 rounded-xl border border-white/5 bg-zinc-800/60 px-4 py-2.5"
@@ -1033,7 +1271,7 @@ function ApiCard({ accounts }: { accounts: IntegrationAccount[] }) {
                   <span
                     className={cn(
                       "flex-1 truncate font-mono text-sm",
-                      row.value ? "text-zinc-300" : "text-zinc-600"
+                      row.value ? "text-zinc-300" : "text-zinc-600",
                     )}
                   >
                     {row.value || row.empty}
@@ -1057,14 +1295,48 @@ function ApiCard({ accounts }: { accounts: IntegrationAccount[] }) {
           </div>
 
           <div className="flex flex-col gap-3 md:pt-6 md:shrink-0">
-            <Pill
-              className={cn(
-                "justify-center text-[11px]",
-                endpoint ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"
-              )}
+            <div data-testid="api-webhook-umnico-status" className="flex flex-col gap-2">
+              <Pill
+                className={cn(
+                  "justify-center text-[11px]",
+                  endpoint
+                    ? "bg-emerald-500/15 text-emerald-300"
+                    : "bg-amber-500/15 text-amber-300",
+                )}
+              >
+                {endpoint ? "Webhook/API готов" : "Нужна настройка"}
+              </Pill>
+              <Pill
+                className={cn(
+                  "justify-center text-[11px]",
+                  umnicoDelivery ? "bg-sky-500/15 text-sky-300" : "bg-white/5 text-zinc-400",
+                )}
+              >
+                {umnicoDelivery ? "Umnico delivery" : "Generic webhook"}
+              </Pill>
+              <Pill
+                className={cn(
+                  "justify-center text-[11px]",
+                  tokenConfigured
+                    ? "bg-emerald-500/15 text-emerald-300"
+                    : "bg-amber-500/15 text-amber-300",
+                )}
+              >
+                {tokenConfigured ? "Umnico token сохранён" : "Нужен Umnico token"}
+              </Pill>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={!endpoint || pendingId === "webhook"}
+              onClick={() => onSendSample("webhook")}
+              data-testid="api-webhook-sample"
             >
-              {endpoint ? "Webhook/API готов" : "Нужна настройка"}
-            </Pill>
+              <Send className="h-4 w-4" />
+              {pendingId === "webhook" ? "Отправляем..." : "Тестовый лид"}
+            </Button>
             <Button asChild variant="outline" size="sm" className="gap-2">
               <Link href="/app/settings?tab=api">
                 <ExternalLink className="w-4 h-4" />
@@ -1128,7 +1400,9 @@ export function IntegrationsPage() {
   function updateFromAccount(account: IntegrationAccount) {
     setAccounts((prev) => {
       const exists = prev.some((item) => item.id === account.id);
-      return exists ? prev.map((item) => (item.id === account.id ? account : item)) : [...prev, account];
+      return exists
+        ? prev.map((item) => (item.id === account.id ? account : item))
+        : [...prev, account];
     });
 
     const patch = apiAccountToConnectedPatch(account);
@@ -1187,7 +1461,7 @@ export function IntegrationsPage() {
 
     const account = accounts.find((item) => item.provider === integration.provider);
     const currentSettings = asRecord(account?.settings);
-    const nextSettings = settingsFromForm(currentSettings, form);
+    const nextSettings = settingsFromForm(currentSettings, form, integration.provider);
 
     setPendingId(id);
 
@@ -1197,7 +1471,9 @@ export function IntegrationsPage() {
       setSettingsIntegrationId(null);
       toast.success(`${integration.name} настройки сохранены`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось сохранить настройки интеграции");
+      toast.error(
+        error instanceof Error ? error.message : "Не удалось сохранить настройки интеграции",
+      );
     } finally {
       setPendingId(null);
     }
@@ -1232,7 +1508,9 @@ export function IntegrationsPage() {
         description: result.conversationId,
       });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось отправить тестовый входящий");
+      toast.error(
+        error instanceof Error ? error.message : "Не удалось отправить тестовый входящий",
+      );
     } finally {
       setPendingId(null);
     }
@@ -1241,16 +1519,17 @@ export function IntegrationsPage() {
   const totalConnected = Object.values(connectedMap).filter(Boolean).length;
   const totalAvailable = INTEGRATIONS.length;
   const channelsActive = INTEGRATIONS.filter(
-    (i) => i.category === "Каналы" && connectedMap[i.id]
+    (i) => i.category === "Каналы" && connectedMap[i.id],
   ).length;
 
   const filtered =
     activeCategory === "Все"
       ? INTEGRATIONS
       : INTEGRATIONS.filter((i) => i.category === activeCategory);
-  const settingsIntegration = INTEGRATIONS.find((item) => item.id === settingsIntegrationId) ?? null;
+  const settingsIntegration =
+    INTEGRATIONS.find((item) => item.id === settingsIntegrationId) ?? null;
   const settingsAccount = settingsIntegration
-    ? accounts.find((item) => item.provider === settingsIntegration.provider) ?? null
+    ? (accounts.find((item) => item.provider === settingsIntegration.provider) ?? null)
     : null;
 
   return (
@@ -1262,11 +1541,10 @@ export function IntegrationsPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, ease: "easeOut" }}
         >
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-50 mb-1">
-            Интеграции
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-50 mb-1">Интеграции</h1>
           <p className="text-sm text-zinc-400 max-w-xl">
-            Подключите каналы и сервисы — AI Администратор будет работать со всеми вашими источниками заявок.
+            Подключите каналы и сервисы — AI Администратор будет работать со всеми вашими
+            источниками заявок.
           </p>
         </motion.div>
 
@@ -1302,7 +1580,7 @@ export function IntegrationsPage() {
               data-testid={testId}
               className={cn(
                 "flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-medium",
-                color
+                color,
               )}
             >
               <span className="text-base font-bold">{value}</span>
@@ -1333,7 +1611,7 @@ export function IntegrationsPage() {
                 "rounded-full border px-4 py-1.5 text-xs font-medium transition-all duration-200",
                 activeCategory === cat
                   ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
-                  : "bg-white/[0.03] border-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06]"
+                  : "bg-white/[0.03] border-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06]",
               )}
             >
               {cat}
@@ -1365,18 +1643,26 @@ export function IntegrationsPage() {
             title="API ключи / Webhook"
             sub="Используйте для прямой интеграции с вашими сервисами"
           />
-          <ApiCard accounts={accounts} />
+          <ApiCard
+            accounts={accounts}
+            channels={channels}
+            pendingId={pendingId}
+            onSendSample={(id) => void sendSample(id)}
+          />
         </div>
 
         <IntegrationSettingsModal
           integration={settingsIntegration}
           account={settingsAccount}
+          channels={channels}
           open={settingsIntegrationId !== null}
           saving={pendingId === settingsIntegrationId}
+          sampleBusy={pendingId === "webhook"}
           onOpenChange={(open) => {
             if (!open) setSettingsIntegrationId(null);
           }}
           onSave={(form) => void saveSettings(form)}
+          onSendSample={() => void sendSample("webhook")}
         />
       </div>
     </ProductLayout>
