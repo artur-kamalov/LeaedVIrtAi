@@ -13,6 +13,18 @@ Consequences:
 - Channels must store Umnico API credentials in channel settings before real delivery can work in production.
 - `qa:umnico:outbound` covers the outbound adapter payload shape.
 
+## 2026-07-07: Store Umnico Tokens On Channels, Not Integration DTOs
+
+Decision: `WEBHOOK_API` integration settings can configure Umnico delivery, but the API token is persisted only in the associated Webhook/API channel settings. Integration settings expose `apiTokenStatus` instead of returning the token.
+
+Context: The Integrations page is the natural client onboarding surface, while channel delivery workers read credentials from channels. Returning third-party tokens in list responses would leak secrets to the browser.
+
+Consequences:
+
+- `PATCH /integrations/WEBHOOK_API/settings` updates the Webhook/API channel's `webhook.umnico` settings.
+- `/integrations` can show whether Umnico is configured without exposing the token.
+- `qa:umnico:settings` verifies the credential placement and redaction boundary.
+
 ## 2026-07-07: Use Umnico As Instagram Inbound Bridge First
 
 Decision: Pilot Instagram through Umnico by routing Umnico `message.incoming` webhooks into the existing LeadVirt Webhook/API channel. Because Umnico webhook registration accepts a URL but no custom headers, LeadVirt also accepts the Webhook/API secret as a `secret` query parameter for this public endpoint.

@@ -101,7 +101,7 @@ export class IntegrationsService {
           status: "ACTIVE",
           type: { in: ["TELEGRAM", "WEBHOOK"] }
         },
-        select: { id: true, type: true, publicKey: true }
+        select: { id: true, type: true, publicKey: true, settings: true }
       })
     ]);
     const webhookProviders = [...new Set(channels.flatMap((channel) => this.webhookProvidersForChannel(channel)))];
@@ -133,7 +133,7 @@ export class IntegrationsService {
       status: integration.status,
       name: integration.name,
       category: integration.category,
-      settings: integration.settings,
+      settings: this.integrationSettings(integration.provider, integration.settings, channels),
       connectedAt: integration.connectedAt?.toISOString() ?? null,
       lastSyncAt: integration.lastSyncAt?.toISOString() ?? null,
       inboundEndpoint: this.inboundEndpointForProvider(integration.provider, channels),
@@ -172,9 +172,11 @@ export class IntegrationsService {
 
   async updateSettings(context: RequestContext, provider: string, dto: UpdateIntegrationSettingsDto): Promise<IntegrationAccount> {
     const integration = await this.loadByProvider(context.tenantId, provider);
+    const parsedProvider = this.parseProvider(provider);
+    const sanitizedSettings = parsedProvider === "WEBHOOK_API" ? await this.configureWebhookProvider(context, dto.settings) : dto.settings;
     const updated = await this.prisma.integrationAccount.update({
       where: { id: integration.id },
-      data: { settings: dto.settings as Prisma.InputJsonObject }
+      data: { settings: sanitizedSettings as Prisma.InputJsonObject }
     });
     await this.logAudit(context, "integration.settings_updated", updated.id, { provider: updated.provider });
     return (await this.list(context)).find((item) => item.id === updated.id) ?? this.toDto(updated);
@@ -385,6 +387,70 @@ export class IntegrationsService {
     return channel;
   }
 
+  private async configureWebhookProvider(context: RequestContext, settings: Record<string, unknown>) {
+    const channel = await this.prisma.channel.findFirst({
+      where: { tenantId: context.tenantId, type: "WEBHOOK", status: "ACTIVE", deletedAt: null, publicKey: { not: null } },
+      select: { id: true, settings: true }
+    });
+    if (!channel) {
+      throw new BadRequestException("Webhook/API channel is not active or has no public key.");
+    }
+
+    const currentSettings = asRecord(channel.settings);
+    const currentWebhook = asRecord(currentSettings.webhook);
+    const currentUmnico = asRecord(currentWebhook.umnico);
+    const incomingWebhook = asRecord(settings.webhook);
+    const incomingUmnico = isRecord(settings.umnico) ? settings.umnico : asRecord(incomingWebhook.umnico);
+    const apiToken = optionalString(firstString(settings.apiToken, settings.umnicoApiToken, incomingUmnico.apiToken, incomingUmnico.token));
+    const apiBase = optionalString(firstString(settings.endpointUrl, settings.umnicoApiBase, incomingUmnico.apiBase, incomingUmnico.baseUrl));
+    const provider = optionalString(firstString(settings.provider, incomingWebhook.provider, incomingUmnico.provider)) ?? (apiToken || currentUmnico.apiToken ? "umnico" : firstString(currentWebhook.provider, "generic"));
+
+    const nextUmnico: Prisma.InputJsonObject = {
+      ...currentUmnico,
+      ...(apiBase ? { apiBase } : {}),
+      ...(apiToken ? { apiToken } : {})
+    };
+    const nextWebhook: Prisma.InputJsonObject = {
+      ...currentWebhook,
+      provider,
+      ...(provider === "umnico" ? { umnico: nextUmnico } : {})
+    };
+
+    await this.prisma.channel.update({
+      where: { id: channel.id },
+      data: {
+        settings: {
+          ...currentSettings,
+          webhook: nextWebhook
+        }
+      }
+    });
+
+    const sanitized = { ...settings };
+    delete sanitized.apiToken;
+    delete sanitized.umnicoApiToken;
+    const tokenConfigured = Boolean(apiToken || currentUmnico.apiToken);
+    return {
+      ...sanitized,
+      provider,
+      apiTokenStatus: tokenConfigured ? "configured" : "missing",
+      endpointUrl: apiBase ?? firstString(currentUmnico.apiBase, ""),
+      webhook: {
+        ...asRecord(sanitized.webhook),
+        provider,
+        ...(provider === "umnico"
+          ? {
+              umnico: {
+                ...asRecord(asRecord(sanitized.webhook).umnico),
+                ...(apiBase ? { apiBase } : {}),
+                apiTokenStatus: tokenConfigured ? "configured" : "missing"
+              }
+            }
+          : {})
+      }
+    };
+  }
+
   private async findConnectedCrm(tenantId: string) {
     const integration = await this.prisma.integrationAccount.findFirst({
       where: {
@@ -524,6 +590,40 @@ export class IntegrationsService {
       inboundEndpoint,
       recentWebhookEvents: [],
       recentSyncLogs: []
+    };
+  }
+
+  private integrationSettings(
+    provider: ProviderParam,
+    settings: Prisma.JsonValue | null,
+    channels: { id: string; type: ChannelType; publicKey: string | null; settings?: Prisma.JsonValue | null }[]
+  ) {
+    const base = asRecord(settings);
+    if (provider !== "WEBHOOK_API") return base;
+
+    const channel = channels.find((item) => item.type === "WEBHOOK");
+    const channelSettings = asRecord(channel?.settings);
+    const webhook = asRecord(channelSettings.webhook);
+    const umnico = asRecord(webhook.umnico);
+    const apiTokenConfigured = Boolean(umnico.apiToken);
+    return {
+      ...base,
+      provider: firstString(webhook.provider, base.provider),
+      apiTokenStatus: apiTokenConfigured ? "configured" : firstString(base.apiTokenStatus, "missing"),
+      endpointUrl: firstString(umnico.apiBase, base.endpointUrl),
+      webhook: {
+        ...asRecord(base.webhook),
+        provider: firstString(webhook.provider, asRecord(base.webhook).provider),
+        ...(webhook.provider === "umnico"
+          ? {
+              umnico: {
+                ...asRecord(asRecord(base.webhook).umnico),
+                apiBase: firstString(umnico.apiBase),
+                apiTokenStatus: apiTokenConfigured ? "configured" : "missing"
+              }
+            }
+          : {})
+      }
     };
   }
 
