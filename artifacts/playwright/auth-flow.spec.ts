@@ -35,38 +35,40 @@ const apiMockHeaders = {
   "content-type": "application/json"
 };
 
-const telegramPayload = {
-  id: 100000001,
-  first_name: "Local",
-  last_name: "Telegram",
-  username: "leadvirt_local",
-  auth_date: Math.floor(Date.now() / 1000),
-  hash: "local-playwright-mock"
-};
+const telegramOidcToken = "mock-telegram-id-token";
+const telegramLoginSdkMock = `
+  window.Telegram = window.Telegram || {};
+  window.Telegram.Login = {
+    auth(options, callback) {
+      window.leadvirtTelegramSdkCalls = window.leadvirtTelegramSdkCalls || [];
+      window.leadvirtTelegramSdkCalls.push({ options });
+      const result = window.leadvirtTelegramNextResult || {
+        id_token: "${telegramOidcToken}",
+        user: { id: 100000001, name: "Local Telegram", preferred_username: "leadvirt_local" }
+      };
+      window.setTimeout(() => callback(result), 0);
+    },
+    close() {
+      window.leadvirtTelegramClosed = true;
+    }
+  };
+`;
 
 async function completeTelegramAuth(page: Page) {
   const authButton = page.getByTestId("telegram-auth-button");
-  const isFallbackButton = await authButton.evaluate((element) => element.tagName === "BUTTON");
-  if (isFallbackButton) {
-    await authButton.click();
-    return;
-  }
-
-  await expect
-    .poll(async () =>
-      page.evaluate(() => typeof (window as Window & { leadvirtTelegramAuth?: unknown }).leadvirtTelegramAuth)
-    )
-    .toBe("function");
-
-  await page.evaluate((payload) => {
-    (window as Window & { leadvirtTelegramAuth?: (value: typeof payload) => void }).leadvirtTelegramAuth?.(payload);
-  }, telegramPayload);
+  await expect(authButton).toBeEnabled({ timeout: 15000 });
+  await authButton.click();
 }
 
 test.describe("telegram auth flow", () => {
+  test.setTimeout(60_000);
+
   test.beforeEach(async ({ page }) => {
     await page.route("**/api/auth/telegram", async (route) => {
       await route.fulfill({ headers: apiMockHeaders, json: authResponse });
+    });
+    await page.route("https://telegram.org/js/telegram-login.js", async (route) => {
+      await route.fulfill({ contentType: "application/javascript", body: telegramLoginSdkMock });
     });
     await page.route("**/api/auth/telegram/config", async (route) => {
       await route.fulfill({ headers: apiMockHeaders, json: { data: { botId: "123456" } } });
@@ -80,6 +82,12 @@ test.describe("telegram auth flow", () => {
   });
 
   test("login through Telegram opens the app", async ({ page }) => {
+    await page.route("**/api/auth/telegram/oidc", async (route) => {
+      const body = route.request().postDataJSON() as { idToken?: string; nonce?: string };
+      expect(body.idToken).toBe(telegramOidcToken);
+      expect(body.nonce).toBeTruthy();
+      await route.fulfill({ headers: apiMockHeaders, json: authResponse });
+    });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
 
@@ -87,12 +95,17 @@ test.describe("telegram auth flow", () => {
     await completeTelegramAuth(page);
 
     await expect(page).toHaveURL(`${webBase}/app`, { timeout: 15000 });
+    const sdkCalls = await page.evaluate(() => (window as Window & { leadvirtTelegramSdkCalls?: Array<{ options: { client_id: number; scope: string[]; lang?: string; nonce?: string } }> }).leadvirtTelegramSdkCalls ?? []);
+    expect(sdkCalls[0]?.options.client_id).toBe(123456);
+    expect(sdkCalls[0]?.options.scope).toEqual(["profile", "write"]);
+    expect(sdkCalls[0]?.options.lang).toBe("ru");
+    expect(sdkCalls[0]?.options.nonce).toBeTruthy();
     await expect.poll(async () => {
       return page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session") ?? "");
     }).toContain("telegram");
   });
 
-  test("switch account clears local session and logs in through Telegram OIDC prompt", async ({ page }) => {
+  test("switch account clears local session and logs in through Telegram Login SDK", async ({ page }) => {
     let logoutRequests = 0;
     let oidcRequests = 0;
     await page.route("**/api/auth/logout", async (route) => {
@@ -102,26 +115,10 @@ test.describe("telegram auth flow", () => {
     await page.route("**/api/auth/telegram/oidc", async (route) => {
       oidcRequests += 1;
       const body = route.request().postDataJSON() as { idToken?: string; nonce?: string };
-      expect(body.idToken).toBe("mock-telegram-id-token");
+      expect(body.idToken).toBe(telegramOidcToken);
       expect(body.nonce).toBeTruthy();
+      await new Promise((resolve) => setTimeout(resolve, 150));
       await route.fulfill({ headers: apiMockHeaders, json: authResponse });
-    });
-    await page.addInitScript(() => {
-      window.open = ((url?: string | URL) => {
-        const state = window as Window & {
-          leadvirtTelegramOidcUrl?: string;
-          leadvirtTelegramOidcPopup?: { closed: boolean; close: () => void; focus: () => void };
-        };
-        state.leadvirtTelegramOidcUrl = String(url ?? "");
-        state.leadvirtTelegramOidcPopup = {
-          closed: false,
-          close: () => {
-            if (state.leadvirtTelegramOidcPopup) state.leadvirtTelegramOidcPopup.closed = true;
-          },
-          focus: () => undefined
-        };
-        return state.leadvirtTelegramOidcPopup as Window;
-      }) as typeof window.open;
     });
 
     await page.setViewportSize({ width: 1440, height: 1000 });
@@ -130,70 +127,33 @@ test.describe("telegram auth flow", () => {
     await expect(page.getByRole("heading", { level: 2 })).toContainText("LeadVirt.ai");
     const switchAccountButton = page.getByTestId("telegram-switch-account");
     if ((await switchAccountButton.count()) === 0) {
-      await expect(page.getByText("Telegram bot username")).toBeVisible();
+      await expect(page.getByText("Telegram Login client id")).toBeVisible();
       return;
     }
 
     await switchAccountButton.click();
 
-    await expect
-      .poll(() => page.evaluate(() => (window as Window & { leadvirtTelegramOidcUrl?: string }).leadvirtTelegramOidcUrl ?? ""))
-      .toContain("https://oauth.telegram.org/auth");
-    const oidcUrl = await page.evaluate(() => (window as Window & { leadvirtTelegramOidcUrl?: string }).leadvirtTelegramOidcUrl ?? "");
-    expect(oidcUrl).toContain("client_id=123456");
-    expect(oidcUrl).toContain("response_type=post_message");
-    expect(new URL(oidcUrl).searchParams.get("origin")).toBe(webBase);
-    expect(new URL(oidcUrl).searchParams.get("prompt")).toBe("login select_account");
+    const sdkCalls = await page.evaluate(() => (window as Window & { leadvirtTelegramSdkCalls?: Array<{ options: { client_id: number; scope: string[]; lang?: string; nonce?: string } }> }).leadvirtTelegramSdkCalls ?? []);
+    expect(sdkCalls).toHaveLength(1);
+    expect(sdkCalls[0]?.options.client_id).toBe(123456);
+    expect(sdkCalls[0]?.options.scope).toEqual(["profile", "write"]);
+    expect(sdkCalls[0]?.options.lang).toBe("ru");
+    expect(sdkCalls[0]?.options.nonce).toBeTruthy();
     await expect
       .poll(() => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session")))
       .toBeNull();
-    await page.evaluate(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          origin: "https://oauth.telegram.org",
-          data: JSON.stringify({ event: "auth_result", result: "mock-telegram-id-token" })
-        })
-      );
-    });
     await expect(page).toHaveURL(`${webBase}/app`, { timeout: 15000 });
     await expect.poll(async () => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session") ?? "")).toContain("telegram");
     expect(logoutRequests).toBe(1);
     expect(oidcRequests).toBe(1);
   });
 
-  test("switch account accepts Telegram OIDC result after a quick popup close", async ({ page }) => {
-    let oidcRequests = 0;
+  test("switch account reports Telegram SDK popup close", async ({ page }) => {
     await page.route("**/api/auth/logout", async (route) => {
       await route.fulfill({ headers: apiMockHeaders, json: { data: { loggedOut: true } } });
     });
-    await page.route("**/api/auth/telegram/oidc", async (route) => {
-      oidcRequests += 1;
-      await route.fulfill({ headers: apiMockHeaders, json: authResponse });
-    });
     await page.addInitScript(() => {
-      window.open = ((url?: string | URL) => {
-        const state = window as Window & {
-          leadvirtTelegramOidcUrl?: string;
-          leadvirtTelegramOidcPopup?: { closed: boolean; close: () => void; focus: () => void };
-        };
-        state.leadvirtTelegramOidcUrl = String(url ?? "");
-        state.leadvirtTelegramOidcPopup = {
-          closed: true,
-          close: () => {
-            if (state.leadvirtTelegramOidcPopup) state.leadvirtTelegramOidcPopup.closed = true;
-          },
-          focus: () => undefined
-        };
-        window.setTimeout(() => {
-          window.dispatchEvent(
-            new MessageEvent("message", {
-              origin: "https://oauth.telegram.org",
-              data: JSON.stringify({ event: "auth_result", result: "mock-telegram-id-token" })
-            })
-          );
-        }, 500);
-        return state.leadvirtTelegramOidcPopup as Window;
-      }) as typeof window.open;
+      (window as Window & { leadvirtTelegramNextResult?: { error: string } }).leadvirtTelegramNextResult = { error: "popup_closed" };
     });
 
     await page.setViewportSize({ width: 1440, height: 1000 });
@@ -201,17 +161,23 @@ test.describe("telegram auth flow", () => {
 
     const switchAccountButton = page.getByTestId("telegram-switch-account");
     if ((await switchAccountButton.count()) === 0) {
-      await expect(page.getByText("Telegram bot username")).toBeVisible();
+      await expect(page.getByText("Telegram Login client id")).toBeVisible();
       return;
     }
 
     await switchAccountButton.click();
 
-    await expect(page).toHaveURL(`${webBase}/app`, { timeout: 15000 });
-    expect(oidcRequests).toBe(1);
+    await expect(page).toHaveURL(`${webBase}/login`);
+    await expect(page.getByText("Telegram закрыл окно без результата")).toBeVisible();
   });
 
   test("signup through Telegram opens onboarding", async ({ page }) => {
+    await page.route("**/api/auth/telegram/oidc", async (route) => {
+      const body = route.request().postDataJSON() as { idToken?: string; nonce?: string };
+      expect(body.idToken).toBe(telegramOidcToken);
+      expect(body.nonce).toBeTruthy();
+      await route.fulfill({ headers: apiMockHeaders, json: authResponse });
+    });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${webBase}/signup`, { waitUntil: "networkidle" });
 

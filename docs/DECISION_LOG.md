@@ -14,17 +14,17 @@ Consequences:
 
 ## 2026-07-07: Let Users Switch Telegram Login Accounts
 
-Decision: Telegram login now exposes the public numeric bot id through `/auth/telegram/config` and keeps the legacy widget for normal login, but the "different account" action uses Telegram's OIDC flow with `prompt=login select_account`. The API verifies the returned OIDC `id_token` against Telegram JWKS and maps it to the same `telegram:<id>` user identity.
+Decision: Telegram login now exposes the public numeric bot id through `/auth/telegram/config`. The `/login` and `/signup` pages use Telegram's official `telegram-login.js` SDK for primary login and the "different account" action, then send the returned OIDC `id_token` to `/auth/telegram/oidc`. The API verifies the token against Telegram JWKS and maps it to the same `telegram:<id>` user identity.
 
-Context: The legacy Telegram Login Widget can reuse the last Telegram OAuth session. LeadVirt masked the native iframe with a branded button, so returning users could be signed in with the previous Telegram account without a clear account-switch path.
+Context: The legacy Telegram Login Widget iframe and the hand-built OAuth popup path were brittle for account switching. Telegram's current browser integration exposes `Telegram.Login.auth(...)`, which opens the Telegram OIDC popup and returns an `id_token` callback suitable for a Next.js client component.
 
 Consequences:
 
 - The bot token remains server-only; only the public bot id is exposed.
-- Regular Telegram login stays on the existing signed payload contract.
-- Users can request a fresh Telegram account choice from `/login` without relying on cross-domain cookie deletion.
-- Hidden iframe logout is avoided because browser third-party cookie rules can prevent it from affecting `oauth.telegram.org`.
-- Legacy popup/logout reset is avoided because Telegram can close the OAuth popup or keep the previous widget session.
+- Regular production login uses the same OIDC server verification path as account switching.
+- The old signed payload endpoint remains available for local/test fallback and backward compatibility.
+- `/login` clears the LeadVirt session before opening the account-switch flow without relying on cross-domain cookie deletion.
+- Hand-built `oauth.telegram.org/auth` URL construction and hidden iframe logout are avoided.
 
 ## 2026-07-07: Onboard Umnico From Integrations UI
 
@@ -528,7 +528,7 @@ Consequences:
 - `/login` and `/signup` show only Telegram auth UI.
 - `/forgot-password` and `/reset-password` redirect to `/login` in the web app.
 - `POST /auth/telegram` verifies Telegram HMAC signatures, creates a clean tenant/workspace for first login, and returns `authMode: "telegram"`.
-- Production needs `TELEGRAM_LOGIN_BOT_TOKEN` on the API and `NEXT_PUBLIC_TELEGRAM_LOGIN_BOT` in the web build.
+- Production needs `TELEGRAM_LOGIN_BOT_TOKEN` or `TELEGRAM_LOGIN_BOT_ID` on the API so `/auth/telegram/config` can expose Telegram's numeric OAuth client id.
 - BotFather Web Login allowed domains must include `https://leadvirt.ru`.
 - `qa:auth:telegram` verifies invalid signatures, first workspace creation, repeat login, and `authMode=telegram`.
 
