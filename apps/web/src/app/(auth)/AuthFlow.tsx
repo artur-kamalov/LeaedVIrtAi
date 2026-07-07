@@ -47,17 +47,8 @@ function telegramLogoutUrl(botId: string) {
   const url = new URL("https://oauth.telegram.org/auth/logout");
   url.searchParams.set("bot_id", botId);
   url.searchParams.set("origin", window.location.origin);
+  url.searchParams.set("return_to", `${window.location.origin}/login`);
   return url.toString();
-}
-
-function openTelegramLogoutWindow(botId: string) {
-  const popup = window.open(
-    telegramLogoutUrl(botId),
-    "leadvirt_telegram_logout",
-    "width=520,height=640,status=0,location=0,menubar=0,toolbar=0"
-  );
-  popup?.focus();
-  return popup;
 }
 
 declare global {
@@ -101,22 +92,16 @@ function TelegramLoginButton({
       return;
     }
 
-    const telegramLogoutWindow = openTelegramLogoutWindow(telegramBotId);
-    if (!telegramLogoutWindow) {
-      toast.error("Браузер заблокировал окно Telegram. Разрешите всплывающие окна и попробуйте снова.");
-      return;
-    }
-
     setSwitchingAccount(true);
     try {
       window.localStorage.removeItem("leadvirt.auth.session");
       window.localStorage.removeItem("leadvirt.demo.session");
       await logout().catch(() => undefined);
       setWidgetVersion((value) => value + 1);
-      toast("Открылось окно Telegram. Выйдите там из текущего аккаунта и вернитесь к входу.");
+      toast("Перенаправляем в Telegram для смены аккаунта.");
+      window.location.assign(telegramLogoutUrl(telegramBotId));
     } catch {
       toast.error("Не удалось сбросить сессию LeadVirt");
-    } finally {
       setSwitchingAccount(false);
     }
   }, [telegramBotId]);

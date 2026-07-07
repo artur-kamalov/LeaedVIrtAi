@@ -92,27 +92,19 @@ test.describe("telegram auth flow", () => {
     }).toContain("telegram");
   });
 
-  test("switch account clears local session and keeps Telegram logout open", async ({ page }) => {
+  test("switch account clears local session and redirects to Telegram logout", async ({ page }) => {
     let logoutRequests = 0;
+    let telegramLogoutUrl = "";
     await page.route("**/api/auth/logout", async (route) => {
       logoutRequests += 1;
       await route.fulfill({ headers: apiMockHeaders, json: { data: { loggedOut: true } } });
     });
-    await page.addInitScript(() => {
-      window.open = ((url?: string | URL) => {
-        const state = window as Window & {
-          leadvirtTelegramLogoutUrl?: string;
-          leadvirtTelegramPopupClosed?: boolean;
-        };
-        state.leadvirtTelegramLogoutUrl = String(url ?? "");
-        state.leadvirtTelegramPopupClosed = false;
-        return {
-          close: () => {
-            state.leadvirtTelegramPopupClosed = true;
-          },
-          focus: () => undefined
-        } as Window;
-      }) as typeof window.open;
+    await page.route("https://oauth.telegram.org/auth/logout**", async (route) => {
+      telegramLogoutUrl = route.request().url();
+      await route.fulfill({
+        contentType: "text/html",
+        body: "<!doctype html><html><head><title>Telegram Authorization</title></head><body>Telegram logout</body></html>"
+      });
     });
 
     await page.setViewportSize({ width: 1440, height: 1000 });
@@ -127,17 +119,15 @@ test.describe("telegram auth flow", () => {
 
     await switchAccountButton.click();
 
-    await expect
-      .poll(() => page.evaluate(() => (window as Window & { leadvirtTelegramLogoutUrl?: string }).leadvirtTelegramLogoutUrl ?? ""))
-      .toContain("https://oauth.telegram.org/auth/logout");
+    await page.waitForURL("https://oauth.telegram.org/auth/logout**");
+    expect(telegramLogoutUrl).toContain("bot_id=123456");
+    expect(telegramLogoutUrl).toContain("origin=");
+    expect(telegramLogoutUrl).toContain("return_to=");
+    await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
     await expect
       .poll(() => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session")))
       .toBeNull();
     expect(logoutRequests).toBe(1);
-    await page.waitForTimeout(2100);
-    await expect
-      .poll(() => page.evaluate(() => (window as Window & { leadvirtTelegramPopupClosed?: boolean }).leadvirtTelegramPopupClosed))
-      .toBe(false);
   });
 
   test("signup through Telegram opens onboarding", async ({ page }) => {
