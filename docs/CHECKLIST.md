@@ -8,6 +8,7 @@ No open Umnico onboarding tasks.
 
 ## Done
 
+- [x] Fixed GitHub Actions pnpm cache bootstrap by installing pnpm before `actions/setup-node` resolves the pnpm store path.
 - [x] Re-verified the cleanup/deploy optimization suite and deployed release `20260707114255-cleanup-staging` to staging VPS; `https://leadvirt.ru/health` returned `200` and no-cookie `/api/auth/me` returned `401`.
 - [x] Cleaned archived UI/reference material from the repo, disabled the old `qa:visual` design-only comparison, added `qa:ui:smoke`, trimmed web dependencies, optimized deploy packaging/Docker cache inputs, and verified web/api/worker checks plus Docker build.
 - [x] Added Telegram login account switching: API exposes public bot id, `/login` can reset Telegram OAuth session before choosing another account, and regular Telegram callbacks remain accepted.
