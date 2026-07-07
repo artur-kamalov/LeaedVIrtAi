@@ -5,6 +5,10 @@ coverage
 dist
 node_modules
 test-results
+artifacts/logs
+artifacts/playwright
+artifacts/reports
+artifacts/screenshots
 **/.next
 **/dist
 **/node_modules
@@ -12,5 +16,3 @@ test-results
 .env
 .env.*
 !.env.example
-LeadVirt-React-design-only
-leadvirt_codex_docs_package_v2

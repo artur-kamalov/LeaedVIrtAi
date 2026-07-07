@@ -14,12 +14,9 @@ export default [
       "**/next-env.d.ts",
       "apps/web/postcss.config.mjs",
       "**/*.config.cjs",
-      "LeadVirt-React-design-only/**",
       "apps/web/src/components/leadvirt/**",
       "apps/web/src/components/marketing/**",
-      "apps/web/src/design/**",
-      "apps/web/src/legacy-functional/**",
-      "apps/web/reference/**"
+      "apps/web/src/design/**"
     ]
   },
   {

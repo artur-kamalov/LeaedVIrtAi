@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-07: Remove Archived UI References And Slim Deploy
+
+Decision: LeadVirt no longer keeps the design-only React export, copied Figma reference tree, legacy functional UI, old prompt/docs bundle, or full design-only visual comparison in the active repo. `qa:ui:smoke` replaces the old design-reference `qa:visual` workflow.
+
+Context: The active Next app now owns the production UI, and the archived/reference trees increased checkout size, TypeScript surface, dependency pressure, and deployment context without serving runtime traffic.
+
+Consequences:
+
+- Runtime API, database schema, and public env contracts stay unchanged.
+- Docker builds install from manifest layers, copy only runtime source plus needed QA scripts/evals, and build only api/worker/web dependency trees.
+- GitHub Actions uses pnpm cache through `actions/setup-node`; the VPS still builds locally from the release package.
+
 ## 2026-07-07: Let Users Switch Telegram Login Accounts
 
 Decision: Telegram login now exposes the public numeric bot id through `/auth/telegram/config` and offers a `/login` action to reset the Telegram OAuth session before choosing another account.

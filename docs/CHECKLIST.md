@@ -8,6 +8,8 @@ No open Umnico onboarding tasks.
 
 ## Done
 
+- [x] Re-verified the cleanup/deploy optimization suite and deployed release `20260707114255-cleanup-staging` to staging VPS; `https://leadvirt.ru/health` returned `200` and no-cookie `/api/auth/me` returned `401`.
+- [x] Cleaned archived UI/reference material from the repo, disabled the old `qa:visual` design-only comparison, added `qa:ui:smoke`, trimmed web dependencies, optimized deploy packaging/Docker cache inputs, and verified web/api/worker checks plus Docker build.
 - [x] Added Telegram login account switching: API exposes public bot id, `/login` can reset Telegram OAuth session before choosing another account, and regular Telegram callbacks remain accepted.
 - [x] Added Umnico onboarding to Integrations UI: client-entered token save through `PATCH /integrations/WEBHOOK_API/settings`, redacted `apiTokenStatus`, Umnico webhook URL with query secret, and no-SQL test lead buttons covered by `integrations-api.spec.ts`.
 - [x] Added Umnico inbound compatibility through the existing Webhook/API public channel: `message.incoming` normalization, query-string `secret` support for providers without custom headers, ignored handling for non-inbound Umnico events, provisioning output for `UMNICO_WEBHOOK_URL`, and passing local `qa:umnico:webhook`.
@@ -530,10 +532,9 @@ corepack pnpm run worker:dlq:inspect
 corepack pnpm run release:public-ready
 corepack pnpm run qa:release-readiness
 corepack pnpm run db:cleanup:pilot
-corepack pnpm run qa:visual
+corepack pnpm run qa:ui:smoke
 corepack pnpm dlx @playwright/test test artifacts/playwright/landing-performance.spec.ts --reporter=line
 corepack pnpm dlx @playwright/test test artifacts/playwright/landing-scroll.spec.ts --reporter=line
-corepack pnpm dlx @playwright/test test artifacts/playwright/visual-check.spec.ts --reporter=line
 corepack pnpm dlx @playwright/test test artifacts/playwright/dashboard-api.spec.ts --reporter=line
 corepack pnpm dlx @playwright/test test artifacts/playwright/dashboard-clean-user.spec.ts --reporter=line
 corepack pnpm dlx @playwright/test test artifacts/playwright/auth-flow.spec.ts --reporter=line
@@ -567,10 +568,9 @@ corepack pnpm dlx @playwright/test test artifacts/playwright/product-layout-iden
 
 - Current priority is visual fidelity and route correctness.
 - The copied UI is intentionally static/demo-first until functionality is layered back in.
-- `localhost:3001` should be restarted after `next build` before visual QA, because a running dev server can serve stale chunk references after `.next` changes.
+- `localhost:3001` should be restarted after `next build` before UI QA, because a running dev server can serve stale chunk references after `.next` changes.
 - If Next dev reports missing vendor chunks after a production build, stop the dev server, delete `apps/web/.next`, and restart `next dev`; this is a build-cache reset, not a source change.
-- `qa:visual` compares the copied Next UI with `LeadVirt-React-design-only` on `localhost:5173`; start the reference Vite server when running the full visual sweep.
-- `qa:visual` can take around 3-6 minutes on a cold Next dev server because each route compiles before screenshots are captured.
+- `qa:ui:smoke` is the current focused UI smoke and does not require a design-only reference server.
 - Stop `next dev` before `next build` if Next reports missing page modules during page-data collection; this can happen when dev and build write `.next` at the same time.
 - Prisma CLI validation requires `DATABASE_URL` in the shell environment; the API runtime still has its local default through `AppConfigService`.
 - API, worker, `qa:ai:provider`, and `release:public-ready` load the nearest root `.env` locally before reading AI/provider settings; deployment-provided environment variables still take precedence. `AI_PROVIDER=openai` uses mock AI until `AI_ENABLE_REAL_PROVIDER=true`.

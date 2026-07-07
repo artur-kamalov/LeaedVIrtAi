@@ -33,7 +33,7 @@ These rules apply to Codex work in this workspace.
 
 ## UI/UX Work
 
-- Treat `LeadVirt-React-design-only` as the current visual source of truth for copied UI.
+- Treat `apps/web/src/design` as the current production UI source of truth.
 - Preserve the design system, animations, Tailwind classes, and component structure unless a fix is necessary for Next.js compatibility.
 - Use Playwright screenshots and interaction smoke checks after meaningful UI changes.
 
@@ -48,8 +48,7 @@ These rules apply to Codex work in this workspace.
   - `corepack pnpm --filter @leadvirt/api lint`
   - `corepack pnpm --filter @leadvirt/api build`
   - `corepack pnpm run qa:api`
-  - `corepack pnpm run qa:visual`
-  - `corepack pnpm dlx @playwright/test test artifacts/playwright/visual-check.spec.ts --reporter=line`
+  - `corepack pnpm run qa:ui:smoke`
   - `corepack pnpm dlx @playwright/test test artifacts/playwright/dashboard-api.spec.ts --reporter=line`
   - `corepack pnpm dlx @playwright/test test artifacts/playwright/auth-flow.spec.ts --reporter=line`
   - `corepack pnpm dlx @playwright/test test artifacts/playwright/onboarding-api.spec.ts --reporter=line`
@@ -68,6 +67,4 @@ These rules apply to Codex work in this workspace.
   - `corepack pnpm dlx @playwright/test test artifacts/playwright/conversation-events-timeline.spec.ts --reporter=line`
   - `corepack pnpm dlx @playwright/test test artifacts/playwright/conversation-export.spec.ts --reporter=line`
   - `corepack pnpm dlx @playwright/test test artifacts/playwright/product-layout-identity.spec.ts --reporter=line`
-- Restart the Next dev server after production builds if continuing visual QA on `localhost:3001`.
-- Start the design-only reference server in `LeadVirt-React-design-only` on `localhost:5173` before full `qa:visual` comparison:
-  - `corepack pnpm dev --host 0.0.0.0 --port 5173`
+- Restart the Next dev server after production builds if continuing UI QA on `localhost:3001`.

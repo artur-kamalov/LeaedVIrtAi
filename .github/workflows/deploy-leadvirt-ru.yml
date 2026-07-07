@@ -75,6 +75,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         run: |
@@ -184,9 +186,10 @@ jobs:
             --exclude='.turbo' \
             --exclude='.logs' \
             --exclude='test-results' \
+            --exclude='artifacts/logs' \
+            --exclude='artifacts/reports' \
+            --exclude='artifacts/playwright/*.png' \
             --exclude='artifacts/screenshots' \
-            --exclude='LeadVirt-React-design-only' \
-            --exclude='leadvirt_codex_docs_package_v2' \
             -czf "$package_path" \
             apps \
             deploy \

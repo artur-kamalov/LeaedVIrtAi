@@ -8,13 +8,13 @@ This repository is a pnpm monorepo shaped as a scalable modular monolith:
 - `apps/api` - NestJS REST API.
 - `apps/worker` - BullMQ-ready worker process.
 - `packages/db` - Prisma schema, client, seed.
-- `packages/ui` - shared UI primitives.
+- `packages/ui` - shared UI primitives kept for package-level reuse.
 - `packages/types` - shared product types.
 - `packages/config` - environment helpers.
 - `packages/ai` - AI provider abstraction and prompt templates.
 - `packages/integrations` - channel/CRM/calendar adapter interfaces and stubs.
 
-The folder `LeadVirt-React-design-only/` is intentionally read-only. It is the visual reference for the product UI and landing page, not the application architecture.
+The active product UI lives in `apps/web/src/design`; the old design-only export has been removed from the runtime workspace.
 
 ## Local Development
 
