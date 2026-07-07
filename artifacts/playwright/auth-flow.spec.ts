@@ -92,7 +92,7 @@ test.describe("telegram auth flow", () => {
     }).toContain("telegram");
   });
 
-  test("switch account clears local session and opens Telegram logout", async ({ page }) => {
+  test("switch account clears local session and keeps Telegram logout open", async ({ page }) => {
     let logoutRequests = 0;
     await page.route("**/api/auth/logout", async (route) => {
       logoutRequests += 1;
@@ -100,8 +100,18 @@ test.describe("telegram auth flow", () => {
     });
     await page.addInitScript(() => {
       window.open = ((url?: string | URL) => {
-        (window as Window & { leadvirtTelegramLogoutUrl?: string }).leadvirtTelegramLogoutUrl = String(url ?? "");
-        return { close: () => undefined } as Window;
+        const state = window as Window & {
+          leadvirtTelegramLogoutUrl?: string;
+          leadvirtTelegramPopupClosed?: boolean;
+        };
+        state.leadvirtTelegramLogoutUrl = String(url ?? "");
+        state.leadvirtTelegramPopupClosed = false;
+        return {
+          close: () => {
+            state.leadvirtTelegramPopupClosed = true;
+          },
+          focus: () => undefined
+        } as Window;
       }) as typeof window.open;
     });
 
@@ -124,6 +134,10 @@ test.describe("telegram auth flow", () => {
       .poll(() => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session")))
       .toBeNull();
     expect(logoutRequests).toBe(1);
+    await page.waitForTimeout(2100);
+    await expect
+      .poll(() => page.evaluate(() => (window as Window & { leadvirtTelegramPopupClosed?: boolean }).leadvirtTelegramPopupClosed))
+      .toBe(false);
   });
 
   test("signup through Telegram opens onboarding", async ({ page }) => {
