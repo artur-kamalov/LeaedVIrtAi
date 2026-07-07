@@ -6,7 +6,7 @@ import React from "react";
 import { motion } from "motion/react";
 import { Bot, CheckCircle2, Loader2, RefreshCw, Send, ShieldCheck, Sparkles } from "lucide-react";
 import { Toaster, toast } from "sonner";
-import { getTelegramLoginConfig, loginWithTelegram, type TelegramAuthPayload } from "@/lib/api/auth";
+import { getTelegramLoginConfig, loginWithTelegram, logout, type TelegramAuthPayload } from "@/lib/api/auth";
 import { Button } from "@/design/components/ui/Button";
 
 type AuthMode = "login" | "signup";
@@ -52,20 +52,11 @@ function telegramLogoutUrl(botId: string) {
 
 function resetTelegramOAuthSession(botId: string) {
   return new Promise<void>((resolve) => {
-    const iframe = document.createElement("iframe");
-    let settled = false;
-    const done = () => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timeout);
-      iframe.remove();
+    const popup = window.open(telegramLogoutUrl(botId), "leadvirt_telegram_logout", "width=520,height=640,status=0,location=0,menubar=0,toolbar=0");
+    window.setTimeout(() => {
+      popup?.close();
       resolve();
-    };
-    const timeout = window.setTimeout(done, 1800);
-    iframe.hidden = true;
-    iframe.src = telegramLogoutUrl(botId);
-    iframe.onload = done;
-    document.body.appendChild(iframe);
+    }, 1800);
   });
 }
 
@@ -112,7 +103,11 @@ function TelegramLoginButton({
 
     setSwitchingAccount(true);
     try {
-      await resetTelegramOAuthSession(telegramBotId);
+      window.localStorage.removeItem("leadvirt.auth.session");
+      window.localStorage.removeItem("leadvirt.demo.session");
+      const telegramReset = resetTelegramOAuthSession(telegramBotId);
+      await logout().catch(() => undefined);
+      await telegramReset;
       setWidgetVersion((value) => value + 1);
       toast.success("Теперь можно выбрать другой Telegram аккаунт");
     } catch {

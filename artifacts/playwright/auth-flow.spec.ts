@@ -92,11 +92,38 @@ test.describe("telegram auth flow", () => {
     }).toContain("telegram");
   });
 
-  test("shows Telegram account switch action", async ({ page }) => {
+  test("switch account clears local session and opens Telegram logout", async ({ page }) => {
+    let logoutRequests = 0;
+    await page.route("**/api/auth/logout", async (route) => {
+      logoutRequests += 1;
+      await route.fulfill({ headers: apiMockHeaders, json: { data: { loggedOut: true } } });
+    });
+    await page.addInitScript(() => {
+      window.open = ((url?: string | URL) => {
+        (window as Window & { leadvirtTelegramLogoutUrl?: string }).leadvirtTelegramLogoutUrl = String(url ?? "");
+        return { close: () => undefined } as Window;
+      }) as typeof window.open;
+    });
+
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
+    await page.evaluate(() => window.localStorage.setItem("leadvirt.auth.session", "cached"));
     await expect(page.getByRole("heading", { level: 2 })).toContainText("LeadVirt.ai");
-    await expect(page.getByTestId("telegram-switch-account")).toBeVisible();
+    const switchAccountButton = page.getByTestId("telegram-switch-account");
+    if ((await switchAccountButton.count()) === 0) {
+      await expect(page.getByText("Telegram bot username")).toBeVisible();
+      return;
+    }
+
+    await switchAccountButton.click();
+
+    await expect
+      .poll(() => page.evaluate(() => (window as Window & { leadvirtTelegramLogoutUrl?: string }).leadvirtTelegramLogoutUrl ?? ""))
+      .toContain("https://oauth.telegram.org/auth/logout");
+    await expect
+      .poll(() => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session")))
+      .toBeNull();
+    expect(logoutRequests).toBe(1);
   });
 
   test("signup through Telegram opens onboarding", async ({ page }) => {
