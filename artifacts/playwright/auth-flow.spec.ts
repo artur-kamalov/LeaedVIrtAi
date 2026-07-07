@@ -142,6 +142,7 @@ test.describe("telegram auth flow", () => {
     const oidcUrl = await page.evaluate(() => (window as Window & { leadvirtTelegramOidcUrl?: string }).leadvirtTelegramOidcUrl ?? "");
     expect(oidcUrl).toContain("client_id=123456");
     expect(oidcUrl).toContain("response_type=post_message");
+    expect(new URL(oidcUrl).searchParams.get("origin")).toBe(webBase);
     expect(new URL(oidcUrl).searchParams.get("prompt")).toBe("login select_account");
     await expect
       .poll(() => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session")))

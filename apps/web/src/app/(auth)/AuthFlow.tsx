@@ -60,6 +60,7 @@ function telegramOidcAuthUrl(botId: string, nonce: string) {
   const url = new URL("https://oauth.telegram.org/auth");
   url.searchParams.set("response_type", "post_message");
   url.searchParams.set("client_id", botId);
+  url.searchParams.set("origin", window.location.origin);
   url.searchParams.set("redirect_uri", `${window.location.origin}/login`);
   url.searchParams.set("scope", "openid profile telegram:bot_access");
   url.searchParams.set("prompt", "login select_account");
