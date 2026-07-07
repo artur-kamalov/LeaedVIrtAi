@@ -19,6 +19,10 @@ export type TelegramAuthPayload = {
   hash: string;
 };
 
+export type TelegramLoginConfig = {
+  botId: string | null;
+};
+
 export function getAuthMe() {
   return apiData<AuthMe>("/auth/me");
 }
@@ -42,6 +46,10 @@ export function loginWithTelegram(input: TelegramAuthPayload) {
     method: "POST",
     ...jsonBody(input)
   });
+}
+
+export function getTelegramLoginConfig() {
+  return apiData<TelegramLoginConfig>("/auth/telegram/config");
 }
 
 export function requestPasswordReset(input: { email: string }) {

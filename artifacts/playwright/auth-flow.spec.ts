@@ -45,12 +45,21 @@ const telegramPayload = {
 };
 
 async function completeTelegramAuth(page: Page) {
+  const authButton = page.getByTestId("telegram-auth-button");
+  const isFallbackButton = await authButton.evaluate((element) => element.tagName === "BUTTON");
+  if (isFallbackButton) {
+    await authButton.click();
+    return;
+  }
+
   await expect
     .poll(async () =>
       page.evaluate(() => typeof (window as Window & { leadvirtTelegramAuth?: unknown }).leadvirtTelegramAuth)
     )
     .toBe("function");
 
+  await authButton.dispatchEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "mouse" });
+  await authButton.dispatchEvent("mousedown", { bubbles: true, cancelable: true });
   await page.evaluate((payload) => {
     (window as Window & { leadvirtTelegramAuth?: (value: typeof payload) => void }).leadvirtTelegramAuth?.(payload);
   }, telegramPayload);
@@ -60,6 +69,9 @@ test.describe("telegram auth flow", () => {
   test.beforeEach(async ({ page }) => {
     await page.route("**/api/auth/telegram", async (route) => {
       await route.fulfill({ headers: apiMockHeaders, json: authResponse });
+    });
+    await page.route("**/api/auth/telegram/config", async (route) => {
+      await route.fulfill({ headers: apiMockHeaders, json: { data: { botId: "123456" } } });
     });
     await page.route("**/api/auth/me", async (route) => {
       await route.fulfill({ headers: apiMockHeaders, json: authResponse });
@@ -73,7 +85,7 @@ test.describe("telegram auth flow", () => {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
 
-    await expect(page.getByRole("heading", { name: "Вход в LeadVirt.ai" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2 })).toContainText("LeadVirt.ai");
     await completeTelegramAuth(page);
 
     await expect(page).toHaveURL(`${webBase}/app`, { timeout: 15000 });
@@ -82,11 +94,32 @@ test.describe("telegram auth flow", () => {
     }).toContain("telegram");
   });
 
+  test("ignores Telegram callback before user action", async ({ page }) => {
+    let telegramAuthRequests = 0;
+    await page.unroute("**/api/auth/telegram");
+    await page.route("**/api/auth/telegram", async (route) => {
+      telegramAuthRequests += 1;
+      await route.fulfill({ headers: apiMockHeaders, json: authResponse });
+    });
+
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
+    await expect(page.getByRole("heading", { level: 2 })).toContainText("LeadVirt.ai");
+
+    await page.evaluate((payload) => {
+      (window as Window & { leadvirtTelegramAuth?: (value: typeof payload) => void }).leadvirtTelegramAuth?.(payload);
+    }, telegramPayload);
+
+    await page.waitForTimeout(300);
+    expect(telegramAuthRequests).toBe(0);
+    await expect(page).toHaveURL(`${webBase}/login`);
+  });
+
   test("signup through Telegram opens onboarding", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${webBase}/signup`, { waitUntil: "networkidle" });
 
-    await expect(page.getByRole("heading", { name: "Запуск LeadVirt.ai" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2 })).toContainText("LeadVirt.ai");
     await completeTelegramAuth(page);
 
     await expect(page).toHaveURL(`${webBase}/onboarding`, { timeout: 15000 });

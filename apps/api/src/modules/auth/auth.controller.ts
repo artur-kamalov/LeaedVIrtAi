@@ -52,6 +52,11 @@ export class AuthController {
     return { data: result.data };
   }
 
+  @Get("auth/telegram/config")
+  telegramConfig() {
+    return { data: this.authService.telegramLoginConfig() };
+  }
+
   @Post("auth/logout")
   @HttpCode(200)
   async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {

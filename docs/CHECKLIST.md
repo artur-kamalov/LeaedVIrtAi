@@ -8,6 +8,7 @@ No open Umnico onboarding tasks.
 
 ## Done
 
+- [x] Added Telegram login account switching: API exposes public bot id, `/login` can reset Telegram OAuth session before choosing another account, and callback auth is ignored until a user gesture.
 - [x] Added Umnico onboarding to Integrations UI: client-entered token save through `PATCH /integrations/WEBHOOK_API/settings`, redacted `apiTokenStatus`, Umnico webhook URL with query secret, and no-SQL test lead buttons covered by `integrations-api.spec.ts`.
 - [x] Added Umnico inbound compatibility through the existing Webhook/API public channel: `message.incoming` normalization, query-string `secret` support for providers without custom headers, ignored handling for non-inbound Umnico events, provisioning output for `UMNICO_WEBHOOK_URL`, and passing local `qa:umnico:webhook`.
 - [x] Deployed Umnico inbound support to `leadvirt.ru`, passed live `qa:umnico:webhook` against `lvwh_8ebd05e2661fc484`, cleaned the disposable smoke lead/conversation/event, and registered Umnico webhook id `31397`.

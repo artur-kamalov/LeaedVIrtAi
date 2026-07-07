@@ -9,6 +9,7 @@ process.env.DATABASE_URL ??= "postgresql://postgres:postgres@localhost:5432/lead
 const apiBase = normalizeApiBase(process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api");
 const apiOrigin = apiBase.replace(/\/api$/, "");
 const botToken = process.env.LEADVIRT_TELEGRAM_AUTH_TEST_TOKEN ?? "123456:leadvirt-test-token";
+const expectedBotId = process.env.TELEGRAM_LOGIN_BOT_ID?.trim() || botToken.split(":", 1)[0];
 
 function normalizeApiBase(value) {
   const trimmed = value.replace(/\/$/, "");
@@ -85,6 +86,10 @@ async function main() {
 
   try {
     await cleanup(prisma, telegramId);
+
+    const config = await apiRequest("/auth/telegram/config");
+    assert(config.response.ok, `Expected Telegram config to pass, got ${config.response.status}: ${JSON.stringify(config.payload)}`);
+    assert(config.payload?.data?.botId === expectedBotId, "Expected Telegram config to expose the public bot id.");
 
     const invalid = await apiRequest("/auth/telegram", {
       method: "POST",

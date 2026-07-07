@@ -123,6 +123,13 @@ function telegramBotToken() {
   return (process.env.TELEGRAM_LOGIN_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "").trim();
 }
 
+function telegramBotId() {
+  const configured = process.env.TELEGRAM_LOGIN_BOT_ID?.trim();
+  if (configured && /^\d+$/.test(configured)) return configured;
+  const tokenPrefix = telegramBotToken().split(":", 1)[0]?.trim();
+  return tokenPrefix && /^\d+$/.test(tokenPrefix) ? tokenPrefix : null;
+}
+
 function technicalTelegramEmail(telegramId: number) {
   return `telegram-${telegramId}@telegram.leadvirt.internal`;
 }
@@ -495,6 +502,10 @@ export class AuthService {
     isNewUser = true;
     const session = await this.issueSession(created.user, created.tenant, created.role, meta, "telegram");
     return { ...session, data: { ...session.data, isNewUser } };
+  }
+
+  telegramLoginConfig() {
+    return { botId: telegramBotId() };
   }
 
   async logout(token: string | undefined) {
