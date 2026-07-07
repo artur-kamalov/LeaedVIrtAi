@@ -210,19 +210,21 @@ function normalizeUmnicoInbound(input: unknown, payload: Record<string, unknown>
 
   const message = firstRecord(payload.message);
   const data = firstRecord(message.data, payload.data);
+  const nestedMessage = firstRecord(message.message, data.message);
   const lead = firstRecord(payload.lead);
-  const customer = firstRecord(payload.customer, payload.contact, payload.client, payload.from, message.customer, message.contact);
-  const socialAccount = firstRecord(payload.socialAccount, payload.social_account, message.socialAccount, message.social_account, payload.source, message.source);
+  const sender = firstRecord(message.sender, payload.sender);
+  const customer = firstRecord(payload.customer, payload.contact, payload.client, payload.from, message.customer, message.contact, sender, lead.customer);
+  const socialAccount = firstRecord(payload.socialAccount, payload.social_account, message.socialAccount, message.social_account, message.sa, payload.source, message.source, lead.socialAccount);
 
   const accountId = readScalar(firstValue(payload.accountId, payload.account_id, message.accountId, message.account_id, socialAccount.id), "umnico-account");
   const leadId = readScalar(firstValue(payload.leadId, payload.lead_id, message.leadId, message.lead_id, lead.id), "umnico-lead");
-  const timestampValue = firstValue(message.timestamp, message.createdAt, message.created_at, data.timestamp, payload.timestamp, payload.createdAt, payload.created_at);
+  const timestampValue = firstValue(message.timestamp, message.datetime, message.createdAt, message.created_at, data.timestamp, payload.timestamp, payload.createdAt, payload.created_at);
   const messageId = readScalar(
-    firstValue(message.id, message.messageId, message.message_id, payload.messageId, payload.message_id, data.id),
+    firstValue(message.id, message.messageId, message.message_id, payload.messageId, payload.message_id, data.id, nestedMessage.id),
     `${leadId}:${readScalar(timestampValue, String(Date.now()))}`
   );
   const customerId = readScalar(
-    firstValue(customer.id, customer.customerId, customer.customer_id, payload.customerId, payload.customer_id, message.customerId, message.customer_id, lead.customerId, lead.customer_id),
+    firstValue(customer.id, customer.customerId, customer.customer_id, payload.customerId, payload.customer_id, message.customerId, message.customer_id, sender.customerId, sender.customer_id, lead.customerId, lead.customer_id),
     leadId
   );
 
@@ -233,7 +235,7 @@ function normalizeUmnicoInbound(input: unknown, payload: Record<string, unknown>
   const customerName = firstString(customer.name, fullName, username);
   const customerPhone = firstString(customer.phone, customer.phoneNumber, customer.phone_number);
   const customerEmail = firstString(customer.email);
-  const textValue = firstValue(message.text, data.text, message.caption, data.caption, message.body, data.body, payload.text, payload.body);
+  const textValue = firstValue(nestedMessage.text, message.text, data.text, nestedMessage.caption, message.caption, data.caption, nestedMessage.body, message.body, data.body, payload.text, payload.body);
   const text = typeof textValue === "string" && textValue.trim().length > 0 ? textValue : "Umnico message";
   const attachments = normalizeAttachments(message.attachment, message.attachments, data.attachment, data.attachments);
 

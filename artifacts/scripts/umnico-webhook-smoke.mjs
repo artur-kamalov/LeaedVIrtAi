@@ -38,22 +38,28 @@ async function main() {
     leadId: `umnico-smoke-lead-${suffix}`,
     isNewLead: true,
     isNewCustomer: true,
-    socialAccount: {
-      id: 2001,
-      type: "instagram",
-      username: "leadvirt.ai"
-    },
-    customer: {
-      id: `umnico-customer-${suffix}`,
-      username: "umnico_smoke",
-      name: "Umnico Smoke"
-    },
     message: {
-      id: `umnico-message-${suffix}`,
-      timestamp: Math.floor(Date.now() / 1000),
-      data: {
+      sa: {
+        id: 2001,
+        type: "instagramV3",
+        login: "leadvirt.ai"
+      },
+      sender: {
+        id: `umnico-sender-${suffix}`,
+        type: "instagramV3",
+        login: "umnico_smoke",
+        customerId: `umnico-customer-${suffix}`
+      },
+      source: {
+        type: "message",
+        realId: `umnico-real-${suffix}`
+      },
+      message: {
         text: "Привет, хочу узнать про leadvirt.ai"
-      }
+      },
+      datetime: new Date().toISOString(),
+      incoming: true,
+      messageId: `umnico-message-${suffix}`
     }
   };
 

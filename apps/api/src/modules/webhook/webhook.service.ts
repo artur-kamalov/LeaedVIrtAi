@@ -139,12 +139,16 @@ function payloadSource(body: unknown) {
   const payload = asRecord(body);
   const message = asRecord(payload.message);
   const lead = asRecord(payload.lead);
-  const socialAccount = firstRecord(payload.socialAccount, payload.social_account, message.socialAccount, message.social_account);
+  const socialAccount = firstRecord(payload.socialAccount, payload.social_account, message.socialAccount, message.social_account, message.sa, lead.socialAccount);
   const source = firstRecord(payload.source, message.source);
-  const explicit = firstString(payload.source, lead.source, socialAccount.name, socialAccount.username, socialAccount.type, source.name, source.username, source.type);
   if (umnicoEventType(payload)) {
+    const socialType = firstString(socialAccount.type);
+    const socialLogin = firstString(socialAccount.login, socialAccount.username, socialAccount.name);
+    const normalizedType = socialType?.toLowerCase().startsWith("instagram") ? "Instagram" : socialType;
+    const explicit = firstString(normalizedType, socialLogin, lead.source, payload.source);
     return explicit ? `Umnico ${explicit}` : "Umnico";
   }
+  const explicit = firstString(payload.source, lead.source, socialAccount.name, socialAccount.username, socialAccount.type, source.name, source.username, source.type);
   return explicit ?? "Webhook/API";
 }
 
