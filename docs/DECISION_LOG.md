@@ -2,7 +2,7 @@
 
 ## 2026-07-07: Let Users Switch Telegram Login Accounts
 
-Decision: Telegram login now exposes the public numeric bot id through `/auth/telegram/config`, ignores widget auth callbacks until a user gesture, and offers a `/login` action to reset the Telegram OAuth session before choosing another account.
+Decision: Telegram login now exposes the public numeric bot id through `/auth/telegram/config` and offers a `/login` action to reset the Telegram OAuth session before choosing another account.
 
 Context: The legacy Telegram Login Widget can reuse the last Telegram OAuth session. LeadVirt masked the native iframe with a branded button, so returning users could be signed in with the previous Telegram account without a clear account-switch path.
 

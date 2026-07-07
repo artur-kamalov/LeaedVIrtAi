@@ -42,7 +42,6 @@ const modeCopy: Record<
 
 const highlights = ["Без пароля", "Подписанный Telegram вход", "Workspace из БД"];
 const telegramBotUsername = process.env.NEXT_PUBLIC_TELEGRAM_LOGIN_BOT?.trim() ?? "";
-const telegramAuthGestureWindowMs = 5 * 60 * 1000;
 
 function telegramLogoutUrl(botId: string) {
   const url = new URL("https://oauth.telegram.org/auth/logout");
@@ -86,23 +85,9 @@ function TelegramLoginButton({
   onAuth: (payload: TelegramAuthPayload) => void;
 }) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const authGestureExpiresAtRef = React.useRef(0);
   const [telegramBotId, setTelegramBotId] = React.useState<string | null>(null);
   const [switchingAccount, setSwitchingAccount] = React.useState(false);
   const [widgetVersion, setWidgetVersion] = React.useState(0);
-
-  const armTelegramAuth = React.useCallback(() => {
-    authGestureExpiresAtRef.current = Date.now() + telegramAuthGestureWindowMs;
-  }, []);
-
-  const guardedOnAuth = React.useCallback(
-    (payload: TelegramAuthPayload) => {
-      if (Date.now() > authGestureExpiresAtRef.current) return;
-      authGestureExpiresAtRef.current = 0;
-      onAuth(payload);
-    },
-    [onAuth]
-  );
 
   React.useEffect(() => {
     if (!telegramBotUsername) return;
@@ -128,7 +113,6 @@ function TelegramLoginButton({
     setSwitchingAccount(true);
     try {
       await resetTelegramOAuthSession(telegramBotId);
-      authGestureExpiresAtRef.current = 0;
       setWidgetVersion((value) => value + 1);
       toast.success("Теперь можно выбрать другой Telegram аккаунт");
     } catch {
@@ -139,7 +123,7 @@ function TelegramLoginButton({
   }, [telegramBotId]);
 
   React.useEffect(() => {
-    window.leadvirtTelegramAuth = guardedOnAuth;
+    window.leadvirtTelegramAuth = onAuth;
     const container = containerRef.current;
     if (!container || !telegramBotUsername) {
       return () => {
@@ -167,7 +151,7 @@ function TelegramLoginButton({
       container.innerHTML = "";
       delete window.leadvirtTelegramAuth;
     };
-  }, [guardedOnAuth, widgetVersion]);
+  }, [onAuth, widgetVersion]);
 
   if (telegramBotUsername) {
     return (
@@ -175,9 +159,6 @@ function TelegramLoginButton({
         <div
           data-testid="telegram-auth-button"
           className="group relative mx-auto h-12 w-full max-w-[360px]"
-          onFocusCapture={armTelegramAuth}
-          onMouseDownCapture={armTelegramAuth}
-          onPointerDownCapture={armTelegramAuth}
         >
           <div
             ref={containerRef}
@@ -220,12 +201,8 @@ function TelegramLoginButton({
       data-testid="telegram-auth-button"
       className="h-12 w-full rounded-2xl text-sm font-semibold"
       disabled={loading}
-      onFocusCapture={armTelegramAuth}
-      onMouseDownCapture={armTelegramAuth}
-      onPointerDownCapture={armTelegramAuth}
       onClick={() => {
-        armTelegramAuth();
-        guardedOnAuth({
+        onAuth({
           id: 100000001,
           first_name: "Local",
           last_name: "Telegram",
