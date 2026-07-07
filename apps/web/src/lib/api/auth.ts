@@ -23,6 +23,11 @@ export type TelegramLoginConfig = {
   botId: string | null;
 };
 
+export type TelegramOidcAuthPayload = {
+  idToken: string;
+  nonce?: string;
+};
+
 export function getAuthMe() {
   return apiData<AuthMe>("/auth/me");
 }
@@ -43,6 +48,13 @@ export function signupWithPassword(input: { email: string; password: string; com
 
 export function loginWithTelegram(input: TelegramAuthPayload) {
   return apiData<AuthMe>("/auth/telegram", {
+    method: "POST",
+    ...jsonBody(input)
+  });
+}
+
+export function loginWithTelegramOidc(input: TelegramOidcAuthPayload) {
+  return apiData<AuthMe>("/auth/telegram/oidc", {
     method: "POST",
     ...jsonBody(input)
   });

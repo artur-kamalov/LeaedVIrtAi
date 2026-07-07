@@ -5,6 +5,7 @@ import type { RequestContext } from "../../common/request-context.js";
 import { AuthRateLimitService } from "./auth-rate-limit.service.js";
 import { AuthService } from "./auth.service.js";
 import { TelegramAuthDto } from "./dto/telegram-auth.dto.js";
+import { TelegramOidcAuthDto } from "./dto/telegram-oidc-auth.dto.js";
 import { WorkspaceAuthGuard } from "./workspace-auth.guard.js";
 import { ConfirmPasswordResetDto } from "./dto/confirm-password-reset.dto.js";
 import { LoginDto } from "./dto/login.dto.js";
@@ -48,6 +49,15 @@ export class AuthController {
   async telegram(@Body() dto: TelegramAuthDto, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
     this.limit(request, "telegram", String(dto.id), 30, 10 * 60_000);
     const result = await this.authService.loginWithTelegram(dto, this.metaFromRequest(request));
+    this.authService.setSessionCookie(response, result.token);
+    return { data: result.data };
+  }
+
+  @Post("auth/telegram/oidc")
+  @HttpCode(200)
+  async telegramOidc(@Body() dto: TelegramOidcAuthDto, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
+    this.limit(request, "telegram-oidc", dto.idToken.slice(0, 24), 30, 10 * 60_000);
+    const result = await this.authService.loginWithTelegramOidc(dto, this.metaFromRequest(request));
     this.authService.setSessionCookie(response, result.token);
     return { data: result.data };
   }

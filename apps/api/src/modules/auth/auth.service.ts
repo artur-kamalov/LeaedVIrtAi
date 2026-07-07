@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify } from "node:crypto";
 import { BadRequestException, ConflictException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import type { Request, Response } from "express";
 import type { MembershipRole, Prisma } from "@leadvirt/db";
@@ -9,6 +9,7 @@ import type { LoginDto } from "./dto/login.dto.js";
 import type { RequestPasswordResetDto } from "./dto/request-password-reset.dto.js";
 import type { SignupDto } from "./dto/signup.dto.js";
 import type { TelegramAuthDto } from "./dto/telegram-auth.dto.js";
+import type { TelegramOidcAuthDto } from "./dto/telegram-oidc-auth.dto.js";
 import { authIdentifierWhere, parseAuthIdentifier } from "./auth-identifier.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
 import { decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, generateTotpSecret, totpAuthUri, verifyTotpCode } from "./totp.js";
@@ -42,6 +43,39 @@ type AuthTenant = {
 };
 
 type AuthMode = "credentials" | "telegram";
+
+type TelegramIdentity = {
+  telegramId: number;
+  displayName: string;
+  username?: string | null;
+  avatarUrl?: string | null;
+  auditPayload: Prisma.InputJsonObject;
+};
+
+type TelegramJwk = {
+  alg?: string;
+  e?: string;
+  kid?: string;
+  kty?: string;
+  n?: string;
+};
+
+type TelegramOidcClaims = {
+  iss?: unknown;
+  aud?: unknown;
+  exp?: unknown;
+  iat?: unknown;
+  id?: unknown;
+  sub?: unknown;
+  name?: unknown;
+  given_name?: unknown;
+  family_name?: unknown;
+  preferred_username?: unknown;
+  picture?: unknown;
+  nonce?: unknown;
+};
+
+let telegramJwksCache: { expiresAt: number; keys: TelegramJwk[] } | null = null;
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -167,6 +201,90 @@ function verifyTelegramHash(dto: TelegramAuthDto) {
   if (expectedBuffer.length !== actualBuffer.length || !timingSafeEqual(expectedBuffer, actualBuffer)) {
     throw new UnauthorizedException("Telegram login payload is invalid.");
   }
+}
+
+function base64UrlDecode(value: string) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+  return Buffer.from(padded, "base64");
+}
+
+function parseJwtPart(value: string) {
+  try {
+    return JSON.parse(base64UrlDecode(value).toString("utf8")) as Record<string, unknown>;
+  } catch {
+    throw new UnauthorizedException("Telegram OIDC token is malformed.");
+  }
+}
+
+function stringClaim(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberClaim(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
+  return null;
+}
+
+async function telegramJwks() {
+  if (telegramJwksCache && telegramJwksCache.expiresAt > Date.now()) {
+    return telegramJwksCache.keys;
+  }
+
+  const response = await fetch("https://oauth.telegram.org/.well-known/jwks.json");
+  if (!response.ok) {
+    throw new UnauthorizedException("Telegram OIDC keys are unavailable.");
+  }
+
+  const body = (await response.json()) as { keys?: unknown };
+  const keys = Array.isArray(body.keys) ? body.keys.filter((key): key is TelegramJwk => typeof key === "object" && key !== null) : [];
+  telegramJwksCache = { keys, expiresAt: Date.now() + 60 * 60 * 1000 };
+  return keys;
+}
+
+async function verifyTelegramOidcToken(dto: TelegramOidcAuthDto): Promise<TelegramOidcClaims> {
+  const botId = telegramBotId();
+  if (!botId) {
+    throw new BadRequestException("Telegram login is not configured.");
+  }
+
+  const parts = dto.idToken.split(".");
+  if (parts.length !== 3) {
+    throw new UnauthorizedException("Telegram OIDC token is malformed.");
+  }
+  const [encodedHeader, encodedClaims, encodedSignature] = parts as [string, string, string];
+
+  const header = parseJwtPart(encodedHeader);
+  const claims = parseJwtPart(encodedClaims) as TelegramOidcClaims;
+  if (header.alg !== "RS256" || typeof header.kid !== "string") {
+    throw new UnauthorizedException("Telegram OIDC token algorithm is unsupported.");
+  }
+
+  const key = (await telegramJwks()).find((item) => item.kid === header.kid && item.kty === "RSA" && item.alg === "RS256");
+  if (!key) {
+    throw new UnauthorizedException("Telegram OIDC key was not found.");
+  }
+
+  const publicKey = createPublicKey({ key, format: "jwk" });
+  const verified = verify("RSA-SHA256", Buffer.from(`${encodedHeader}.${encodedClaims}`), publicKey, base64UrlDecode(encodedSignature));
+  if (!verified) {
+    throw new UnauthorizedException("Telegram OIDC token signature is invalid.");
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const exp = numberClaim(claims.exp);
+  const iat = numberClaim(claims.iat);
+  const audiences = (Array.isArray(claims.aud) ? claims.aud : [claims.aud]).map((value) => String(value));
+  if (claims.iss !== "https://oauth.telegram.org" || !audiences.includes(botId) || !exp || exp <= now || !iat || iat > now + 60) {
+    throw new UnauthorizedException("Telegram OIDC token claims are invalid.");
+  }
+
+  if (dto.nonce && claims.nonce !== dto.nonce) {
+    throw new UnauthorizedException("Telegram OIDC nonce is invalid.");
+  }
+
+  return claims;
 }
 
 @Injectable()
@@ -397,10 +515,59 @@ export class AuthService {
   async loginWithTelegram(dto: TelegramAuthDto, meta: AuthMeta = {}) {
     verifyTelegramHash(dto);
 
-    const externalAuthId = `telegram:${dto.id}`;
-    const displayName = cleanTelegramName(dto);
-    const email = technicalTelegramEmail(dto.id);
-    const avatarUrl = dto.photo_url?.trim() || null;
+    return this.loginWithTelegramIdentity(
+      {
+        telegramId: dto.id,
+        displayName: cleanTelegramName(dto),
+        username: dto.username ?? null,
+        avatarUrl: dto.photo_url?.trim() || null,
+        auditPayload: {
+          telegramId: dto.id,
+          username: dto.username ?? null
+        } satisfies Prisma.InputJsonObject
+      },
+      meta
+    );
+  }
+
+  async loginWithTelegramOidc(dto: TelegramOidcAuthDto, meta: AuthMeta = {}) {
+    const claims = await verifyTelegramOidcToken(dto);
+    const telegramId = numberClaim(claims.id);
+    if (!telegramId) {
+      throw new UnauthorizedException("Telegram OIDC token is missing user id.");
+    }
+
+    const displayName =
+      stringClaim(claims.name) ||
+      [stringClaim(claims.given_name), stringClaim(claims.family_name)].filter(Boolean).join(" ").trim() ||
+      stringClaim(claims.preferred_username) ||
+      `Telegram ${telegramId}`;
+
+    return this.loginWithTelegramIdentity(
+      {
+        telegramId,
+        displayName,
+        username: stringClaim(claims.preferred_username),
+        avatarUrl: stringClaim(claims.picture),
+        auditPayload: {
+          telegramId,
+          username: stringClaim(claims.preferred_username),
+          oidcSub: stringClaim(claims.sub)
+        } satisfies Prisma.InputJsonObject
+      },
+      meta
+    );
+  }
+
+  telegramLoginConfig() {
+    return { botId: telegramBotId() };
+  }
+
+  private async loginWithTelegramIdentity(identity: TelegramIdentity, meta: AuthMeta = {}) {
+    const externalAuthId = `telegram:${identity.telegramId}`;
+    const displayName = identity.displayName;
+    const email = technicalTelegramEmail(identity.telegramId);
+    const avatarUrl = identity.avatarUrl?.trim() || null;
     let isNewUser = false;
 
     const existing = await this.prisma.user.findFirst({
@@ -489,10 +656,7 @@ export class AuthService {
           entityId: tenant.id,
           ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
           ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
-          payload: {
-            telegramId: dto.id,
-            username: dto.username ?? null
-          } satisfies Prisma.InputJsonObject
+          payload: identity.auditPayload
         }
       });
 
@@ -502,10 +666,6 @@ export class AuthService {
     isNewUser = true;
     const session = await this.issueSession(created.user, created.tenant, created.role, meta, "telegram");
     return { ...session, data: { ...session.data, isNewUser } };
-  }
-
-  telegramLoginConfig() {
-    return { botId: telegramBotId() };
   }
 
   async logout(token: string | undefined) {

@@ -6,7 +6,7 @@ import React from "react";
 import { motion } from "motion/react";
 import { Bot, CheckCircle2, Loader2, RefreshCw, Send, ShieldCheck, Sparkles } from "lucide-react";
 import { Toaster, toast } from "sonner";
-import { getTelegramLoginConfig, loginWithTelegram, logout, type TelegramAuthPayload } from "@/lib/api/auth";
+import { getTelegramLoginConfig, loginWithTelegram, loginWithTelegramOidc, logout, type TelegramAuthPayload, type TelegramOidcAuthPayload } from "@/lib/api/auth";
 import { Button } from "@/design/components/ui/Button";
 
 type AuthMode = "login" | "signup";
@@ -43,12 +43,89 @@ const modeCopy: Record<
 const highlights = ["Без пароля", "Подписанный Telegram вход", "Workspace из БД"];
 const telegramBotUsername = process.env.NEXT_PUBLIC_TELEGRAM_LOGIN_BOT?.trim() ?? "";
 
-function telegramLogoutUrl(botId: string) {
-  const url = new URL("https://oauth.telegram.org/auth/logout");
-  url.searchParams.set("bot_id", botId);
-  url.searchParams.set("origin", window.location.origin);
-  url.searchParams.set("return_to", `${window.location.origin}/login`);
+type TelegramOidcPopupResult = {
+  event?: string;
+  result?: string;
+  error?: string;
+};
+
+function randomNonce() {
+  if (window.crypto.randomUUID) return window.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function telegramOidcAuthUrl(botId: string, nonce: string) {
+  const url = new URL("https://oauth.telegram.org/auth");
+  url.searchParams.set("response_type", "post_message");
+  url.searchParams.set("client_id", botId);
+  url.searchParams.set("redirect_uri", `${window.location.origin}/login`);
+  url.searchParams.set("scope", "openid profile telegram:bot_access");
+  url.searchParams.set("prompt", "login select_account");
+  url.searchParams.set("nonce", nonce);
+  url.searchParams.set("lang", "ru");
   return url.toString();
+}
+
+function waitForTelegramOidcAuth(botId: string) {
+  const nonce = randomNonce();
+  const popup = window.open(
+    telegramOidcAuthUrl(botId, nonce),
+    "leadvirt_telegram_oidc",
+    "width=550,height=650,status=0,location=0,menubar=0,toolbar=0"
+  );
+
+  if (!popup) {
+    return Promise.reject(new Error("popup_blocked"));
+  }
+
+  popup.focus();
+
+  return new Promise<TelegramOidcAuthPayload>((resolve, reject) => {
+    let finished = false;
+    const cleanup = () => {
+      finished = true;
+      window.clearInterval(closeTimer);
+      window.clearTimeout(timeout);
+      window.removeEventListener("message", handleMessage);
+    };
+    const fail = (error: Error) => {
+      if (finished) return;
+      cleanup();
+      reject(error);
+    };
+    const done = (idToken: string) => {
+      if (finished) return;
+      cleanup();
+      resolve({ idToken, nonce });
+    };
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== "https://oauth.telegram.org") return;
+      let data: TelegramOidcPopupResult;
+      try {
+        data = typeof event.data === "string" ? (JSON.parse(event.data) as TelegramOidcPopupResult) : (event.data as TelegramOidcPopupResult);
+      } catch {
+        return;
+      }
+      if (!data || typeof data !== "object") return;
+      if (data.event !== "auth_result") return;
+      if (data.error) {
+        fail(new Error(data.error));
+        return;
+      }
+      if (typeof data.result === "string" && data.result) {
+        popup.close();
+        done(data.result);
+      }
+    };
+    const closeTimer = window.setInterval(() => {
+      if (popup.closed) fail(new Error("popup_closed"));
+    }, 300);
+    const timeout = window.setTimeout(() => fail(new Error("timeout")), 5 * 60 * 1000);
+
+    window.addEventListener("message", handleMessage);
+  });
 }
 
 declare global {
@@ -60,11 +137,13 @@ declare global {
 function TelegramLoginButton({
   label,
   loading,
-  onAuth
+  onAuth,
+  onOidcAuth
 }: {
   label: string;
   loading: boolean;
   onAuth: (payload: TelegramAuthPayload) => void;
+  onOidcAuth: (payload: TelegramOidcAuthPayload) => Promise<void> | void;
 }) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const [telegramBotId, setTelegramBotId] = React.useState<string | null>(null);
@@ -94,17 +173,24 @@ function TelegramLoginButton({
 
     setSwitchingAccount(true);
     try {
+      const telegramAuth = waitForTelegramOidcAuth(telegramBotId);
       window.localStorage.removeItem("leadvirt.auth.session");
       window.localStorage.removeItem("leadvirt.demo.session");
       await logout().catch(() => undefined);
       setWidgetVersion((value) => value + 1);
-      toast("Перенаправляем в Telegram для смены аккаунта.");
-      window.location.assign(telegramLogoutUrl(telegramBotId));
-    } catch {
-      toast.error("Не удалось сбросить сессию LeadVirt");
+      const oidcPayload = await telegramAuth;
+      await onOidcAuth(oidcPayload);
+    } catch (caught) {
+      if (caught instanceof Error && caught.message === "popup_blocked") {
+        toast.error("Браузер заблокировал окно Telegram. Разрешите всплывающие окна и попробуйте снова.");
+      } else if (caught instanceof Error && caught.message === "popup_closed") {
+        toast.error("Окно Telegram было закрыто до выбора аккаунта.");
+      } else {
+        toast.error("Не удалось войти через другой Telegram аккаунт");
+      }
       setSwitchingAccount(false);
     }
-  }, [telegramBotId]);
+  }, [onOidcAuth, telegramBotId]);
 
   React.useEffect(() => {
     window.leadvirtTelegramAuth = onAuth;
@@ -242,6 +328,41 @@ export function AuthFlow({ mode }: { mode: AuthMode }) {
     },
     [mode, router]
   );
+  const handleTelegramOidcAuth = React.useCallback(
+    async (payload: TelegramOidcAuthPayload) => {
+      setError("");
+      setLoading(true);
+
+      try {
+        const me = await loginWithTelegramOidc(payload);
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem("leadvirt.demo.session");
+          window.localStorage.setItem(
+            "leadvirt.auth.session",
+            JSON.stringify({
+              email: me.email,
+              phone: me.phone,
+              name: me.name,
+              tenantId: me.tenantId,
+              role: me.role,
+              authMode: me.authMode,
+              expiresAt: me.expiresAt,
+              passwordChangeRequired: me.passwordChangeRequired
+            })
+          );
+        }
+
+        toast.success(me.isNewUser ? "Workspace создан" : "Добро пожаловать");
+        router.push(mode === "signup" || me.isNewUser ? "/onboarding" : "/app");
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Не удалось войти через Telegram");
+        throw caught;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [mode, router]
+  );
   const handleTelegramAuthStart = React.useCallback(
     (payload: TelegramAuthPayload) => {
       void handleTelegramAuth(payload);
@@ -327,7 +448,7 @@ export function AuthFlow({ mode }: { mode: AuthMode }) {
               </div>
 
               <div className="space-y-4">
-                <TelegramLoginButton label={copy.primaryAction} loading={loading} onAuth={handleTelegramAuthStart} />
+                <TelegramLoginButton label={copy.primaryAction} loading={loading} onAuth={handleTelegramAuthStart} onOidcAuth={handleTelegramOidcAuth} />
 
                 {!telegramBotUsername ? (
                   <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
