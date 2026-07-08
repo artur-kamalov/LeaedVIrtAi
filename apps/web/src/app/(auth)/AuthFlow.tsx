@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
 import { motion } from "motion/react";
-import { Bot, CheckCircle2, Loader2, RefreshCw, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, Send, ShieldCheck, Sparkles } from "lucide-react";
 import { Toaster, toast } from "sonner";
-import { getTelegramLoginConfig, loginWithTelegram, logout, type TelegramAuthPayload } from "@/lib/api/auth";
+import { getTelegramLoginConfig, loginWithTelegram, type TelegramAuthPayload } from "@/lib/api/auth";
 import { Button } from "@/design/components/ui/Button";
 
 type AuthMode = "login" | "signup";
@@ -47,20 +47,7 @@ const allowLocalTelegramMock = process.env.NODE_ENV !== "production";
 declare global {
   interface Window {
     __leadvirtTelegramAuth?: (payload: unknown) => void;
-    Telegram?: {
-      Login?: {
-        auth?: (
-          options: { bot_id: string; request_access?: "write"; lang?: string },
-          callback: (payload: unknown) => void
-        ) => void;
-      };
-    };
   }
-}
-
-function normalizeTelegramBotId(value: string | null | undefined) {
-  const normalized = value?.trim() ?? "";
-  return /^\d+$/.test(normalized) ? normalized : null;
 }
 
 function normalizeTelegramBotUsername(value: string | null | undefined) {
@@ -70,19 +57,6 @@ function normalizeTelegramBotUsername(value: string | null | undefined) {
 
 function optionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function readCachedTelegramId() {
-  try {
-    const rawSession = window.localStorage.getItem("leadvirt.auth.session");
-    if (!rawSession) return null;
-    const session = JSON.parse(rawSession) as { email?: unknown; authMode?: unknown };
-    if (session.authMode !== "telegram" || typeof session.email !== "string") return null;
-    const match = session.email.match(/^telegram-(\d+)@telegram\.leadvirt\.internal$/);
-    return match ? Number(match[1]) : null;
-  } catch {
-    return null;
-  }
 }
 
 function normalizeTelegramWidgetPayload(value: unknown): TelegramAuthPayload | null {
@@ -103,11 +77,10 @@ function normalizeTelegramWidgetPayload(value: unknown): TelegramAuthPayload | n
   };
 }
 
-function mountTelegramWidget(host: HTMLDivElement, botUsername: string, mountId: number) {
+function mountTelegramWidget(host: HTMLDivElement, botUsername: string) {
   host.innerHTML = "";
-  host.dataset.telegramWidgetMount = String(mountId);
   const script = document.createElement("script");
-  script.src = `${telegramWidgetScriptSrc}&leadvirt_mount=${mountId}`;
+  script.src = telegramWidgetScriptSrc;
   script.async = true;
   script.setAttribute("data-telegram-login", botUsername);
   script.setAttribute("data-size", "large");
@@ -117,19 +90,6 @@ function mountTelegramWidget(host: HTMLDivElement, botUsername: string, mountId:
   script.setAttribute("data-lang", "ru");
   script.setAttribute("data-onauth", "window.__leadvirtTelegramAuth(user)");
   host.appendChild(script);
-}
-
-function openTelegramAuthPopup(botId: string) {
-  const auth = window.Telegram?.Login?.auth;
-  if (typeof auth !== "function") return false;
-  try {
-    auth({ bot_id: botId, request_access: "write", lang: "ru" }, (payload) => {
-      window.__leadvirtTelegramAuth?.(payload);
-    });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function TelegramLoginButton({
@@ -142,23 +102,8 @@ function TelegramLoginButton({
   onAuth: (payload: TelegramAuthPayload) => void;
 }) {
   const [telegramBotUsername, setTelegramBotUsername] = React.useState<string | null>(null);
-  const [telegramBotId, setTelegramBotId] = React.useState<string | null>(null);
   const [configLoaded, setConfigLoaded] = React.useState(false);
-  const [switchingAccount, setSwitchingAccount] = React.useState(false);
-  const [widgetMountId, setWidgetMountId] = React.useState(0);
   const widgetHostRef = React.useRef<HTMLDivElement | null>(null);
-  const switchBlockedTelegramIdRef = React.useRef<number | null>(null);
-  const switchAuthPendingRef = React.useRef(false);
-  const switchAuthResetTimerRef = React.useRef<number | null>(null);
-
-  const clearSwitchAuthGuard = React.useCallback(() => {
-    switchAuthPendingRef.current = false;
-    switchBlockedTelegramIdRef.current = null;
-    if (switchAuthResetTimerRef.current !== null) {
-      window.clearTimeout(switchAuthResetTimerRef.current);
-      switchAuthResetTimerRef.current = null;
-    }
-  }, []);
 
   React.useEffect(() => {
     window.__leadvirtTelegramAuth = (rawPayload) => {
@@ -167,19 +112,12 @@ function TelegramLoginButton({
         toast.error("Telegram вернул некорректный ответ");
         return;
       }
-      if (switchAuthPendingRef.current && switchBlockedTelegramIdRef.current === payload.id) {
-        clearSwitchAuthGuard();
-        toast.error("Telegram вернул тот же аккаунт. Выйдите из него на стороне Telegram и попробуйте снова.");
-        return;
-      }
-      clearSwitchAuthGuard();
       onAuth(payload);
     };
     return () => {
-      clearSwitchAuthGuard();
       delete window.__leadvirtTelegramAuth;
     };
-  }, [clearSwitchAuthGuard, onAuth]);
+  }, [onAuth]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -187,13 +125,11 @@ function TelegramLoginButton({
     getTelegramLoginConfig()
       .then((config) => {
         if (cancelled) return;
-        setTelegramBotId(normalizeTelegramBotId(config.botId));
         setTelegramBotUsername(normalizeTelegramBotUsername(config.botUsername) ?? publicBotUsername);
         setConfigLoaded(true);
       })
       .catch(() => {
         if (!cancelled) {
-          setTelegramBotId(null);
           setTelegramBotUsername(publicBotUsername);
           setConfigLoaded(true);
         }
@@ -206,42 +142,11 @@ function TelegramLoginButton({
   React.useEffect(() => {
     const host = widgetHostRef.current;
     if (!host || !telegramBotUsername) return;
-    mountTelegramWidget(host, telegramBotUsername, widgetMountId);
+    mountTelegramWidget(host, telegramBotUsername);
     return () => {
       host.innerHTML = "";
     };
-  }, [telegramBotUsername, widgetMountId]);
-
-  const resetLeadVirtSession = React.useCallback(async () => {
-    setSwitchingAccount(true);
-    switchBlockedTelegramIdRef.current = readCachedTelegramId();
-    switchAuthPendingRef.current = true;
-    const authPopupOpened = telegramBotId ? openTelegramAuthPopup(telegramBotId) : false;
-    if (authPopupOpened) {
-      switchAuthResetTimerRef.current = window.setTimeout(clearSwitchAuthGuard, 30_000);
-    }
-    try {
-      window.localStorage.removeItem("leadvirt.auth.session");
-      window.localStorage.removeItem("leadvirt.demo.session");
-      await logout().catch(() => undefined);
-      const nextMountId = widgetMountId + 1;
-      setWidgetMountId(nextMountId);
-      const host = widgetHostRef.current;
-      if (host && telegramBotUsername) {
-        mountTelegramWidget(host, telegramBotUsername, nextMountId);
-      }
-      toast.info(
-        authPopupOpened
-          ? "Сессия LeadVirt очищена. Продолжите вход в окне Telegram."
-          : "Сессия LeadVirt очищена. Нажмите официальную кнопку Telegram ещё раз."
-      );
-    } finally {
-      setSwitchingAccount(false);
-      if (!authPopupOpened) {
-        clearSwitchAuthGuard();
-      }
-    }
-  }, [clearSwitchAuthGuard, telegramBotId, telegramBotUsername, widgetMountId]);
+  }, [telegramBotUsername]);
 
   if (allowLocalTelegramMock && configLoaded && !telegramBotUsername) {
     return (
@@ -275,29 +180,29 @@ function TelegramLoginButton({
 
   return (
     <div className="space-y-3 text-center">
-      <div
-        data-testid="telegram-auth-button"
-        ref={widgetHostRef}
-        aria-label={label}
-        className="flex min-h-12 items-center justify-center"
-      />
+      {configLoaded && telegramBotUsername ? (
+        <div className="relative mx-auto h-12 w-[238px] max-w-full">
+          <div
+            data-testid="telegram-auth-button"
+            ref={widgetHostRef}
+            aria-label={label}
+            className="absolute inset-0 z-10 [&_iframe]:absolute [&_iframe]:inset-0 [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:opacity-0"
+          />
+          <div
+            aria-hidden="true"
+            data-testid="telegram-brand-button"
+            className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-5 text-sm font-semibold text-zinc-950 shadow-lg shadow-emerald-950/30"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {label}
+          </div>
+        </div>
+      ) : null}
       {loading ? (
         <p className="flex items-center justify-center gap-2 text-xs text-zinc-500">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Проверяем Telegram...
         </p>
-      ) : null}
-      {configLoaded && telegramBotUsername ? (
-        <button
-          type="button"
-          data-testid="telegram-switch-account"
-          className="mx-auto flex items-center justify-center gap-2 text-sm font-semibold text-zinc-400 transition hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={loading || switchingAccount}
-          onClick={() => void resetLeadVirtSession()}
-        >
-          {switchingAccount ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          Другой Telegram аккаунт
-        </button>
       ) : null}
       {statusText ? <p className="text-xs text-zinc-500">{statusText}</p> : null}
     </div>

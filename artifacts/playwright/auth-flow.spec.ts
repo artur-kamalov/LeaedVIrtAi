@@ -57,15 +57,6 @@ const telegramWidgetMock = `
     lang: script.getAttribute("data-lang"),
     onauth: script.getAttribute("data-onauth")
   });
-  testWindow.Telegram = testWindow.Telegram || {};
-  testWindow.Telegram.Login = testWindow.Telegram.Login || {};
-  testWindow.Telegram.Login.auth = (options, callback) => {
-    testWindow.leadvirtTelegramLoginAuthCalls = testWindow.leadvirtTelegramLoginAuthCalls || [];
-    testWindow.leadvirtTelegramLoginAuthCalls.push(options);
-    if (testWindow.leadvirtTelegramAuthCallbackPayload) {
-      callback(testWindow.leadvirtTelegramAuthCallbackPayload);
-    }
-  };
   const button = document.createElement("button");
   button.type = "button";
   button.dataset.testid = "telegram-widget-mock-button";
@@ -117,7 +108,8 @@ test.describe("telegram auth flow", () => {
     await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
 
     await expect(page.getByRole("heading", { level: 2 })).toContainText("LeadVirt.ai");
-    await expect(page.getByTestId("telegram-switch-account")).toBeVisible();
+    await expect(page.getByTestId("telegram-brand-button")).toBeVisible();
+    await expect(page.getByTestId("telegram-switch-account")).toHaveCount(0);
     await completeTelegramAuth(page);
 
     await expect(page).toHaveURL(`${webBase}/app`, { timeout: 30000 });
@@ -133,55 +125,6 @@ test.describe("telegram auth flow", () => {
     });
     expect(oidcRequests).toBe(0);
     await expect.poll(async () => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session") ?? "")).toContain("telegram");
-  });
-
-  test("switch account blocks the same Telegram account from auto-login", async ({ page }) => {
-    let logoutRequests = 0;
-    let authRequests = 0;
-    await page.route("**/api/auth/logout", async (route) => {
-      logoutRequests += 1;
-      await route.fulfill({ headers: apiMockHeaders, json: { data: { loggedOut: true } } });
-    });
-    await page.route("**/api/auth/telegram", async (route) => {
-      authRequests += 1;
-      await route.abort();
-    });
-
-    await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
-    await page.evaluate(() => {
-      window.localStorage.setItem(
-        "leadvirt.auth.session",
-        JSON.stringify({
-          email: "telegram-100000001@telegram.leadvirt.internal",
-          authMode: "telegram"
-        })
-      );
-      window.localStorage.setItem("leadvirt.demo.session", "cached-demo");
-      (window as Window & { leadvirtTelegramAuthCallbackPayload?: unknown }).leadvirtTelegramAuthCallbackPayload = {
-        id: 100000001,
-        first_name: "Local",
-        last_name: "Telegram",
-        username: "leadvirt_local",
-        auth_date: 1783728000,
-        hash: "signed-widget-payload"
-      };
-    });
-
-    await page.getByTestId("telegram-switch-account").click();
-
-    await expect(page.getByText("Telegram вернул тот же аккаунт")).toBeVisible();
-    await expect.poll(() => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session"))).toBeNull();
-    await expect.poll(() => page.evaluate(() => window.localStorage.getItem("leadvirt.demo.session"))).toBeNull();
-    await expect.poll(() => logoutRequests).toBe(1);
-    expect(authRequests).toBe(0);
-    await expect(page.getByTestId("telegram-auth-button")).toHaveAttribute("data-telegram-widget-mount", "1");
-    const authCalls = await page.evaluate(
-      () =>
-        (window as Window & { leadvirtTelegramLoginAuthCalls?: Array<{ bot_id: string; request_access?: string; lang?: string }> })
-          .leadvirtTelegramLoginAuthCalls ?? []
-    );
-    expect(authCalls).toEqual([{ bot_id: "123456", request_access: "write", lang: "ru" }]);
   });
 
   test("invalid Telegram widget payload stays on login", async ({ page }) => {
