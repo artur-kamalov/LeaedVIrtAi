@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
 import { motion } from "motion/react";
-import { Bot, CheckCircle2, Loader2, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, RefreshCw, Send, ShieldCheck, Sparkles } from "lucide-react";
 import { Toaster, toast } from "sonner";
-import { getTelegramLoginConfig, loginWithTelegram, type TelegramAuthPayload } from "@/lib/api/auth";
+import { getTelegramLoginConfig, loginWithTelegram, logout, type TelegramAuthPayload } from "@/lib/api/auth";
 import { Button } from "@/design/components/ui/Button";
 
 type AuthMode = "login" | "signup";
@@ -77,6 +77,22 @@ function normalizeTelegramWidgetPayload(value: unknown): TelegramAuthPayload | n
   };
 }
 
+function mountTelegramWidget(host: HTMLDivElement, botUsername: string, mountId: number) {
+  host.innerHTML = "";
+  host.dataset.telegramWidgetMount = String(mountId);
+  const script = document.createElement("script");
+  script.src = `${telegramWidgetScriptSrc}&leadvirt_mount=${mountId}`;
+  script.async = true;
+  script.setAttribute("data-telegram-login", botUsername);
+  script.setAttribute("data-size", "large");
+  script.setAttribute("data-userpic", "false");
+  script.setAttribute("data-radius", "12");
+  script.setAttribute("data-request-access", "write");
+  script.setAttribute("data-lang", "ru");
+  script.setAttribute("data-onauth", "window.__leadvirtTelegramAuth(user)");
+  host.appendChild(script);
+}
+
 function TelegramLoginButton({
   label,
   loading,
@@ -88,6 +104,8 @@ function TelegramLoginButton({
 }) {
   const [telegramBotUsername, setTelegramBotUsername] = React.useState<string | null>(null);
   const [configLoaded, setConfigLoaded] = React.useState(false);
+  const [switchingAccount, setSwitchingAccount] = React.useState(false);
+  const [widgetMountId, setWidgetMountId] = React.useState(0);
   const widgetHostRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
@@ -127,22 +145,29 @@ function TelegramLoginButton({
   React.useEffect(() => {
     const host = widgetHostRef.current;
     if (!host || !telegramBotUsername) return;
-    host.innerHTML = "";
-    const script = document.createElement("script");
-    script.src = telegramWidgetScriptSrc;
-    script.async = true;
-    script.setAttribute("data-telegram-login", telegramBotUsername);
-    script.setAttribute("data-size", "large");
-    script.setAttribute("data-userpic", "false");
-    script.setAttribute("data-radius", "12");
-    script.setAttribute("data-request-access", "write");
-    script.setAttribute("data-lang", "ru");
-    script.setAttribute("data-onauth", "window.__leadvirtTelegramAuth(user)");
-    host.appendChild(script);
+    mountTelegramWidget(host, telegramBotUsername, widgetMountId);
     return () => {
       host.innerHTML = "";
     };
-  }, [telegramBotUsername]);
+  }, [telegramBotUsername, widgetMountId]);
+
+  const resetLeadVirtSession = React.useCallback(async () => {
+    setSwitchingAccount(true);
+    try {
+      window.localStorage.removeItem("leadvirt.auth.session");
+      window.localStorage.removeItem("leadvirt.demo.session");
+      await logout().catch(() => undefined);
+      const nextMountId = widgetMountId + 1;
+      setWidgetMountId(nextMountId);
+      const host = widgetHostRef.current;
+      if (host && telegramBotUsername) {
+        mountTelegramWidget(host, telegramBotUsername, nextMountId);
+      }
+      toast.info("Сессия LeadVirt очищена. Выберите другой аккаунт в окне Telegram, если он доступен.");
+    } finally {
+      setSwitchingAccount(false);
+    }
+  }, [telegramBotUsername, widgetMountId]);
 
   if (allowLocalTelegramMock && configLoaded && !telegramBotUsername) {
     return (
@@ -187,6 +212,18 @@ function TelegramLoginButton({
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Проверяем Telegram...
         </p>
+      ) : null}
+      {configLoaded && telegramBotUsername ? (
+        <button
+          type="button"
+          data-testid="telegram-switch-account"
+          className="mx-auto flex items-center justify-center gap-2 text-sm font-semibold text-zinc-400 transition hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={loading || switchingAccount}
+          onClick={() => void resetLeadVirtSession()}
+        >
+          {switchingAccount ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          Другой Telegram аккаунт
+        </button>
       ) : null}
       {statusText ? <p className="text-xs text-zinc-500">{statusText}</p> : null}
     </div>

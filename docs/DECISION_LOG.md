@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-08: Make Telegram Account Switching Best-Effort
+
+Decision: `/login` now shows a `Другой Telegram аккаунт` action under the official Telegram widget. It clears only the LeadVirt session/local storage, calls `/auth/logout`, and remounts the official widget with a cache-busted script URL.
+
+Context: Telegram does not expose an official website API to clear Telegram cookies or force account selection. The best we can do safely is reset LeadVirt state and let Telegram's own widget/popup handle whichever account is active on Telegram's domain.
+
+Consequences:
+
+- LeadVirt can reliably forget the current local app session before the next Telegram login attempt.
+- Telegram account choice remains controlled by Telegram's browser session.
+- The UI must not imply that LeadVirt can log the user out of Telegram itself.
+
 ## 2026-07-08: Return Public Auth To Telegram Login Widget
 
 Decision: `/login` and `/signup` now render the official legacy Telegram Login Widget through `telegram-widget.js` with `data-telegram-login`, `data-onauth`, and `data-request-access=write`. The frontend no longer renders a custom visual button, no longer overlays a LeadVirt button on top of Telegram, and no longer opens a custom OIDC popup for public auth.

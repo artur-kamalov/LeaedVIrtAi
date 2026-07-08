@@ -108,7 +108,7 @@ test.describe("telegram auth flow", () => {
     await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
 
     await expect(page.getByRole("heading", { level: 2 })).toContainText("LeadVirt.ai");
-    await expect(page.getByTestId("telegram-switch-account")).toHaveCount(0);
+    await expect(page.getByTestId("telegram-switch-account")).toBeVisible();
     await completeTelegramAuth(page);
 
     await expect(page).toHaveURL(`${webBase}/app`, { timeout: 30000 });
@@ -124,6 +124,31 @@ test.describe("telegram auth flow", () => {
     });
     expect(oidcRequests).toBe(0);
     await expect.poll(async () => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session") ?? "")).toContain("telegram");
+  });
+
+  test("switch account clears LeadVirt session and remounts Telegram widget", async ({ page }) => {
+    let logoutRequests = 0;
+    await page.route("**/api/auth/logout", async (route) => {
+      logoutRequests += 1;
+      await route.fulfill({ headers: apiMockHeaders, json: { data: { loggedOut: true } } });
+    });
+    await page.route("**/api/auth/telegram", async (route) => {
+      await route.abort();
+    });
+
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
+    await page.evaluate(() => {
+      window.localStorage.setItem("leadvirt.auth.session", "cached");
+      window.localStorage.setItem("leadvirt.demo.session", "cached-demo");
+    });
+
+    await page.getByTestId("telegram-switch-account").click();
+
+    await expect.poll(() => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session"))).toBeNull();
+    await expect.poll(() => page.evaluate(() => window.localStorage.getItem("leadvirt.demo.session"))).toBeNull();
+    await expect.poll(() => logoutRequests).toBe(1);
+    await expect(page.getByTestId("telegram-auth-button")).toHaveAttribute("data-telegram-widget-mount", "1");
   });
 
   test("invalid Telegram widget payload stays on login", async ({ page }) => {
