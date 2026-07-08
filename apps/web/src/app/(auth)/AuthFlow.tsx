@@ -72,6 +72,19 @@ function optionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function readCachedTelegramId() {
+  try {
+    const rawSession = window.localStorage.getItem("leadvirt.auth.session");
+    if (!rawSession) return null;
+    const session = JSON.parse(rawSession) as { email?: unknown; authMode?: unknown };
+    if (session.authMode !== "telegram" || typeof session.email !== "string") return null;
+    const match = session.email.match(/^telegram-(\d+)@telegram\.leadvirt\.internal$/);
+    return match ? Number(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeTelegramWidgetPayload(value: unknown): TelegramAuthPayload | null {
   if (!value || typeof value !== "object") return null;
   const data = value as Record<string, unknown>;
@@ -134,6 +147,18 @@ function TelegramLoginButton({
   const [switchingAccount, setSwitchingAccount] = React.useState(false);
   const [widgetMountId, setWidgetMountId] = React.useState(0);
   const widgetHostRef = React.useRef<HTMLDivElement | null>(null);
+  const switchBlockedTelegramIdRef = React.useRef<number | null>(null);
+  const switchAuthPendingRef = React.useRef(false);
+  const switchAuthResetTimerRef = React.useRef<number | null>(null);
+
+  const clearSwitchAuthGuard = React.useCallback(() => {
+    switchAuthPendingRef.current = false;
+    switchBlockedTelegramIdRef.current = null;
+    if (switchAuthResetTimerRef.current !== null) {
+      window.clearTimeout(switchAuthResetTimerRef.current);
+      switchAuthResetTimerRef.current = null;
+    }
+  }, []);
 
   React.useEffect(() => {
     window.__leadvirtTelegramAuth = (rawPayload) => {
@@ -142,12 +167,19 @@ function TelegramLoginButton({
         toast.error("Telegram вернул некорректный ответ");
         return;
       }
+      if (switchAuthPendingRef.current && switchBlockedTelegramIdRef.current === payload.id) {
+        clearSwitchAuthGuard();
+        toast.error("Telegram вернул тот же аккаунт. Выйдите из него на стороне Telegram и попробуйте снова.");
+        return;
+      }
+      clearSwitchAuthGuard();
       onAuth(payload);
     };
     return () => {
+      clearSwitchAuthGuard();
       delete window.__leadvirtTelegramAuth;
     };
-  }, [onAuth]);
+  }, [clearSwitchAuthGuard, onAuth]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -182,7 +214,12 @@ function TelegramLoginButton({
 
   const resetLeadVirtSession = React.useCallback(async () => {
     setSwitchingAccount(true);
+    switchBlockedTelegramIdRef.current = readCachedTelegramId();
+    switchAuthPendingRef.current = true;
     const authPopupOpened = telegramBotId ? openTelegramAuthPopup(telegramBotId) : false;
+    if (authPopupOpened) {
+      switchAuthResetTimerRef.current = window.setTimeout(clearSwitchAuthGuard, 30_000);
+    }
     try {
       window.localStorage.removeItem("leadvirt.auth.session");
       window.localStorage.removeItem("leadvirt.demo.session");
@@ -200,8 +237,11 @@ function TelegramLoginButton({
       );
     } finally {
       setSwitchingAccount(false);
+      if (!authPopupOpened) {
+        clearSwitchAuthGuard();
+      }
     }
-  }, [telegramBotId, telegramBotUsername, widgetMountId]);
+  }, [clearSwitchAuthGuard, telegramBotId, telegramBotUsername, widgetMountId]);
 
   if (allowLocalTelegramMock && configLoaded && !telegramBotUsername) {
     return (
