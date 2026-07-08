@@ -270,6 +270,18 @@ test("integrations page connects and disconnects through provider API", async ({
   await expect(page.getByTestId("api-webhook-umnico-status")).toContainText(
     "Umnico token сохранён",
   );
+  await expect(page.getByTestId("integration-card-instagram")).toContainText(
+    "Подключение по запросу",
+  );
+  await expect(
+    page.getByTestId("integration-card-instagram").getByRole("button", {
+      name: "Подключение по запросу",
+    }),
+  ).toBeDisabled();
+  await expect(page.getByTestId("integration-card-whatsapp")).toContainText(
+    "Подключение по запросу",
+  );
+  await expect(page.getByTestId("integration-card-vk")).toContainText("Скоро будет");
   await expect(page.getByText("sk-admin")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Открыть API ключи" })).toHaveAttribute(
     "href",

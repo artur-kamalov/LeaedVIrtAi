@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-08: Limit Pilot Self-Serve Integrations To Low-Friction Channels
+
+Decision: Instagram and WhatsApp Business are not part of the pilot self-serve integration set. In the Integrations UI they are labeled `Подключение по запросу`; VK and Shopify are labeled `Скоро будет`.
+
+Context: Pilot onboarding should avoid legal and platform-review complexity such as Meta Business Verification or App Review. Social channels that require third-party/provider setup must not look like one-click self-serve connections.
+
+Consequences:
+
+- Pilot readiness focuses on low-friction channels such as Telegram, Website Widget, and Webhook/API.
+- Instagram can still be handled manually through Umnico when needed, but it is not advertised as self-serve.
+- Future native Meta integrations should become self-serve only after the required verification/review path is complete.
+
 ## 2026-07-08: Create Missing Integration Accounts On Connect
 
 Decision: `POST /integrations/:provider/connect` creates a catalog-backed integration account when the tenant does not already have one, then marks it connected.

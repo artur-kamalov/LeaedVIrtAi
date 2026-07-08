@@ -48,6 +48,7 @@ import {
    Data
    ============================================================ */
 type Category = "CRM" | "Каналы" | "Календарь" | "E-commerce" | "Разработчикам";
+type IntegrationAvailability = "selfServe" | "request" | "soon";
 
 interface Integration {
   id: string;
@@ -59,6 +60,7 @@ interface Integration {
   accentColor: string;
   accentBg: string;
   connected: boolean;
+  availability?: IntegrationAvailability;
 }
 
 const INTEGRATIONS: Integration[] = [
@@ -116,6 +118,7 @@ const INTEGRATIONS: Integration[] = [
     accentColor: "text-emerald-400",
     accentBg: "bg-emerald-500/15",
     connected: true,
+    availability: "request",
   },
   {
     id: "instagram",
@@ -127,6 +130,7 @@ const INTEGRATIONS: Integration[] = [
     accentColor: "text-pink-400",
     accentBg: "bg-pink-500/15",
     connected: true,
+    availability: "request",
   },
   {
     id: "vk",
@@ -138,6 +142,7 @@ const INTEGRATIONS: Integration[] = [
     accentColor: "text-indigo-400",
     accentBg: "bg-indigo-500/15",
     connected: false,
+    availability: "soon",
   },
   {
     id: "email",
@@ -171,6 +176,7 @@ const INTEGRATIONS: Integration[] = [
     accentColor: "text-lime-400",
     accentBg: "bg-lime-500/15",
     connected: false,
+    availability: "soon",
   },
   {
     id: "webhook",
@@ -221,6 +227,16 @@ function apiAccountToConnectedPatch(account: IntegrationAccount) {
 
 function canSendSample(provider: IntegrationProvider) {
   return provider === "TELEGRAM" || provider === "WEBHOOK_API";
+}
+
+function isSelfServeIntegration(integration: Integration) {
+  return (integration.availability ?? "selfServe") === "selfServe";
+}
+
+function availabilityLabel(integration: Integration) {
+  if (integration.availability === "request") return "Подключение по запросу";
+  if (integration.availability === "soon") return "Скоро будет";
+  return null;
 }
 
 type SyncMode = "leads-to-service" | "two-way" | "events-only";
@@ -1068,6 +1084,9 @@ function IntegrationCard({
 }) {
   const Icon = integration.icon;
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const availability = availabilityLabel(integration);
+  const canSelfServe = isSelfServeIntegration(integration);
+  const connectedVisible = canSelfServe && connected;
 
   return (
     <>
@@ -1083,8 +1102,9 @@ function IntegrationCard({
             "relative rounded-2xl bg-zinc-900/50 border border-white/5 backdrop-blur-sm p-5 flex flex-col gap-4 h-full",
             "transition-all duration-300",
             "hover:border-white/10 hover:bg-zinc-900/80",
-            connected && "hover:shadow-[0_0_24px_-6px] hover:shadow-emerald-500/20",
+            connectedVisible && "hover:shadow-[0_0_24px_-6px] hover:shadow-emerald-500/20",
           )}
+          data-testid={`integration-card-${integration.id}`}
         >
           {/* Glow blob */}
           <div
@@ -1124,7 +1144,28 @@ function IntegrationCard({
 
           {/* Footer */}
           <div className="flex items-center justify-between gap-2 relative">
-            {connected ? (
+            {!canSelfServe ? (
+              <div className="flex w-full flex-col gap-2">
+                <span
+                  className={cn(
+                    "w-fit rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                    integration.availability === "soon"
+                      ? "border-zinc-700 bg-white/[0.03] text-zinc-400"
+                      : "border-amber-500/20 bg-amber-500/10 text-amber-300",
+                  )}
+                >
+                  {availability}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-h-8 w-full whitespace-normal rounded-full px-3 py-2 text-xs"
+                  disabled
+                >
+                  {availability}
+                </Button>
+              </div>
+            ) : connectedVisible ? (
               <>
                 <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -1516,10 +1557,12 @@ export function IntegrationsPage() {
     }
   }
 
-  const totalConnected = Object.values(connectedMap).filter(Boolean).length;
+  const totalConnected = INTEGRATIONS.filter(
+    (integration) => isSelfServeIntegration(integration) && connectedMap[integration.id],
+  ).length;
   const totalAvailable = INTEGRATIONS.length;
   const channelsActive = INTEGRATIONS.filter(
-    (i) => i.category === "Каналы" && connectedMap[i.id],
+    (i) => i.category === "Каналы" && isSelfServeIntegration(i) && connectedMap[i.id],
   ).length;
 
   const filtered =

@@ -8,6 +8,7 @@ No open Umnico onboarding tasks.
 
 ## Done
 
+- [x] Marked non-pilot social channels in Integrations UI: Instagram and WhatsApp Business are now `Подключение по запросу`, VK/Shopify are `Скоро будет`, and these cards no longer trigger fake self-serve connects.
 - [x] Fixed Instagram connect 404 when a workspace has no existing `INSTAGRAM` integration row: `connect` now creates missing catalog integration accounts and `qa:integrations:connect-missing` covers the path.
 - [x] Removed Telegram account switching from `/login`: kept one official Telegram widget login with a LeadVirt branded visual button over the widget, removed auto-popup/same-account guard logic, and left future account switching for bot-based or alternate auth flows.
 - [x] Fixed `/login` Telegram account switching to avoid re-login with the previous Telegram account: the switch action opens Telegram's official popup, clears LeadVirt state, remounts the widget, and rejects the same cached Telegram ID when Telegram auto-returns it.
