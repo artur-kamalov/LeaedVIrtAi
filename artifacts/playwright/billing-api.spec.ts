@@ -254,12 +254,12 @@ test("billing route renders API-backed plan and usage inside copied settings UI"
   expect(billingRequests.canceled).toBe(true);
 });
 
-test("upgrade button opens the billing route", async ({ page }) => {
+test("billing sidebar link opens the billing route", async ({ page }) => {
   await mockBillingApi(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app/settings`, { waitUntil: "networkidle" });
 
-  await page.getByRole("button", { name: /^(Выбрать тариф|Управлять тарифом)$/ }).click();
+  await page.getByRole("link", { name: /^(Выбрать тариф|Управлять тарифом)$/ }).click();
   await expect(page).toHaveURL(`${webBase}/app/billing`);
   await expect(page.getByText("Биллинг и подписка")).toBeVisible();
 });

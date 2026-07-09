@@ -10,7 +10,8 @@ Last updated: 2026-07-09
 
 ## Done
 
-- [x] Added pilot control coverage for Dashboard quick actions, product theme toggle, landing desktop CTAs, and landing mobile menu routes; `qa:api` now covers 49 Playwright tests.
+- [x] Added pilot control coverage for Dashboard quick actions, product theme toggle, landing desktop CTAs, and landing mobile menu routes; `qa:api` now covers 50 Playwright tests.
+- [x] Converted product shell logo, billing CTA, notification rows, notification "open all", and topbar "new lead" to real links; extended pilot core controls coverage.
 - [x] Converted Dashboard quick actions to real Next links so they navigate reliably on first click.
 - [x] Changed the Landing mobile menu to a native disclosure control and added route smoke coverage for first-touch mobile navigation.
 - [x] Enforced the pilot integration boundary in the API: request-only/soon providers such as Instagram, WhatsApp Business, VK, Shopify, Shop-Script, and Other now reject direct self-service `connect` calls.

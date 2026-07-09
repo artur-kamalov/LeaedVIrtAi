@@ -385,12 +385,16 @@ export function ProductLayout({
 
   const sidebar = (
     <div className="flex h-full w-full min-w-0 flex-col overflow-hidden">
-      <button onClick={() => go("landing")} className="flex h-20 w-full min-w-0 shrink-0 items-center gap-2 px-3">
+      <Link
+        href="/"
+        data-testid="product-logo-link"
+        className="flex h-20 w-full min-w-0 shrink-0 items-center gap-2 px-3"
+      >
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 flex shrink-0 items-center justify-center">
           <Bot className="w-5 h-5 text-zinc-950" />
         </div>
         <span className="truncate text-lg font-bold tracking-tight">AI Администратор</span>
-      </button>
+      </Link>
 
       <nav className="min-w-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-3">
         {navItems.map((item) => (
@@ -416,7 +420,14 @@ export function ProductLayout({
             <span className={cn("truncate text-xs font-semibold", billing.active ? "text-emerald-300" : "text-zinc-400")}>{billing.title}</span>
           </div>
           <p className="mb-3 truncate text-xs text-zinc-400">{billing.detail}</p>
-          <Button size="sm" className="w-full" onClick={() => (demo ? router.push("/signup") : go("billing"))}>{billing.action}</Button>
+          <Button size="sm" className="w-full" asChild>
+            <Link
+              href={demo ? "/signup" : hrefForRoute("billing", {}, mode)}
+              data-testid="product-billing-link"
+            >
+              {billing.action}
+            </Link>
+          </Button>
         </div>
 
         <Dropdown
@@ -575,10 +586,9 @@ export function ProductLayout({
                   {productNotifications.notifications.map((n) => {
                     const NIcon = n.icon;
                     return (
-                      <button
+                      <Link
                         key={n.id}
-                        type="button"
-                        onClick={() => go("inbox")}
+                        href={hrefForRoute("inbox", {}, mode)}
                         className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/5 transition-colors"
                       >
                         <div className={cn("w-8 h-8 shrink-0 rounded-lg bg-white/5 flex items-center justify-center", n.color)}>
@@ -589,16 +599,18 @@ export function ProductLayout({
                           <p className="text-[11px] text-zinc-500 mt-0.5">{n.time}</p>
                         </div>
                         {n.unread && <span className="mt-1.5 w-2 h-2 shrink-0 rounded-full bg-emerald-400" />}
-                      </button>
+                      </Link>
                     );
                   })}
                 </div>
-                <button onClick={() => go("inbox")} className="w-full text-center text-sm font-medium text-emerald-400 hover:bg-white/5 py-3 border-t border-white/8 transition-colors">
+                <Link href={hrefForRoute("inbox", {}, mode)} className="block w-full text-center text-sm font-medium text-emerald-400 hover:bg-white/5 py-3 border-t border-white/8 transition-colors">
                   Открыть все
-                </button>
+                </Link>
               </Dropdown>
-              <Button size="sm" className="hidden sm:inline-flex" onClick={() => go("inbox")}>
-                <Plus className="w-4 h-4 mr-1.5" /> Новый лид
+              <Button size="sm" className="hidden sm:inline-flex" asChild>
+                <Link href={hrefForRoute("inbox", {}, mode)} data-testid="product-topbar-new-lead">
+                  <Plus className="w-4 h-4 mr-1.5" /> Новый лид
+                </Link>
               </Button>
             </div>
           </div>

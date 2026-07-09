@@ -373,12 +373,12 @@ export function DashboardPage() {
                 title="Лиды за неделю"
                 sub="Новые обращения и состоявшиеся записи по дням"
                 action={
-                  <button
-                    onClick={() => go("analytics")}
+                  <Link
+                    href={hrefForRoute("analytics", {}, mode)}
                     className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1"
                   >
                     Подробнее <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
+                  </Link>
                 }
               />
               <div className="h-56">
@@ -506,12 +506,12 @@ export function DashboardPage() {
                 title="Последние лиды"
                 sub="Актуальные обращения"
                 action={
-                  <button
-                    onClick={() => go("inbox")}
+                  <Link
+                    href={hrefForRoute("inbox", {}, mode)}
                     className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1"
                   >
                     Все лиды <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
+                  </Link>
                 }
               />
               <div className="space-y-1">

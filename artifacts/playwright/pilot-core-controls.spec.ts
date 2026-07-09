@@ -4,6 +4,8 @@ import { loginAsCleanUser } from "./helpers/auth";
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
 
+test.describe.configure({ timeout: 90_000 });
+
 test.beforeEach(async ({ page }) => {
   await loginAsCleanUser(page, apiBase);
 });
@@ -43,6 +45,24 @@ test("dashboard quick actions navigate to real product routes", async ({ page })
   await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
   await page.getByTestId("dashboard-analytics").click();
   await expect(page).toHaveURL(/\/app\/analytics$/, { timeout: 15_000 });
+});
+
+test("product shell primary links route without silent clicks", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
+
+  await page.getByTestId("product-topbar-new-lead").click();
+  await expect(page).toHaveURL(/\/app\/inbox$/, { timeout: 15_000 });
+
+  await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
+  await page.getByTestId("product-billing-link").click();
+  await expect(page).toHaveURL(/\/app\/billing$/, { timeout: 15_000 });
+
+  await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
+  await page.getByTestId("product-logo-link").click();
+  await expect(page).toHaveURL(new RegExp(`^${webBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/?$`), {
+    timeout: 15_000,
+  });
 });
 
 test("product shell theme toggle visibly switches theme", async ({ page }) => {
