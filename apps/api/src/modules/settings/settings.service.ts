@@ -28,6 +28,12 @@ function settingsRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
+function logoDataUrlFromSettings(value: unknown): string | null {
+  const settings = settingsRecord(value);
+  const profile = settingsRecord(settings.profile);
+  return typeof profile.logoDataUrl === "string" ? profile.logoDataUrl : null;
+}
+
 function apiKeyHash(secret: string) {
   return `sha256:${createHash("sha256").update(secret).digest("hex")}`;
 }
@@ -39,25 +45,49 @@ export class SettingsService {
     @Inject(AuthService) private readonly authService: AuthService
   ) {}
 
-  account(context: RequestContext): SettingsAccount {
+  async account(context: RequestContext): Promise<SettingsAccount> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: context.tenantId },
+      select: { settings: true }
+    });
     return {
       tenant: context.tenant,
       owner: context.user,
       businessName: context.tenant.name,
-      timezone: context.tenant.timezone
+      timezone: context.tenant.timezone,
+      logoDataUrl: logoDataUrlFromSettings(tenant?.settings)
     };
   }
 
   async updateAccount(context: RequestContext, dto: UpdateAccountSettingsDto): Promise<SettingsAccount> {
+    const currentTenant = await this.prisma.tenant.findUnique({
+      where: { id: context.tenantId },
+      select: { settings: true }
+    });
+    const currentSettings = settingsRecord(currentTenant?.settings);
+    const data: Prisma.TenantUpdateInput = {
+      name: dto.businessName ?? context.tenant.name,
+      timezone: dto.timezone ?? context.tenant.timezone,
+      businessType: dto.businessType ?? context.tenant.businessType
+    };
+
+    if (Object.prototype.hasOwnProperty.call(dto, "logoDataUrl")) {
+      const profile = settingsRecord(currentSettings.profile);
+      data.settings = {
+        ...currentSettings,
+        profile: {
+          ...profile,
+          logoDataUrl: dto.logoDataUrl ?? null
+        }
+      };
+    }
+
     const tenant = await this.prisma.tenant.update({
       where: { id: context.tenantId },
-      data: {
-        name: dto.businessName ?? context.tenant.name,
-        timezone: dto.timezone ?? context.tenant.timezone,
-        businessType: dto.businessType ?? context.tenant.businessType
-      },
-      select: { id: true, name: true, slug: true, status: true, businessType: true, timezone: true }
+      data,
+      select: { id: true, name: true, slug: true, status: true, businessType: true, timezone: true, settings: true }
     });
+    const { settings, ...tenantDto } = tenant;
     await this.prisma.auditLog.create({
       data: {
         tenantId: context.tenantId,
@@ -69,10 +99,11 @@ export class SettingsService {
       }
     });
     return {
-      tenant,
+      tenant: tenantDto,
       owner: context.user,
       businessName: tenant.name,
-      timezone: tenant.timezone
+      timezone: tenant.timezone,
+      logoDataUrl: logoDataUrlFromSettings(settings)
     };
   }
 

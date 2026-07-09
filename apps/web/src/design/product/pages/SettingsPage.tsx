@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { Channel, ChannelStatus, ChannelType, SettingsAccount } from "@leadvirt/types";
 import { motion, AnimatePresence } from "motion/react";
 import QRCode from "qrcode";
@@ -385,19 +385,25 @@ function buildInvoiceText(invoice: BillingInvoice, businessName?: string) {
    Tab contents
    ============================================================ */
 
+const LOGO_MAX_BYTES = 60 * 1024;
+
 function ProfileTab() {
   const { account, setAccount } = useSettingsApi();
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState("other");
   const [timezone, setTimezone] = useState("Europe/Moscow");
+  const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!account) return;
     setBusinessName(account.businessName);
     setBusinessType(account.tenant.businessType ?? "other");
     setTimezone(account.timezone);
+    setLogoDataUrl(account.logoDataUrl ?? null);
   }, [account]);
 
   const handleSave = async () => {
@@ -415,6 +421,46 @@ function ProfileTab() {
     }
   };
 
+  const saveLogo = async (nextLogoDataUrl: string | null) => {
+    setLogoUploading(true);
+    try {
+      const updated = await updateAccountSettings({ businessName, businessType, timezone, logoDataUrl: nextLogoDataUrl });
+      setAccount(updated);
+      setLogoDataUrl(updated.logoDataUrl ?? null);
+      toast.success(nextLogoDataUrl ? "Логотип обновлён" : "Логотип удалён");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось обновить логотип");
+    } finally {
+      setLogoUploading(false);
+    }
+  };
+
+  const handleLogoSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!["image/png", "image/jpeg"].includes(file.type)) {
+      toast.error("Загрузите PNG или JPG");
+      return;
+    }
+    if (file.size > LOGO_MAX_BYTES) {
+      toast.error("Логотип должен быть до 60 КБ");
+      return;
+    }
+
+    try {
+      const nextLogoDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => (typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("empty")));
+        reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+        reader.readAsDataURL(file);
+      });
+      await saveLogo(nextLogoDataUrl);
+    } catch {
+      toast.error("Не удалось прочитать файл");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <SectionHeader
@@ -425,23 +471,54 @@ function ProfileTab() {
       {/* Logo row */}
       <Card className="p-6">
         <div className="flex items-center gap-5">
-          <Avatar name={businessName} size={64} />
+          {logoDataUrl ? (
+            <img
+              src={logoDataUrl}
+              alt=""
+              data-testid="settings-logo-preview"
+              className="h-16 w-16 rounded-full border border-white/10 object-cover"
+            />
+          ) : (
+            <Avatar name={businessName} size={64} />
+          )}
           <div>
             <p className="text-sm font-semibold text-zinc-200 mb-1">
               Логотип компании
             </p>
             <p className="text-xs text-zinc-500 mb-3">
-              PNG, JPG до 5 МБ · рекомендуется 256×256
+              PNG, JPG до 60 КБ · рекомендуется 256×256
             </p>
-            <Button
-              size="sm"
-              variant="outline"
-              data-testid="settings-logo-upload"
-              onClick={() => toast("Загрузка логотипа будет доступна после пилота")}
-            >
-              <Upload className="w-3.5 h-3.5 mr-1.5" />
-              Загрузить
-            </Button>
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/png,image/jpeg"
+              className="hidden"
+              data-testid="settings-logo-input"
+              onChange={(event) => void handleLogoSelected(event)}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="settings-logo-upload"
+                disabled={logoUploading || !account}
+                onClick={() => logoInputRef.current?.click()}
+              >
+                <Upload className="w-3.5 h-3.5 mr-1.5" />
+                {logoUploading ? "Загружаем..." : "Загрузить"}
+              </Button>
+              {logoDataUrl ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  data-testid="settings-logo-remove"
+                  disabled={logoUploading}
+                  onClick={() => void saveLogo(null)}
+                >
+                  Удалить
+                </Button>
+              ) : null}
+            </div>
           </div>
         </div>
       </Card>

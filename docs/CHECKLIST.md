@@ -4,11 +4,11 @@ Last updated: 2026-07-09
 
 ## Next
 
-- [ ] Implement real company logo upload in Settings > Profile; current pilot UI shows an explicit "available after pilot" toast.
 - [ ] Implement conversation file attachments; current pilot UI shows an explicit "available after pilot" toast.
 
 ## Done
 
+- [x] Implemented Settings > Profile company logo upload/removal with compact PNG/JPG persistence in tenant settings and Playwright coverage.
 - [x] Implemented a real conversation emoji picker that inserts selected emojis into the composer; file attachment remains deferred with explicit feedback.
 - [x] Added pilot control coverage for Dashboard quick actions, product theme toggle, landing desktop CTAs, and landing mobile menu routes; `qa:api` now covers 52 Playwright tests.
 - [x] Converted Dashboard recent-lead rows and conversation back controls to real links; extended pilot core controls coverage.

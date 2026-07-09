@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-09: Store Pilot Company Logos In Tenant Settings
+
+Decision: Settings > Profile company logos are stored as compact PNG/JPG data URLs under tenant profile settings during the pilot.
+
+Context: Pilot users need a working logo upload without introducing general file storage before launch.
+
+Consequences:
+
+- Logo upload/removal works immediately and survives reloads.
+- The pilot logo limit is 60 KB to stay within normal JSON request limits.
+- General conversation/file attachment storage remains separate backlog work.
+
 ## 2026-07-09: Prefer First-Touch Safe Navigation Controls
 
 Decision: Pilot-critical navigation controls should use real links or native browser controls when possible. Dashboard quick actions, recent-lead rows, product shell primary navigation CTAs, notification rows, and conversation back controls are Next links; the Landing mobile menu uses native disclosure behavior.

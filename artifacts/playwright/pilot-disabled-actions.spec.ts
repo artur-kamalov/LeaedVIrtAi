@@ -82,10 +82,19 @@ test("conversation toolbar handles deferred file upload and emoji picker", async
   await expect(page.getByPlaceholder("Написать сообщение...")).toHaveValue("🙂");
 });
 
-test("pilot-disabled settings logo upload shows feedback", async ({ page }) => {
+test("settings logo upload persists and can be removed", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app/settings`, { waitUntil: "networkidle" });
 
-  await page.getByTestId("settings-logo-upload").click();
-  await expect(page.getByText("Загрузка логотипа будет доступна после пилота")).toBeVisible();
+  await page.getByTestId("settings-logo-input").setInputFiles({
+    name: "logo.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=", "base64"),
+  });
+  await expect(page.getByText("Логотип обновлён")).toBeVisible();
+  await expect(page.getByTestId("settings-logo-preview")).toBeVisible();
+
+  await page.getByTestId("settings-logo-remove").click();
+  await expect(page.getByText("Логотип удалён")).toBeVisible();
+  await expect(page.getByTestId("settings-logo-preview")).toHaveCount(0);
 });

@@ -42,7 +42,7 @@ export function getAccountSettings() {
   return apiData<SettingsAccount>("/settings/account");
 }
 
-export function updateAccountSettings(body: { businessName?: string; timezone?: string; businessType?: string }) {
+export function updateAccountSettings(body: { businessName?: string; timezone?: string; businessType?: string; logoDataUrl?: string | null }) {
   return apiData<SettingsAccount>("/settings/account", { method: "PATCH", ...jsonBody(body) });
 }
 

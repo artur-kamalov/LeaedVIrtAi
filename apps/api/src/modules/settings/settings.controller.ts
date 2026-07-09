@@ -22,8 +22,8 @@ export class SettingsController {
   ) {}
 
   @Get("account")
-  account(@CurrentContext() context: RequestContext) {
-    return { data: this.settingsService.account(context) };
+  async account(@CurrentContext() context: RequestContext) {
+    return { data: await this.settingsService.account(context) };
   }
 
   @Patch("account")

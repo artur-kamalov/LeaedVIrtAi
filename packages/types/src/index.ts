@@ -382,6 +382,7 @@ export interface SettingsAccount {
   owner: User;
   businessName: string;
   timezone: string;
+  logoDataUrl?: string | null;
 }
 
 export interface OnboardingState {
