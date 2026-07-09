@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-09: Integration Setup Does Not Mean Connected
+
+Decision: Clicking "Connect" on a disconnected integration card opens the settings dialog first. The UI must not mark the integration as connected until the backend returns `CONNECTED`.
+
+Context: During pilot onboarding, entering settings is not proof that an external service is actually connected.
+
+Consequences:
+
+- Disconnected cards stay visually disconnected while users configure credentials or endpoints.
+- Saving settings can create/update a disconnected integration row for self-serve providers.
+- Real connection status remains owned by the backend integration account state.
+
 ## 2026-07-09: Store Pilot Conversation Attachments In Message Records
 
 Decision: Pilot conversation attachments support one compact PNG/JPG/PDF/TXT file per outbound message. The file is stored as a data URL in `MessageAttachment.url`.

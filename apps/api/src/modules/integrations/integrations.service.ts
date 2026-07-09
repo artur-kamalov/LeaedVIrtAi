@@ -202,8 +202,10 @@ export class IntegrationsService {
   }
 
   async updateSettings(context: RequestContext, provider: string, dto: UpdateIntegrationSettingsDto): Promise<IntegrationAccount> {
-    const integration = await this.loadByProvider(context.tenantId, provider);
     const parsedProvider = this.parseProvider(provider);
+    const integration = selfServeConnectProviders.has(parsedProvider)
+      ? await this.loadOrCreateByProvider(context.tenantId, parsedProvider)
+      : await this.loadByProvider(context.tenantId, provider);
     const sanitizedSettings = parsedProvider === "WEBHOOK_API" ? await this.configureWebhookProvider(context, dto.settings) : dto.settings;
     const updated = await this.prisma.integrationAccount.update({
       where: { id: integration.id },

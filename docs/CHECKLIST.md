@@ -8,6 +8,7 @@ No active pilot-blocking UI button backlog.
 
 ## Done
 
+- [x] Changed Integrations card "Connect" action to open settings first; disconnected cards no longer flip to connected until backend status is truly connected.
 - [x] Implemented conversation file attachments for one compact PNG/JPG/PDF/TXT file per message with API persistence and Playwright coverage.
 - [x] Implemented Settings > Profile company logo upload/removal with compact PNG/JPG persistence in tenant settings and Playwright coverage.
 - [x] Implemented a real conversation emoji picker that inserts selected emojis into the composer; file attachment remains deferred with explicit feedback.

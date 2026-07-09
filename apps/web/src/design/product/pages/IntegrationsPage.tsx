@@ -27,7 +27,6 @@ import { Card, SectionTitle, Pill } from "../shared";
 import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/utils";
 import {
-  connectIntegration,
   disconnectIntegration,
   listIntegrations,
   sendSampleInbound,
@@ -1256,25 +1255,6 @@ export function IntegrationsPage() {
     }
   }
 
-  async function connect(id: string) {
-    const integration = INTEGRATIONS.find((item) => item.id === id);
-    if (!integration) return;
-    const previous = connectedMap[id];
-    setPendingId(id);
-    setConnectedMap((prev) => ({ ...prev, [id]: true }));
-
-    try {
-      const account = await connectIntegration(integration.provider);
-      updateFromAccount(account);
-      toast.success(`${integration.name} подключено`);
-    } catch (error) {
-      setConnectedMap((prev) => ({ ...prev, [id]: previous }));
-      toast.error(error instanceof Error ? error.message : "Не удалось подключить интеграцию");
-    } finally {
-      setPendingId(null);
-    }
-  }
-
   async function disconnect(id: string) {
     const integration = INTEGRATIONS.find((item) => item.id === id);
     if (!integration) return;
@@ -1474,7 +1454,7 @@ export function IntegrationsPage() {
               integration={integration}
               connected={connectedMap[integration.id]}
               pending={pendingId === integration.id}
-              onToggle={() => void connect(integration.id)}
+              onToggle={() => configure(integration.id)}
               onDisconnect={() => void disconnect(integration.id)}
               onConfigure={() => void configure(integration.id)}
               onTest={() => void testConnection(integration.id)}

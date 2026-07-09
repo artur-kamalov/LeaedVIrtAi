@@ -104,11 +104,12 @@ test("integrations page starts empty when API returns no tenant integrations", a
   await expect(page.getByTestId("pilot-readiness-panel")).toContainText("0/3");
 });
 
-test("integrations page connects and disconnects through provider API", async ({ page }) => {
+test("integrations page opens setup settings without marking disconnected cards connected", async ({ page }) => {
   let connectedProvider = "";
   let disconnectedProvider = "";
   const sampledProviders: string[] = [];
   let savedSettings: unknown = null;
+  let retailSettings: unknown = null;
 
   await page.route("**/api/integrations", async (route) => {
     await route.fulfill({
@@ -155,6 +156,11 @@ test("integrations page connects and disconnects through provider API", async ({
     await route.fulfill({ json: { data: integration("RETAILCRM", "DISCONNECTED") } });
   });
 
+  await page.route("**/api/integrations/AMOCRM/disconnect", async (route) => {
+    disconnectedProvider = "AMOCRM";
+    await route.fulfill({ json: { data: integration("AMOCRM", "DISCONNECTED") } });
+  });
+
   await page.route("**/api/integrations/AMOCRM/settings", async (route) => {
     savedSettings = await route.request().postDataJSON();
     await route.fulfill({
@@ -162,6 +168,18 @@ test("integrations page connects and disconnects through provider API", async ({
         data: {
           ...integration("AMOCRM", "CONNECTED"),
           settings: (savedSettings as { settings?: unknown }).settings ?? {},
+        },
+      },
+    });
+  });
+
+  await page.route("**/api/integrations/RETAILCRM/settings", async (route) => {
+    retailSettings = await route.request().postDataJSON();
+    await route.fulfill({
+      json: {
+        data: {
+          ...integration("RETAILCRM", "DISCONNECTED"),
+          settings: (retailSettings as { settings?: unknown }).settings ?? {},
         },
       },
     });
@@ -343,13 +361,27 @@ test("integrations page connects and disconnects through provider API", async ({
   await expect(retailCard.getByRole("button", { name: /Подключить/ })).toBeVisible();
 
   await retailCard.getByRole("button", { name: /Подключить/ }).click();
-  await expect.poll(() => connectedProvider).toBe("RETAILCRM");
-  await expect(retailCard.getByText("Подключено")).toBeVisible();
+  const retailDialog = page.getByRole("dialog", { name: /RetailCRM: настройки/ });
+  await expect(retailDialog).toBeVisible();
+  await expect.poll(() => connectedProvider).toBe("");
+  await expect(retailCard.getByText("Подключено")).toHaveCount(0);
+  await retailDialog.getByLabel("Название подключения").fill("RetailCRM setup");
+  await retailDialog.getByRole("button", { name: "Сохранить настройки" }).click();
+  await expect
+    .poll(
+      () =>
+        (retailSettings as { settings?: { displayName?: string } } | null)?.settings
+          ?.displayName,
+    )
+    .toBe("RetailCRM setup");
+  await expect(retailDialog).toBeHidden();
+  await expect(retailCard.getByRole("button", { name: /Подключить/ })).toBeVisible();
 
-  await retailCard.getByRole("button", { name: /Настроить/ }).click();
+  const amoMenuCard = page.locator(".group").filter({ hasText: "amoCRM" }).first();
+  await amoMenuCard.getByRole("button", { name: /Настроить/ }).click();
   await page.getByRole("menuitem", { name: /Отключить/ }).click();
   await page.getByRole("button", { name: "Отключить" }).click();
 
-  await expect.poll(() => disconnectedProvider).toBe("RETAILCRM");
-  await expect(retailCard.getByRole("button", { name: /Подключить/ })).toBeVisible();
+  await expect.poll(() => disconnectedProvider).toBe("AMOCRM");
+  await expect(amoMenuCard.getByRole("button", { name: /Подключить/ })).toBeVisible();
 });
