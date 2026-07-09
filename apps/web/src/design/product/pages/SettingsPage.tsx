@@ -433,7 +433,12 @@ function ProfileTab() {
             <p className="text-xs text-zinc-500 mb-3">
               PNG, JPG до 5 МБ · рекомендуется 256×256
             </p>
-            <Button size="sm" variant="outline">
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="settings-logo-upload"
+              onClick={() => toast("Загрузка логотипа будет доступна после пилота")}
+            >
               <Upload className="w-3.5 h-3.5 mr-1.5" />
               Загрузить
             </Button>

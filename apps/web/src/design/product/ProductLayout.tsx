@@ -575,7 +575,12 @@ export function ProductLayout({
                   {productNotifications.notifications.map((n) => {
                     const NIcon = n.icon;
                     return (
-                      <div key={n.id} className="flex gap-3 rounded-xl px-3 py-2.5 hover:bg-white/5 transition-colors cursor-pointer">
+                      <button
+                        key={n.id}
+                        type="button"
+                        onClick={() => go("inbox")}
+                        className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/5 transition-colors"
+                      >
                         <div className={cn("w-8 h-8 shrink-0 rounded-lg bg-white/5 flex items-center justify-center", n.color)}>
                           <NIcon className="w-4 h-4" />
                         </div>
@@ -584,7 +589,7 @@ export function ProductLayout({
                           <p className="text-[11px] text-zinc-500 mt-0.5">{n.time}</p>
                         </div>
                         {n.unread && <span className="mt-1.5 w-2 h-2 shrink-0 rounded-full bg-emerald-400" />}
-                      </div>
+                      </button>
                     );
                   })}
                 </div>

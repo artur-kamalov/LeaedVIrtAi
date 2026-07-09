@@ -1,16 +1,25 @@
 # LeadVirt Checklist
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09
 
 ## Next
 
-No open integration bridge cleanup tasks.
+- [ ] Implement real company logo upload in Settings > Profile; current pilot UI shows an explicit "available after pilot" toast.
+- [ ] Implement conversation file attachments; current pilot UI shows an explicit "available after pilot" toast.
+- [ ] Implement an emoji picker for the conversation composer; current pilot UI shows an explicit "available after pilot" toast.
 
 ## Done
 
+- [x] Enforced the pilot integration boundary in the API: request-only/soon providers such as Instagram, WhatsApp Business, VK, Shopify, Shop-Script, and Other now reject direct self-service `connect` calls.
+- [x] Updated `qa:integrations:connect-missing` so Instagram direct connect is blocked while missing self-serve catalog rows such as RetailCRM can still be created.
+- [x] Cleaned staging integration data: no retired bridge strings remain in Channel/IntegrationAccount data, active public channels are Website widget and Webhook/API, and the stale Instagram row is disconnected.
+- [x] Verified `qa:pilot:public` against `https://leadvirt.ru` for `webhook,widget` with the live `lvwh_...` Webhook/API channel and `demo-website-widget`; removed the disposable public preflight records from staging.
+- [x] Made deferred pilot controls explicit instead of silent no-ops: conversation attachment, conversation emoji, and Settings logo upload now show user feedback.
+- [x] Converted notification rows from visual-only clickable rows into real Inbox navigation actions.
+- [x] Made `/widget/demo` API-backed again while keeping `/demo` and `/demo/**` local-only; `qa:api` now covers 45 Playwright tests including pilot deferred-action feedback.
 - [x] Removed the retired third-party Instagram bridge from runtime, Integrations UI, QA scripts, provisioning output, and docs; Webhook/API is generic inbound-only again.
 - [x] Marked non-pilot social channels in Integrations UI: Instagram and WhatsApp Business are now `Подключение по запросу`, VK/Shopify are `Скоро будет`, and these cards no longer trigger fake self-serve connects.
-- [x] Fixed Instagram connect 404 when a workspace has no existing `INSTAGRAM` integration row: `connect` now creates missing catalog integration accounts and `qa:integrations:connect-missing` covers the path.
+- [x] Kept catalog row creation for missing self-serve integrations and blocked non-pilot direct connect paths.
 - [x] Removed Telegram account switching from `/login`: kept one official Telegram widget login with a LeadVirt branded visual button over the widget, removed auto-popup/same-account guard logic, and left future account switching for bot-based or alternate auth flows.
 - [x] Fixed `/login` Telegram account switching to avoid re-login with the previous Telegram account: the switch action opens Telegram's official popup, clears LeadVirt state, remounts the widget, and rejects the same cached Telegram ID when Telegram auto-returns it.
 - [x] Replaced `/login` and `/signup` Telegram auth with the official `telegram-widget.js` Login Widget: removed custom/OIDC popup buttons and account-switch button, exposed `botUsername` through `/auth/telegram/config`, returned auth to signed `POST /auth/telegram`, and verified web/api typecheck, lint, build, plus focused `auth-flow` Playwright coverage.

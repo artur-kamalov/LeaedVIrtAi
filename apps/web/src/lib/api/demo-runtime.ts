@@ -591,7 +591,7 @@ function demoState() {
 export function shouldUseDemoApi() {
   if (typeof window === "undefined") return false;
   const pathname = window.location.pathname;
-  return pathname === "/demo" || pathname.startsWith("/demo/") || pathname === "/widget/demo";
+  return pathname === "/demo" || pathname.startsWith("/demo/");
 }
 
 function apiPath(path: string) {

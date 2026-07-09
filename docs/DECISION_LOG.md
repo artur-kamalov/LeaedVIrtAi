@@ -1,5 +1,40 @@
 # Decision Log
 
+## 2026-07-09: Enforce Pilot Self-Service Integration Boundary
+
+Decision: Request-only or soon integrations cannot be connected through the API during the pilot. `POST /integrations/:provider/connect` now rejects Instagram, WhatsApp Business, VK, Shopify, Shop-Script, and Other. Existing staging rows for those providers should stay disconnected.
+
+Context: The pilot must not imply real one-click social or commerce setup when the channel still needs legal, platform, provider, or implementation work.
+
+Consequences:
+
+- The UI labels and backend state now agree: request-only cards cannot become connected through stale data or direct API calls.
+- Missing catalog row creation remains available for self-serve integrations such as CRM/calendar/Webhook/API.
+- Future native social work needs a separate implementation and verification path before it becomes self-serve.
+
+## 2026-07-09: Show Feedback For Deferred Pilot Controls
+
+Decision: Deferred controls that remain visible in the pilot must respond with explicit user feedback, not silently no-op. Conversation attachment, conversation emoji, and company logo upload now show "available after pilot" toasts and are tracked in the checklist backlog.
+
+Context: Pilot users should never click a visible control and see nothing happen.
+
+Consequences:
+
+- The product can keep familiar controls visible without pretending the deferred feature is implemented.
+- Deferred controls need checklist items until real upload/picker behavior exists.
+
+## 2026-07-09: Keep Widget Demo API-Backed
+
+Decision: `/widget/demo` is a real public widget smoke surface and uses the API-backed widget endpoints. The local-only demo boundary applies to `/demo` and `/demo/**`, not `/widget/demo`.
+
+Context: Public pilot preflight needs to validate widget config and message intake through the deployed API. Treating `/widget/demo` as local-only hid broken widget public-key setup.
+
+Consequences:
+
+- `qa:api` verifies `/widget/demo` against public widget config/message APIs.
+- Demo routes still cannot create tenant API traffic.
+- Public widget staging data must include an explicit widget channel key.
+
 ## 2026-07-08: Limit Pilot Self-Serve Integrations To Low-Friction Channels
 
 Decision: Instagram and WhatsApp Business are not part of the pilot self-serve integration set. In the Integrations UI they are labeled `Подключение по запросу`; VK and Shopify are labeled `Скоро будет`.

@@ -78,15 +78,30 @@ async function main() {
     });
     assert(!before, "Smoke tenant unexpectedly has an Instagram integration.");
 
-    const connected = await service.connect(contextFor(tenant, user.id), "INSTAGRAM");
-    assert(connected.provider === "INSTAGRAM", "Connected provider mismatch.");
-    assert(connected.status === "CONNECTED", "Missing Instagram integration was not connected.");
-    assert(connected.name === "Instagram", "Created Instagram integration name mismatch.");
+    let instagramBlocked = false;
+    try {
+      await service.connect(contextFor(tenant, user.id), "INSTAGRAM");
+    } catch (error) {
+      instagramBlocked =
+        error instanceof Error &&
+        error.message.includes("not available for self-service connection");
+    }
+    assert(instagramBlocked, "Instagram self-service connect was not blocked.");
 
-    const stored = await prisma.integrationAccount.findFirst({
+    const afterInstagram = await prisma.integrationAccount.findFirst({
       where: { tenantId: tenant.id, provider: "INSTAGRAM", deletedAt: null }
     });
-    assert(stored?.status === "CONNECTED", "Created Instagram integration was not stored as connected.");
+    assert(!afterInstagram, "Blocked Instagram connect created an integration row.");
+
+    const connected = await service.connect(contextFor(tenant, user.id), "RETAILCRM");
+    assert(connected.provider === "RETAILCRM", "Connected provider mismatch.");
+    assert(connected.status === "CONNECTED", "Missing RetailCRM integration was not connected.");
+    assert(connected.name === "RetailCRM", "Created RetailCRM integration name mismatch.");
+
+    const stored = await prisma.integrationAccount.findFirst({
+      where: { tenantId: tenant.id, provider: "RETAILCRM", deletedAt: null }
+    });
+    assert(stored?.status === "CONNECTED", "Created RetailCRM integration was not stored as connected.");
 
     console.log(JSON.stringify({ ok: true, tenantId: tenant.id, integrationId: connected.id }));
   } finally {

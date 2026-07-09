@@ -185,6 +185,8 @@ test("product shell notifications render dashboard activity data", async ({ page
 
   await expect(page.getByText("1 новое")).toBeVisible();
   await expect(page.getByRole("menu").getByText("API dashboard notification")).toBeVisible();
+  await page.getByRole("menu").getByText("API dashboard notification").click();
+  await expect(page).toHaveURL(/\/app\/inbox$/, { timeout: 15_000 });
   await expect(page.getByText("2 новых")).toHaveCount(0);
 });
 

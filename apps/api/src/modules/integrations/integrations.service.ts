@@ -50,6 +50,16 @@ const providerCatalog: Record<ProviderParam, { name: string; category: string; s
   OTHER: { name: "Other integration", category: "Other", settings: { syncDirection: "manual" } }
 };
 
+const selfServeConnectProviders = new Set<ProviderParam>([
+  "AMOCRM",
+  "BITRIX24",
+  "RETAILCRM",
+  "TELEGRAM",
+  "EMAIL",
+  "GOOGLE_CALENDAR",
+  "WEBHOOK_API"
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -165,7 +175,12 @@ export class IntegrationsService {
   }
 
   async connect(context: RequestContext, provider: string): Promise<IntegrationAccount> {
-    const integration = await this.loadOrCreateByProvider(context.tenantId, provider);
+    const parsedProvider = this.parseProvider(provider);
+    if (!selfServeConnectProviders.has(parsedProvider)) {
+      throw new BadRequestException("This integration is not available for self-service connection in the pilot.");
+    }
+
+    const integration = await this.loadOrCreateByProvider(context.tenantId, parsedProvider);
     const updated = await this.prisma.integrationAccount.update({
       where: { id: integration.id },
       data: { status: "CONNECTED", connectedAt: new Date(), lastSyncAt: new Date() }
