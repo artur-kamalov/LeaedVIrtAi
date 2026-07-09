@@ -23,10 +23,10 @@ export function LandingHeader() {
         </div>
 
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-zinc-400">
-          <a href="#features" className="hover:text-zinc-100 transition-colors">Возможности</a>
           <a href="#niches" className="hover:text-zinc-100 transition-colors">Решения</a>
+          <a href="#features" className="hover:text-zinc-100 transition-colors">Возможности</a>
           <a href="#pricing" className="hover:text-zinc-100 transition-colors">Тарифы</a>
-          <a href="#integrations" className="hover:text-zinc-100 transition-colors">Интеграции</a>
+          {/* <a href="#integrations" className="hover:text-zinc-100 transition-colors">Интеграции</a> */}
         </nav>
 
         <div className="hidden md:flex items-center gap-3">
@@ -60,10 +60,10 @@ export function LandingHeader() {
 
           <div className="leadvirt-mobile-menu-enter fixed left-0 right-0 top-20 border-t border-white/5 bg-zinc-950/95 overflow-hidden">
             <nav className="container mx-auto px-6 py-6 flex flex-col gap-4 text-zinc-300">
-            <a href="#features" onClick={closeMenu} className="py-2">Возможности</a>
             <a href="#niches" onClick={closeMenu} data-testid="landing-mobile-solutions" className="py-2">Решения</a>
+            <a href="#features" onClick={closeMenu} className="py-2">Возможности</a>
             <a href="#pricing" onClick={closeMenu} className="py-2">Тарифы</a>
-            <a href="#integrations" onClick={closeMenu} className="py-2">Интеграции</a>
+            {/* <a href="#integrations" onClick={closeMenu} className="py-2">Интеграции</a> */}
             <div className="flex flex-col gap-3 pt-2">
               <Link
                 href="/login"
