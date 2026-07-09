@@ -6,10 +6,10 @@ Last updated: 2026-07-09
 
 - [ ] Implement real company logo upload in Settings > Profile; current pilot UI shows an explicit "available after pilot" toast.
 - [ ] Implement conversation file attachments; current pilot UI shows an explicit "available after pilot" toast.
-- [ ] Implement an emoji picker for the conversation composer; current pilot UI shows an explicit "available after pilot" toast.
 
 ## Done
 
+- [x] Implemented a real conversation emoji picker that inserts selected emojis into the composer; file attachment remains deferred with explicit feedback.
 - [x] Added pilot control coverage for Dashboard quick actions, product theme toggle, landing desktop CTAs, and landing mobile menu routes; `qa:api` now covers 52 Playwright tests.
 - [x] Converted Dashboard recent-lead rows and conversation back controls to real links; extended pilot core controls coverage.
 - [x] Converted product shell logo, billing CTA, notification rows, notification "open all", and topbar "new lead" to real links; extended pilot core controls coverage.
@@ -19,7 +19,7 @@ Last updated: 2026-07-09
 - [x] Updated `qa:integrations:connect-missing` so Instagram direct connect is blocked while missing self-serve catalog rows such as RetailCRM can still be created.
 - [x] Cleaned staging integration data: no retired bridge strings remain in Channel/IntegrationAccount data, active public channels are Website widget and Webhook/API, and the stale Instagram row is disconnected.
 - [x] Verified `qa:pilot:public` against `https://leadvirt.ru` for `webhook,widget` with the live `lvwh_...` Webhook/API channel and `demo-website-widget`; removed the disposable public preflight records from staging.
-- [x] Made deferred pilot controls explicit instead of silent no-ops: conversation attachment, conversation emoji, and Settings logo upload now show user feedback.
+- [x] Made deferred pilot controls explicit instead of silent no-ops: conversation attachment and Settings logo upload now show user feedback.
 - [x] Converted notification rows from visual-only clickable rows into real Inbox navigation actions.
 - [x] Made `/widget/demo` API-backed again while keeping `/demo` and `/demo/**` local-only; `qa:api` now covers 45 Playwright tests including pilot deferred-action feedback.
 - [x] Removed the retired third-party Instagram bridge from runtime, Integrations UI, QA scripts, provisioning output, and docs; Webhook/API is generic inbound-only again.

@@ -65,6 +65,8 @@ const quickReplies = [
   "Передать менеджеру",
 ];
 
+const emojiOptions = ["🙂", "👍", "🔥", "✅", "🙏", "❤️", "📅", "💬"];
+
 const demoReplayTypingMs = 900;
 const demoReplayGapMs = 2100;
 
@@ -425,6 +427,7 @@ export function ConversationPage() {
   const [demoReplayState, setDemoReplayState] = useState<"idle" | "playing" | "paused" | "done" | "skipped">("idle");
   const [demoTypingFrom, setDemoTypingFrom] = useState<ChatMessage["from"] | null>(null);
   const [inputValue, setInputValue] = useState("");
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const [showLeadInfo, setShowLeadInfo] = useState(false);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -618,6 +621,12 @@ export function ConversationPage() {
   function handleQuickReply(text: string) {
     pauseDemoReplayForInteraction();
     setInputValue(text);
+  }
+
+  function handleEmojiSelect(emoji: string) {
+    pauseDemoReplayForInteraction();
+    setInputValue((value) => `${value}${emoji}`);
+    setEmojiOpen(false);
   }
 
   function handleExportTranscript() {
@@ -937,16 +946,35 @@ export function ConversationPage() {
                   rows={1}
                   className="flex-1 resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-600 outline-none leading-relaxed max-h-28 overflow-y-auto py-1"
                 />
-                <div className="flex items-center gap-1.5 mb-1 shrink-0">
+                <div className="relative flex items-center gap-1.5 mb-1 shrink-0">
                   <button
                     type="button"
                     aria-label="Открыть эмодзи"
                     data-testid="conversation-emoji"
-                    onClick={() => toast("Эмодзи-панель будет доступна после пилота")}
+                    onClick={() => setEmojiOpen((open) => !open)}
                     className="text-zinc-500 hover:text-zinc-300 transition-colors"
                   >
                     <Smile className="w-[18px] h-[18px]" />
                   </button>
+                  {emojiOpen && (
+                    <div
+                      data-testid="conversation-emoji-panel"
+                      className="absolute bottom-10 right-0 z-50 grid w-36 grid-cols-4 gap-1 rounded-2xl border border-white/10 bg-zinc-950 p-2 shadow-2xl shadow-black/50"
+                    >
+                      {emojiOptions.map((emoji, index) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          data-testid={`conversation-emoji-option-${index}`}
+                          aria-label={`Добавить ${emoji}`}
+                          onClick={() => handleEmojiSelect(emoji)}
+                          className="flex h-8 w-8 items-center justify-center rounded-xl text-lg transition-colors hover:bg-white/10"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <button
                     aria-label="Отправить сообщение"
                     onClick={handleSend}

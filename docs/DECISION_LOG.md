@@ -25,14 +25,14 @@ Consequences:
 
 ## 2026-07-09: Show Feedback For Deferred Pilot Controls
 
-Decision: Deferred controls that remain visible in the pilot must respond with explicit user feedback, not silently no-op. Conversation attachment, conversation emoji, and company logo upload now show "available after pilot" toasts and are tracked in the checklist backlog.
+Decision: Deferred controls that remain visible in the pilot must respond with explicit user feedback, not silently no-op. Conversation attachment and company logo upload now show "available after pilot" toasts and are tracked in the checklist backlog.
 
 Context: Pilot users should never click a visible control and see nothing happen.
 
 Consequences:
 
 - The product can keep familiar controls visible without pretending the deferred feature is implemented.
-- Deferred controls need checklist items until real upload/picker behavior exists.
+- Deferred controls need checklist items until real upload behavior exists.
 
 ## 2026-07-09: Keep Widget Demo API-Backed
 

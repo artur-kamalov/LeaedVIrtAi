@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   await loginAsCleanUser(page, apiBase);
 });
 
-test("pilot-disabled conversation toolbar actions show feedback", async ({ page }) => {
+test("conversation toolbar handles deferred file upload and emoji picker", async ({ page }) => {
   await page.route("**/api/conversations/pilot-action-audit", async (route) => {
     await route.fulfill({
       json: {
@@ -77,7 +77,9 @@ test("pilot-disabled conversation toolbar actions show feedback", async ({ page 
   await expect(page.getByText("Файлы будут доступны после пилота")).toBeVisible();
 
   await page.getByTestId("conversation-emoji").click();
-  await expect(page.getByText("Эмодзи-панель будет доступна после пилота")).toBeVisible();
+  await expect(page.getByTestId("conversation-emoji-panel")).toBeVisible();
+  await page.getByTestId("conversation-emoji-option-0").click();
+  await expect(page.getByPlaceholder("Написать сообщение...")).toHaveValue("🙂");
 });
 
 test("pilot-disabled settings logo upload shows feedback", async ({ page }) => {
