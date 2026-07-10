@@ -1,6 +1,6 @@
 # LeadVirt Server Setup
 
-Last updated: 2026-07-04
+Last updated: 2026-07-10
 
 ## Chosen Server Baseline
 
@@ -105,44 +105,43 @@ Runtime:
 - Source path: `/opt/leadvirt/current`
 - Secrets path: `/opt/leadvirt/secrets/.env`
 - Operator credentials path: `/opt/leadvirt/secrets/operator-login.txt`
-- Public URL: `https://leadvirt.ru`
+- Canonical target: `https://leadvirt.com`
+- Current URL until DNS cutover: `https://leadvirt.ru`
 - Raw-IP fallback: `http://193.187.92.88`
 - Reverse proxy: nginx on ports `80` and `443`
 - Services: `postgres`, `redis`, `migrate`, `api`, `worker`, `web`, `nginx`
 
-Domain plan:
+Domain migration:
 
-- Current release domain: `leadvirt.ru`
-- Later English/global domain: `leadvirt.ai`
-- `leadvirt.ru` and `www.leadvirt.ru` resolve to `193.187.92.88`.
-- HTTP redirects to `https://leadvirt.ru`.
-- `https://www.leadvirt.ru` redirects to `https://leadvirt.ru`.
-- Staging/public env is set to `https://leadvirt.ru`; auth cookies are secure.
+- Canonical production domain: `leadvirt.com`.
+- Legacy domain: `leadvirt.ru`; keep its TLS certificate and API compatibility during migration.
+- `leadvirt.com` and `www.leadvirt.com` must resolve to `193.187.92.88` before cutover.
+- After cutover, browser traffic on both `www` hosts and `.ru` redirects to `https://leadvirt.com`.
+- Public env uses `https://leadvirt.com`; CORS temporarily accepts both domain families and auth cookies remain secure.
 
 DNS check:
 
 ```bash
-getent ahostsv4 leadvirt.ru
-getent ahostsv4 www.leadvirt.ru
+getent ahostsv4 leadvirt.com
+getent ahostsv4 www.leadvirt.com
 ```
 
 HTTPS cutover script:
 
 ```bash
 cd /opt/leadvirt/current
-deploy/enable-leadvirt-ru-https.sh
+deploy/enable-leadvirt-com-https.sh
 ```
 
-The script checks DNS, issues a certbot certificate for `leadvirt.ru` and `www.leadvirt.ru`, switches nginx to `deploy/nginx.https.conf`, updates public app env to `https://leadvirt.ru`, rebuilds the web/API/worker/nginx services, and verifies `/health`.
+The script checks DNS and ACME routing, issues the `.ai` certificate, updates public app env, validates nginx, rebuilds the web/API/worker/nginx services, and verifies `/health`.
 
-After a successful cutover it also installs `/etc/cron.d/leadvirt-ru-certbot`, which runs `/opt/leadvirt/current/deploy/renew-leadvirt-ru-cert.sh` daily.
+After a successful cutover it installs `/etc/cron.d/leadvirt-certbot`, which renews both `.ai` and legacy `.ru` certificates daily.
 
-Current certificate:
+Certificates:
 
-- Path: `/etc/letsencrypt/live/leadvirt.ru`
-- Issuer: Let's Encrypt YE1
-- Expires: `2026-10-02`
-- Renewal cron: `/etc/cron.d/leadvirt-ru-certbot`
+- Canonical path after cutover: `/etc/letsencrypt/live/leadvirt.com`
+- Legacy path: `/etc/letsencrypt/live/leadvirt.ru`
+- Renewal cron: `/etc/cron.d/leadvirt-certbot`
 
 Deploy command:
 
@@ -153,10 +152,10 @@ docker compose --env-file /opt/leadvirt/secrets/.env -f deploy/docker-compose.st
 
 Verified:
 
-- `GET https://leadvirt.ru/health` returns `200`.
-- `GET http://leadvirt.ru/` redirects to `https://leadvirt.ru/`.
-- `GET https://www.leadvirt.ru/` redirects to `https://leadvirt.ru/`.
-- `GET https://leadvirt.ru/api/auth/me` without a cookie returns `401`.
+- `GET https://leadvirt.com/health` returns `200`.
+- `GET http://leadvirt.com/` redirects to `https://leadvirt.com/`.
+- Both `www` hosts and `https://leadvirt.ru/` redirect to `https://leadvirt.com/`.
+- `GET https://leadvirt.com/api/auth/me` without a cookie returns `401`.
 - Landing and `/demo` return `200`.
 - Browser visit to `/app` without a session redirects to `/login`.
 - The clean staging operator workspace has zero leads, activity, channels, and response-time metrics after signup.

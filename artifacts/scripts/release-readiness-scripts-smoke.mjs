@@ -32,8 +32,8 @@ try {
   const packetBaseEnv = {
     LEADVIRT_WEB_BASE: "http://127.0.0.1:1",
     LEADVIRT_API_BASE: "http://127.0.0.1:1/api",
-    LEADVIRT_PUBLIC_WEB_BASE: "https://leadvirt.ru",
-    LEADVIRT_PUBLIC_API_BASE: "https://leadvirt.ru/api",
+    LEADVIRT_PUBLIC_WEB_BASE: "https://leadvirt.com",
+    LEADVIRT_PUBLIC_API_BASE: "https://leadvirt.com/api",
     LEADVIRT_PUBLIC_WEBHOOK_KEY: "lvwh_fake_smoke",
     LEADVIRT_PUBLIC_WEBHOOK_SECRET: secret,
   };

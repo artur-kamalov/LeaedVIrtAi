@@ -1,5 +1,31 @@
 # Decision Log
 
+## 2026-07-10: Correct The Canonical Production Origin To leadvirt.com
+
+Decision: `https://leadvirt.com` is the canonical production origin. This supersedes the same-day `leadvirt.ai` migration decision; `LeadVirt.ai` remains the product name and existing staff/test account domain.
+
+Context: `leadvirt.com` was registered through Beget on 2026-07-08. Its apex and `www` records currently point to Beget's `45.130.41.70` placeholder instead of the LeadVirt VPS, and its current HTTPS certificate is not trusted.
+
+Consequences:
+
+- Beget DNS must point both `.com` hosts to `193.187.92.88` before the gated TLS/deploy cutover runs.
+- Workflow, nginx, certificate, public env, callback, widget, and operator URLs target `.com`.
+- `leadvirt.ru` retains API/health compatibility and redirects browser traffic to `.com` during migration.
+- Product copy and existing `@leadvirt.ai` identifiers do not change as part of this domain-only move.
+
+## 2026-07-10: Move The Canonical Production Origin To leadvirt.ai
+
+Decision: `https://leadvirt.ai` replaces `https://leadvirt.ru` as the canonical production origin. The current Russian product moves with the domain; localization remains a separate product decision.
+
+Context: This supersedes the 2026-07-04 domain split. As of 2026-07-10, public DNS and registry RDAP have no `leadvirt.ai` record, so repository preparation must not switch the live release before domain registration and DNS propagation.
+
+Consequences:
+
+- The `.ai` deploy preflights apex and `www` DNS, ACME reachability, certificate issuance, and nginx validity before changing `/opt/leadvirt/current`.
+- `leadvirt.ru` keeps its certificate, proxies `/api/*` and health checks, and redirects browser routes to `leadvirt.ai` during migration.
+- Server-side public URLs, CORS, OAuth callbacks, widget embeds, Telegram Login Widget configuration, and operator links move to `.ai`.
+- Existing `.ru` browser sessions cannot cross the top-level-domain boundary and users must authenticate again on `.ai`.
+
 ## 2026-07-09: Use Provider-Specific Integration Setup Dialogs
 
 Decision: Each integration card opens a setup dialog that matches the provider's real connection path. Self-serve providers save their relevant credentials/settings; request-only and soon providers show the required setup data and documentation without saving or marking the integration connected.

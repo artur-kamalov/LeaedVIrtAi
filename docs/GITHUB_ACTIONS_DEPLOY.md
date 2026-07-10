@@ -1,8 +1,8 @@
 # GitHub Actions Deploy
 
-Workflow: `.github/workflows/deploy-leadvirt-ru.yml`.
+Workflow: `.github/workflows/deploy-leadvirt-com.yml`.
 
-Target: `https://leadvirt.ru` on `193.187.92.88`.
+Target: `https://leadvirt.com` on `193.187.92.88`.
 
 ## Required GitHub Secret
 
@@ -38,19 +38,22 @@ The workflow has defaults, but these can be set as repository variables:
 
 ```text
 LEADVIRT_DEPLOY_HOST=193.187.92.88
+LEADVIRT_DEPLOY_TARGET_IP=193.187.92.88
 LEADVIRT_DEPLOY_USER=deploy
 ```
 
 ## Triggers
 
 - Push to `main` or `master`.
-- Manual run through `Actions > Deploy LeadVirt.ru > Run workflow`.
+- Manual run through `Actions > Deploy LeadVirt.com > Run workflow`.
 
 ## Server Assumptions
 
 - Runtime env exists at `/opt/leadvirt/secrets/.env`.
 - `deploy` can write to `/opt/leadvirt` and run Docker.
-- HTTPS certificates exist at `/etc/letsencrypt/live/leadvirt.ru`.
+- `leadvirt.com` and `www.leadvirt.com` resolve to `193.187.92.88`.
+- The active nginx serves `/.well-known/acme-challenge/*` over HTTP.
+- The legacy certificate remains at `/etc/letsencrypt/live/leadvirt.ru`.
 
 ## What It Does
 
@@ -58,10 +61,12 @@ LEADVIRT_DEPLOY_USER=deploy
 2. Creates a source package without `.env`, `node_modules`, `.next`, `dist`, screenshots, or local caches.
 3. Uploads the package to the VPS.
 4. Extracts it to `/opt/leadvirt/releases/<sha>`.
-5. Points `/opt/leadvirt/current` to the new release.
-6. Copies `deploy/nginx.https.conf` to `deploy/nginx.conf`.
-7. Runs Docker Compose with `/opt/leadvirt/secrets/.env`.
-8. Verifies `https://leadvirt.ru/health` and no-cookie `401` on `/api/auth/me`.
-9. Keeps the 5 latest releases.
+5. Verifies `.ai` DNS and the HTTP ACME path, then issues or renews the `.ai` certificate.
+6. Updates public URL/CORS values in `/opt/leadvirt/secrets/.env` and validates the candidate nginx config.
+7. Points `/opt/leadvirt/current` to the new release and runs Docker Compose.
+8. Verifies `https://leadvirt.com/health` and no-cookie `401` on `/api/auth/me`.
+9. Keeps the 5 latest releases; `.ru` browser routes redirect while legacy API routes remain available.
+
+The deploy exits before changing the active release when DNS, ACME, certificate, or candidate nginx validation fails.
 
 On the first run, if `/opt/leadvirt/current` is still a regular directory, the workflow moves it to `/opt/leadvirt/current.backup.<timestamp>` before creating the release symlink.

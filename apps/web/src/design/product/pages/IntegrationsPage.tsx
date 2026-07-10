@@ -340,7 +340,7 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
       {
         key: "redirectUri",
         label: "Redirect URI",
-        placeholder: "https://leadvirt.ru/oauth/amocrm/callback",
+        placeholder: "https://leadvirt.com/oauth/amocrm/callback",
         kind: "url",
         wide: true,
       },

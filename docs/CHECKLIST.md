@@ -1,13 +1,16 @@
 # LeadVirt Checklist
 
-Last updated: 2026-07-09
+Last updated: 2026-07-10
 
 ## Next
 
-No active pilot-blocking UI button backlog.
+- [ ] Run the VPS TLS/env cutover after DNS propagation, mark the pilot packet live, and verify `.com` health, auth, redirects, widget, and public intake.
+- [ ] Change the Telegram Login Widget allowed domain to `leadvirt.com` and update external OAuth callbacks, webhooks, embeds, and operator bookmarks.
 
 ## Done
 
+- [x] Changed Beget DNS for `leadvirt.com` and `www.leadvirt.com` to `193.187.92.88`; Cloudflare and Google public resolvers return the VPS with a 300-second TTL and HTTP health returns `200`.
+- [x] Retargeted the migration to `leadvirt.com` and created the GitHub `leadvirt-com` environment; verified gated TLS/env deployment, nginx `.com` routing with `.ru` compatibility, public URLs, runbooks, migration QA, web typecheck/lint/build, Compose, POSIX shell syntax, candidate nginx syntax, and VPS Host-header health.
 - [x] Added provider-specific Integrations setup dialogs for amoCRM, Bitrix24, RetailCRM, Telegram, WhatsApp Business, Instagram, VK, Email, Google Calendar, Shopify, Shop-Script, and Webhook/API; request/soon cards now open requirements/docs instead of acting disabled or pretending to connect.
 - [x] Changed Integrations card "Connect" action to open settings first; disconnected cards no longer flip to connected until backend status is truly connected.
 - [x] Implemented conversation file attachments for one compact PNG/JPG/PDF/TXT file per message with API persistence and Playwright coverage.

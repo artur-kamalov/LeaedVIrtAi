@@ -256,7 +256,7 @@ Status: foundation started.
 - Add golden sets for the first pilot niches. Initial core golden set is implemented in `artifacts/evals/ai-golden-set.json` and now covers beauty, auto detailing, education/course booking, and clinic handoff cases.
 - Add RAGAS evaluation where it fits retrieval quality. Initial RAGAS-style metrics now include required-term recall and retrieved-chunk precision in eval reports.
 - Add custom business eval for booking correctness, escalation, and policy safety. Initial deterministic gate is implemented as `qa:ai:quality`; optional real-provider judge runs are available through `qa:ai:real-eval`.
-- Add CI quality gate with a small required eval subset. `qa:ai:quality` is now part of the LeadVirt.ru GitHub Actions verify job and uploads `artifacts/reports/*.json` as `ai-eval-report`.
+- Add CI quality gate with a small required eval subset. `qa:ai:quality` is part of the `leadvirt.com` deployment workflow and uploads `artifacts/reports/*.json` as `ai-eval-report`.
 
 ### Phase 5: Observability And Cost
 

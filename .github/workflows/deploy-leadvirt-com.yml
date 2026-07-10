@@ -1,4 +1,4 @@
-name: Deploy LeadVirt.ru
+name: Deploy LeadVirt.com
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
       - master
 
 concurrency:
-  group: leadvirt-ru-deploy
+  group: leadvirt-com-deploy
   cancel-in-progress: false
 
 permissions:
@@ -17,13 +17,18 @@ permissions:
 env:
   NODE_VERSION: "24"
   DEPLOY_HOST: ${{ vars.LEADVIRT_DEPLOY_HOST || '193.187.92.88' }}
+  DEPLOY_TARGET_IP: ${{ vars.LEADVIRT_DEPLOY_TARGET_IP || '193.187.92.88' }}
   DEPLOY_USER: ${{ vars.LEADVIRT_DEPLOY_USER || 'deploy' }}
   DEPLOY_ROOT: /opt/leadvirt
   DEPLOY_ENV_FILE: /opt/leadvirt/secrets/.env
-  PUBLIC_URL: https://leadvirt.ru
-  NEXT_PUBLIC_API_URL: https://leadvirt.ru/api
-  NEXT_PUBLIC_APP_URL: https://leadvirt.ru
-  NEXT_PUBLIC_WEB_URL: https://leadvirt.ru
+  PRIMARY_DOMAIN: leadvirt.com
+  WWW_DOMAIN: www.leadvirt.com
+  LEGACY_DOMAIN: leadvirt.ru
+  LEGACY_WWW_DOMAIN: www.leadvirt.ru
+  PUBLIC_URL: https://leadvirt.com
+  NEXT_PUBLIC_API_URL: https://leadvirt.com/api
+  NEXT_PUBLIC_APP_URL: https://leadvirt.com
+  NEXT_PUBLIC_WEB_URL: https://leadvirt.com
   NEXT_PUBLIC_DEMO_MODE: "false"
   NEXT_PUBLIC_TELEGRAM_LOGIN_BOT: LeadVirtAi_bot
 
@@ -118,6 +123,9 @@ jobs:
       - name: Verify release readiness scripts
         run: corepack pnpm run qa:release-readiness
 
+      - name: Verify domain migration
+        run: corepack pnpm run qa:domain-migration
+
       - name: Verify AI quality gate
         run: corepack pnpm run qa:ai:quality
 
@@ -165,7 +173,7 @@ jobs:
     name: Deploy
     runs-on: ubuntu-24.04
     needs: verify
-    environment: leadvirt-ru
+    environment: leadvirt-com
 
     steps:
       - name: Checkout
@@ -247,7 +255,7 @@ jobs:
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/leadvirt_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
-            "DEPLOY_ROOT='$DEPLOY_ROOT' DEPLOY_ENV_FILE='$DEPLOY_ENV_FILE' PUBLIC_URL='$PUBLIC_URL' RELEASE_SHA='$GITHUB_SHA' bash -s" <<'REMOTE'
+            "DEPLOY_ROOT='$DEPLOY_ROOT' DEPLOY_ENV_FILE='$DEPLOY_ENV_FILE' DOMAIN_TARGET_IP='$DEPLOY_TARGET_IP' PRIMARY_DOMAIN='$PRIMARY_DOMAIN' WWW_DOMAIN='$WWW_DOMAIN' LEGACY_DOMAIN='$LEGACY_DOMAIN' LEGACY_WWW_DOMAIN='$LEGACY_WWW_DOMAIN' PUBLIC_URL='$PUBLIC_URL' RELEASE_SHA='$GITHUB_SHA' bash -s" <<'REMOTE'
           set -euo pipefail
 
           release_id="${RELEASE_SHA:0:12}"
@@ -260,7 +268,20 @@ jobs:
           mkdir -p "$release_dir"
           tar -xzf "$archive" -C "$release_dir"
           mkdir -p "$release_dir/artifacts" "$release_dir/deploy/certbot/www"
-          cp "$release_dir/deploy/nginx.https.conf" "$release_dir/deploy/nginx.conf"
+
+          active_root="$(readlink -f "$current_link" 2>/dev/null || true)"
+          certbot_webroot="$release_dir/deploy/certbot/www"
+          if [ -n "$active_root" ] && [ -d "$active_root/deploy/certbot/www" ]; then
+            certbot_webroot="$active_root/deploy/certbot/www"
+          fi
+
+          LEADVIRT_RELEASE_ROOT="$release_dir" \
+          LEADVIRT_CURRENT_LINK="$current_link" \
+          LEADVIRT_CERTBOT_WEBROOT="$certbot_webroot" \
+          LEADVIRT_ENV_FILE="$DEPLOY_ENV_FILE" \
+          LEADVIRT_SKIP_REBUILD=true \
+            sh "$release_dir/deploy/enable-leadvirt-com-https.sh"
+
           if [ -L "$current_link" ]; then
             ln -sfn "$release_dir" "$current_link"
           elif [ -e "$current_link" ]; then
@@ -273,6 +294,7 @@ jobs:
 
           cd "$current_link"
           docker compose --env-file "$DEPLOY_ENV_FILE" -f deploy/docker-compose.staging.yml up -d --build --force-recreate --remove-orphans migrate api worker web nginx
+          docker compose --env-file "$DEPLOY_ENV_FILE" -f deploy/docker-compose.staging.yml exec -T nginx nginx -t
           docker compose --env-file "$DEPLOY_ENV_FILE" -f deploy/docker-compose.staging.yml ps
 
           curl -fsS "$PUBLIC_URL/health" >/dev/null

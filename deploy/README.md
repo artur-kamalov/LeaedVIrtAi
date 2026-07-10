@@ -1,6 +1,6 @@
 # LeadVirt Staging Deploy
 
-Target: `https://leadvirt.ru`, host `193.187.92.88`, `/opt/leadvirt/current`.
+Target: `https://leadvirt.com`, host `193.187.92.88`, `/opt/leadvirt/current`.
 
 Runtime env lives outside git at:
 
@@ -15,10 +15,10 @@ Create it from `deploy/env.staging.example`, replacing all `change-me` values an
 Primary deploy path:
 
 ```text
-.github/workflows/deploy-leadvirt-ru.yml
+.github/workflows/deploy-leadvirt-com.yml
 ```
 
-It verifies the app, uploads a release package to the VPS, switches `/opt/leadvirt/current` to the new release, rebuilds Docker Compose, and checks `https://leadvirt.ru/health`.
+It verifies the app, uploads a release package, prepares `.com` DNS/TLS/env, switches `/opt/leadvirt/current`, rebuilds Docker Compose, and checks `https://leadvirt.com/health`.
 
 Setup details are in `docs/GITHUB_ACTIONS_DEPLOY.md`.
 
@@ -31,10 +31,10 @@ mkdir -p deploy/certbot/www
 docker rm -f deploy-caddy-1 2>/dev/null || true
 docker compose --env-file /opt/leadvirt/secrets/.env -f deploy/docker-compose.staging.yml up -d --build --remove-orphans
 docker compose --env-file /opt/leadvirt/secrets/.env -f deploy/docker-compose.staging.yml ps
-curl -fsS https://leadvirt.ru/health
+curl -fsS https://leadvirt.com/health
 ```
 
-Current public env uses `https://leadvirt.ru` and `AUTH_COOKIE_SECURE=true`.
+After cutover, public env uses `https://leadvirt.com` and `AUTH_COOKIE_SECURE=true`.
 
 ## AI Acceptance Smoke
 
@@ -58,10 +58,10 @@ If the HTTPS/domain config must be reapplied:
 
 ```bash
 cd /opt/leadvirt/current
-deploy/enable-leadvirt-ru-https.sh
+deploy/enable-leadvirt-com-https.sh
 ```
 
-The cutover script installs daily certificate renewal through `/etc/cron.d/leadvirt-ru-certbot`.
+The cutover script installs daily certificate renewal through `/etc/cron.d/leadvirt-certbot`.
 
 Staging operator credentials are stored on the server at:
 
@@ -69,7 +69,7 @@ Staging operator credentials are stored on the server at:
 /opt/leadvirt/secrets/operator-login.txt
 ```
 
-Reverse proxy: nginx. HTTP redirects to HTTPS for `leadvirt.ru`; `www.leadvirt.ru` redirects to the apex domain.
+Reverse proxy: nginx. `.ai` is canonical, both `www` hosts redirect to the `.ai` apex, and `.ru` keeps legacy API/health compatibility while browser routes redirect.
 
 ## Observability Profile
 
