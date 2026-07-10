@@ -42,6 +42,7 @@ import { useTheme } from "./theme";
 import { Avatar } from "./shared";
 import { BrandMark } from "../components/BrandMark";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
+import { BrandWordmark } from "../components/BrandWordmark";
 import { Button } from "../components/ui/Button";
 import { TooltipProvider, Tip, Dropdown, DropdownItem, DropdownLabel, DropdownSeparator } from "./ui";
 import { useProductMode, type ProductMode } from "./ProductMode";
@@ -414,7 +415,7 @@ export function ProductLayout({
         className="flex h-20 w-full min-w-0 shrink-0 items-center gap-2 px-3"
       >
         <BrandMark className="h-8 w-8 rounded-lg" />
-        <span className="truncate text-lg font-bold tracking-tight">{t("brand.name")}</span>
+        <BrandWordmark className="truncate text-lg" />
       </Link>
 
       <nav className="min-w-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-3">

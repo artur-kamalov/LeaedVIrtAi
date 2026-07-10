@@ -83,23 +83,24 @@ export function tempFromTemperature(temperature?: LeadTemperature | null): Lead[
   }
 }
 
-export function relativeTimeLabel(value?: string | null, locale: Locale = "ru") {
+export function relativeTimeLabel(value?: string | null, locale: Locale = "en") {
   if (!value) return "—";
   const timestamp = new Date(value).getTime();
   if (!Number.isFinite(timestamp)) return "—";
 
   const diffMinutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
-  if (diffMinutes < 1) return locale === "en" ? "now" : "сейчас";
-  if (diffMinutes < 60) return `${diffMinutes} ${locale === "en" ? "min" : "мин"}`;
+  const formatter = new Intl.RelativeTimeFormat(intlLocale(locale), { numeric: "auto", style: "narrow" });
+  if (diffMinutes < 1) return formatter.format(0, "minute");
+  if (diffMinutes < 60) return formatter.format(-diffMinutes, "minute");
 
   const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours} ${locale === "en" ? "h" : "ч"}`;
+  if (diffHours < 24) return formatter.format(-diffHours, "hour");
 
   const diffDays = Math.round(diffHours / 24);
-  return `${diffDays} ${locale === "en" ? "d" : "д"}`;
+  return formatter.format(-diffDays, "day");
 }
 
-export function formatMessageTime(value?: string | null, locale: Locale = "ru") {
+export function formatMessageTime(value?: string | null, locale: Locale = "en") {
   if (!value) {
     return new Date().toLocaleTimeString(intlLocale(locale), { hour: "2-digit", minute: "2-digit" });
   }
@@ -112,9 +113,9 @@ export function formatMessageTime(value?: string | null, locale: Locale = "ru") 
   return date.toLocaleTimeString(intlLocale(locale), { hour: "2-digit", minute: "2-digit" });
 }
 
-export function localizeSeedText(value?: string | null, locale: Locale = "ru") {
+export function localizeSeedText(value?: string | null, locale: Locale = "en") {
   if (!value) return "";
-  if (locale === "en") return value;
+  if (locale !== "ru") return value;
 
   const exact: Record<string, string> = {
     "Delivery Demo": "Тест доставки",

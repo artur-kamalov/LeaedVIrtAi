@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import { BrandMark } from "./BrandMark";
+import { BrandWordmark } from "./BrandWordmark";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useI18n } from "@/i18n/I18nProvider";
 
@@ -21,7 +22,7 @@ export function LandingHeader() {
       <div className="container mx-auto px-6 h-20 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <BrandMark className="h-8 w-8 rounded-lg" />
-          <span className="text-xl font-bold tracking-tight">{t("brand.name")}</span>
+          <BrandWordmark className="text-xl" />
         </div>
 
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-zinc-400">

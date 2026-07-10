@@ -1,6 +1,11 @@
+import { de } from "./translations/de";
+import { es } from "./translations/es";
+import { fr } from "./translations/fr";
+import { pt } from "./translations/pt";
+
 const ru = {
   "language.label": "Язык",
-  "brand.name": "AI Администратор",
+  "brand.name": "LeadVirt.ai",
   "meta.description": "AI-администратор для входящих лидов, диалогов и продаж.",
   "common.now": "сейчас",
   "common.justNow": "только что",
@@ -52,7 +57,7 @@ const ru = {
   "landing.cta.description": "Подключите AI Администратора сегодня и начните конвертировать каждое сообщение в выручку.",
   "landing.cta.action": "Подключить AI Администратора",
   "landing.cta.note": "Бесплатный тестовый период 7 дней. Привязка карты не требуется.",
-  "landing.footer.rights": "© 2026 AI Администратор. Все права защищены.",
+  "landing.footer.rights": "© 2026 LeadVirt.ai. Все права защищены.",
   "hero.message.booking": "Хочу записаться на завтра",
   "hero.message.price": "Сколько стоит услуга?",
   "hero.message.location": "Где вы находитесь?",
@@ -324,7 +329,7 @@ export type TranslationValues = Record<string, string | number>;
 
 const en: Record<TranslationKey, string> = {
   "language.label": "Language",
-  "brand.name": "AI Administrator",
+  "brand.name": "LeadVirt.ai",
   "meta.description": "AI administrator for inbound leads, conversations, and sales.",
   "common.now": "now",
   "common.justNow": "just now",
@@ -376,7 +381,7 @@ const en: Record<TranslationKey, string> = {
   "landing.cta.description": "Connect the AI Administrator today and start converting every message into revenue.",
   "landing.cta.action": "Connect AI Administrator",
   "landing.cta.note": "Free 7-day trial. No payment card required.",
-  "landing.footer.rights": "© 2026 AI Administrator. All rights reserved.",
+  "landing.footer.rights": "© 2026 LeadVirt.ai. All rights reserved.",
   "hero.message.booking": "I'd like to book for tomorrow",
   "hero.message.price": "How much does the service cost?",
   "hero.message.location": "Where are you located?",
@@ -643,4 +648,4 @@ const en: Record<TranslationKey, string> = {
   "onboarding.ready.summary": "Setup summary",
 };
 
-export const messages = { ru, en } as const;
+export const messages = { en, es, fr, de, pt, ru } as const;

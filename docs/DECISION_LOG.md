@@ -1,8 +1,21 @@
 # Decision Log
 
+## 2026-07-10: Use English As The Default Across Six UI Locales
+
+Decision: LeadVirt supports English, Spanish, French, German, Portuguese, and Russian through one typed localization contract. English is the default when no valid `leadvirt-locale` cookie exists.
+
+Context: The `.com` product needs a broadly accessible default and a language menu that scales beyond the initial Russian/English release.
+
+Consequences:
+
+- The shared dropdown exposes all six languages by native name and persists selection in the existing cookie.
+- Dates, relative time, weekday labels, metadata, Telegram login, onboarding, the shared product shell, and dashboard follow the active locale.
+- Shared brand placements render the `LeadVirt.ai` wordmark with `Virt` in the emerald brand color.
+- Deep operational pages remain a tracked localization task.
+
 ## 2026-07-10: Start UI Localization With Russian And English
 
-Decision: LeadVirt supports Russian and English through one typed client localization contract. Russian remains the default, and the selected locale persists in the `leadvirt-locale` cookie.
+Decision: LeadVirt initially supports Russian and English through one typed client localization contract. This default-locale decision was superseded later the same day by the six-locale English-default decision above.
 
 Context: The production UI was Russian-only, including fixed `ru-RU` formatters and Telegram widget language. The `.com` product needs an English path without duplicating routes or changing existing public URLs.
 

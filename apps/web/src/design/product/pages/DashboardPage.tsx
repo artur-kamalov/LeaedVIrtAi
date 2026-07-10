@@ -45,14 +45,20 @@ import type { ChannelId } from "../shared";
 import { channelIdFromType, localizeSeedText, relativeTimeLabel, stageFromStatus } from "../apiAdapters";
 import { useApiResource } from "../useApiResource";
 import { useI18n } from "@/i18n/I18nProvider";
-import type { Locale } from "@/i18n/config";
+import { intlLocale, type Locale } from "@/i18n/config";
 import type { TranslationKey, TranslationValues } from "@/i18n/messages";
 
 /* ─── helpers ─── */
 type Translate = (key: TranslationKey, values?: TranslationValues) => string;
 
+function weekdayLabels(locale: Locale) {
+  const formatter = new Intl.DateTimeFormat(intlLocale(locale), { weekday: "short", timeZone: "UTC" });
+  const firstMonday = Date.UTC(2024, 0, 1);
+  return Array.from({ length: 7 }, (_, index) => formatter.format(firstMonday + index * 86_400_000));
+}
+
 function emptyLeadsByDay(locale: Locale) {
-  return (locale === "en" ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]).map((name) => ({
+  return weekdayLabels(locale).map((name) => ({
     name,
     leads: 0,
     booked: 0,
@@ -61,16 +67,24 @@ function emptyLeadsByDay(locale: Locale) {
 
 function localizeWeekday(value: string, locale: Locale) {
   if (locale === "ru") return value;
-  const weekdays: Record<string, string> = {
-    "Пн": "Mon",
-    "Вт": "Tue",
-    "Ср": "Wed",
-    "Чт": "Thu",
-    "Пт": "Fri",
-    "Сб": "Sat",
-    "Вс": "Sun",
+  const weekdayIndexes: Record<string, number> = {
+    "Пн": 0,
+    "Вт": 1,
+    "Ср": 2,
+    "Чт": 3,
+    "Пт": 4,
+    "Сб": 5,
+    "Вс": 6,
+    Mon: 0,
+    Tue: 1,
+    Wed: 2,
+    Thu: 3,
+    Fri: 4,
+    Sat: 5,
+    Sun: 6,
   };
-  return weekdays[value] ?? value;
+  const index = weekdayIndexes[value];
+  return index === undefined ? value : weekdayLabels(locale)[index];
 }
 
 /* ─── Custom tooltip for recharts ─── */

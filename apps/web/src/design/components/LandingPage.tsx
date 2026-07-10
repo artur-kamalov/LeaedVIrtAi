@@ -16,6 +16,7 @@ import { LandingHeader } from "./LandingHeader";
 import { DeferredNichesSection } from "./DeferredNichesSection";
 import { PricingSection } from "./PricingSection";
 import { BrandMark } from "./BrandMark";
+import { BrandWordmark } from "./BrandWordmark";
 import { useI18n } from "@/i18n/I18nProvider";
 
 export function LandingPage() {
@@ -274,11 +275,11 @@ export function LandingPage() {
       </main>
 
       {/* FOOTER */}
-      <footer className="border-t border-white/5 py-12 bg-zinc-950">
+      <footer className="relative z-10 border-t border-white/5 bg-zinc-950 py-12">
         <div className="container mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-2">
             <BrandMark className="h-6 w-6 rounded-md" />
-            <span className="text-lg font-bold tracking-tight">{t("brand.name")}</span>
+            <BrandWordmark className="text-lg" />
           </div>
           <p className="text-zinc-500 text-sm">{t("landing.footer.rights")}</p>
         </div>

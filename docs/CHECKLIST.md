@@ -11,6 +11,7 @@ Last updated: 2026-07-10
 
 ## Done
 
+- [x] Expanded localization to English, Spanish, French, German, Portuguese, and Russian; made English the default; replaced the native locale select with an accessible language dropdown; and added the `LeadVirt.ai` wordmark with `Virt` in the brand color across shared brand placements. Verified web typecheck, lint, production build, localization `4/4`, UI smoke `8/8`, and desktop/mobile screenshots.
 - [x] Added persisted Russian/English localization with typed messages, locale-aware date/number/currency formatting, language menus, Telegram widget locale, and Playwright coverage across marketing, auth, onboarding, workspace shell, and dashboard.
 - [x] Retired the former `.ru` runtime surface: removed nginx/API/CORS/workflow compatibility, rejected unmatched hosts, and removed its certificate from renewal.
 - [x] Audited production callbacks before retirement: migrated the Master Budet webhook bridge to `.com`, found no stored `.ru` URLs in the LeadVirt database, and confirmed the Telegram login bot has no webhook.

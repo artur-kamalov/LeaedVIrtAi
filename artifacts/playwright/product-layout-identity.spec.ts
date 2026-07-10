@@ -4,6 +4,10 @@ const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 
 test.setTimeout(60_000);
 
+async function useRussianOperationalUi(page: Page) {
+  await page.context().addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
+}
+
 async function mockProductIdentity(page: Page) {
   const calls = { authMe: 0, currentTenant: 0 };
 
@@ -154,6 +158,7 @@ async function mockInboxConversations(page: Page) {
 }
 
 test("product shell renders tenant and user identity from API", async ({ page }) => {
+  await useRussianOperationalUi(page);
   const calls = await mockProductIdentity(page);
 
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -166,6 +171,7 @@ test("product shell renders tenant and user identity from API", async ({ page })
 });
 
 test("product shell notifications render dashboard activity data", async ({ page }) => {
+  await useRussianOperationalUi(page);
   await mockProductIdentity(page);
   await mockDashboardSummary(page, [
     {
@@ -191,6 +197,7 @@ test("product shell notifications render dashboard activity data", async ({ page
 });
 
 test("product shell global search opens Inbox with a prefilled query", async ({ page }) => {
+  await useRussianOperationalUi(page);
   await mockProductIdentity(page);
   await mockDashboardSummary(page);
   await mockInboxConversations(page);
@@ -208,6 +215,7 @@ test("product shell global search opens Inbox with a prefilled query", async ({ 
 });
 
 test("product shell logout calls auth API and clears local session", async ({ page }) => {
+  await useRussianOperationalUi(page);
   let logoutCalled = false;
   await mockProductIdentity(page);
   await page.route(/\/api\/auth\/logout(?:\?.*)?$/, async (route) => {

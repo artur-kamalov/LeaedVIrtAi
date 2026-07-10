@@ -9,8 +9,10 @@ import { Toaster, toast } from "sonner";
 import { getTelegramLoginConfig, loginWithTelegram, type TelegramAuthPayload } from "@/lib/api/auth";
 import { BrandMark } from "@/design/components/BrandMark";
 import { LanguageSwitcher } from "@/design/components/LanguageSwitcher";
+import { BrandWordmark } from "@/design/components/BrandWordmark";
 import { Button } from "@/design/components/ui/Button";
 import { useI18n } from "@/i18n/I18nProvider";
+import type { Locale } from "@/i18n/config";
 import type { TranslationKey } from "@/i18n/messages";
 
 type AuthMode = "login" | "signup";
@@ -85,7 +87,7 @@ function normalizeTelegramWidgetPayload(value: unknown): TelegramAuthPayload | n
   };
 }
 
-function mountTelegramWidget(host: HTMLDivElement, botUsername: string, locale: "ru" | "en") {
+function mountTelegramWidget(host: HTMLDivElement, botUsername: string, locale: Locale) {
   host.innerHTML = "";
   const script = document.createElement("script");
   script.src = telegramWidgetScriptSrc;
@@ -298,7 +300,7 @@ export function AuthFlow({ mode }: { mode: AuthMode }) {
         <header className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <BrandMark className="h-9 w-9 rounded-xl" />
-            <span className="hidden text-lg font-bold tracking-tight sm:inline">{t("brand.name")}</span>
+            <BrandWordmark className="hidden text-lg sm:inline-flex" />
           </Link>
           <div className="flex items-center gap-2">
             <LanguageSwitcher compact />

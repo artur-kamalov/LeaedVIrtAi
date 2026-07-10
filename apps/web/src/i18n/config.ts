@@ -1,13 +1,17 @@
-export const supportedLocales = ["ru", "en"] as const;
+export const supportedLocales = ["en", "es", "fr", "de", "pt", "ru"] as const;
 
 export type Locale = (typeof supportedLocales)[number];
 
-export const defaultLocale: Locale = "ru";
+export const defaultLocale: Locale = "en";
 export const localeCookieName = "leadvirt-locale";
 
 export const localeOptions: ReadonlyArray<{ value: Locale; shortLabel: string; label: string }> = [
-  { value: "ru", shortLabel: "RU", label: "Русский" },
   { value: "en", shortLabel: "EN", label: "English" },
+  { value: "es", shortLabel: "ES", label: "Español" },
+  { value: "fr", shortLabel: "FR", label: "Français" },
+  { value: "de", shortLabel: "DE", label: "Deutsch" },
+  { value: "pt", shortLabel: "PT", label: "Português" },
+  { value: "ru", shortLabel: "RU", label: "Русский" },
 ];
 
 export function normalizeLocale(value: string | null | undefined): Locale {
@@ -15,5 +19,13 @@ export function normalizeLocale(value: string | null | undefined): Locale {
 }
 
 export function intlLocale(locale: Locale) {
-  return locale === "en" ? "en-US" : "ru-RU";
+  const localeTags: Record<Locale, string> = {
+    en: "en-US",
+    es: "es-ES",
+    fr: "fr-FR",
+    de: "de-DE",
+    pt: "pt-BR",
+    ru: "ru-RU",
+  };
+  return localeTags[locale];
 }
