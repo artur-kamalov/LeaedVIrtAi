@@ -2,6 +2,10 @@ import { expect, test } from "@playwright/test";
 
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 
+test.beforeEach(async ({ page }) => {
+  await page.context().addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
+});
+
 test("landing desktop CTAs and nav links route to live pages", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(webBase, { waitUntil: "domcontentloaded" });

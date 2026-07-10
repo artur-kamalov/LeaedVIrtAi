@@ -4,6 +4,8 @@ Last updated: 2026-07-10
 
 ## Next
 
+- [ ] Rotate the UniSender API key shared during setup, verify `noreply@leadvirt.com` as a sender, store the rotated key/list ID/OTP pepper in `/opt/leadvirt/secrets/.env`, and enable production email OTP.
+- [ ] Run a real UniSender inbox delivery smoke after sender verification, then confirm one-time consumption and `authMode=email` on `leadvirt.com`.
 - [ ] Localize the remaining operational pages: Inbox, conversation, pipeline, automation, analytics, AI audit, integrations, settings/billing, and widget configuration.
 - [ ] Move API-generated labels and tenant locale preferences into the localization contract so language follows signed-in users across browsers.
 - [ ] Delete the former `.ru` apex and `www` records in Beget, then verify public DNS no longer resolves them after the 300-second TTL.
@@ -11,6 +13,7 @@ Last updated: 2026-07-10
 
 ## Done
 
+- [x] Implemented and reviewed passwordless email OTP authentication alongside Telegram with an isolated challenge service, HMAC-hashed 10-minute codes, five-attempt caps, atomic consumption, persistent 60-second resend locks, trusted-proxy IP throttling, separate OTP/reset providers, explicit production enablement, localized UI, a UniSender POST adapter, and a dedicated `LeadVirt authentication` list. Verified DB schema, API/web typecheck, lint, and production builds, OTP API `8/8`, provider contract `13/13`, auth browser flow `6/6`, UI/localization smoke `8/8`, and the full API browser run `54/55` with its unrelated navigation timeout passing `5/5` on isolated rerun.
 - [x] Expanded localization to English, Spanish, French, German, Portuguese, and Russian; made English the default; replaced the native locale select with an accessible language dropdown; and added the `LeadVirt.ai` wordmark with `Virt` in the brand color across shared brand placements. Verified web typecheck, lint, production build, localization `4/4`, UI smoke `8/8`, and desktop/mobile screenshots.
 - [x] Added persisted Russian/English localization with typed messages, locale-aware date/number/currency formatting, language menus, Telegram widget locale, and Playwright coverage across marketing, auth, onboarding, workspace shell, and dashboard.
 - [x] Retired the former `.ru` runtime surface: removed nginx/API/CORS/workflow compatibility, rejected unmatched hosts, and removed its certificate from renewal.

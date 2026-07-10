@@ -17,6 +17,15 @@ const authResponse = {
   }
 };
 
+const emailAuthResponse = {
+  data: {
+    ...authResponse.data,
+    email: "owner@example.com",
+    name: "Email Owner",
+    authMode: "email",
+  },
+};
+
 const currentTenantResponse = {
   data: {
     id: "tenant-demo",
@@ -78,6 +87,10 @@ test.describe("telegram auth flow", () => {
   test.setTimeout(60_000);
 
   test.beforeEach(async ({ page }) => {
+    await page.context().addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
+    await page.route("**/api/auth/email-otp/config", async (route) => {
+      await route.fulfill({ headers: apiMockHeaders, json: { data: { enabled: false, codeLength: 6, resendAfterSeconds: 60 } } });
+    });
     await page.route("https://telegram.org/js/telegram-widget.js**", async (route) => {
       await route.fulfill({ contentType: "application/javascript", body: telegramWidgetMock });
     });
@@ -155,7 +168,7 @@ test.describe("telegram auth flow", () => {
     await page.route("**/api/auth/telegram", async (route) => {
       const body = route.request().postDataJSON() as typeof telegramWidgetPayload;
       expect(body).toMatchObject(telegramWidgetPayload);
-      await route.fulfill({ headers: apiMockHeaders, json: authResponse });
+      await route.fulfill({ headers: apiMockHeaders, json: { data: { ...authResponse.data, isNewUser: true } } });
     });
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -166,5 +179,124 @@ test.describe("telegram auth flow", () => {
 
     await expect(page).toHaveURL(`${webBase}/onboarding`, { timeout: 15000 });
     await expect.poll(async () => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session") ?? "")).toContain("telegram");
+  });
+});
+
+test.describe("email OTP auth flow", () => {
+  test.setTimeout(60_000);
+
+  test.beforeEach(async ({ page }) => {
+    await page.context().addCookies([{ name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" }]);
+    await page.route("**/api/auth/email-otp/config", async (route) => {
+      await route.fulfill({ headers: apiMockHeaders, json: { data: { enabled: true, codeLength: 6, resendAfterSeconds: 60 } } });
+    });
+    await page.route("**/api/auth/me", async (route) => {
+      await route.fulfill({ headers: apiMockHeaders, json: emailAuthResponse });
+    });
+    await page.route("**/api/current-tenant", async (route) => {
+      await route.fulfill({ headers: apiMockHeaders, json: currentTenantResponse });
+    });
+  });
+
+  test("email code login opens the app and persists email auth mode", async ({ page }) => {
+    let requestCount = 0;
+    let verifyCount = 0;
+    await page.route("**/api/auth/email-otp/request", async (route) => {
+      requestCount += 1;
+      expect(route.request().postDataJSON()).toEqual({ email: "owner@example.com", locale: "en" });
+      await route.fulfill({
+        headers: apiMockHeaders,
+        json: {
+          data: {
+            sent: true,
+            challengeId: "a".repeat(48),
+            expiresAt: "2026-07-10T20:10:00.000Z",
+            resendAfterSeconds: 60,
+            debugCode: "384921",
+          },
+        },
+      });
+    });
+    await page.route("**/api/auth/email-otp/verify", async (route) => {
+      verifyCount += 1;
+      expect(route.request().postDataJSON()).toEqual({ challengeId: "a".repeat(48), code: "384921" });
+      await route.fulfill({ headers: apiMockHeaders, json: emailAuthResponse });
+    });
+
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
+
+    await expect(page.getByTestId("auth-method-email")).toHaveAttribute("aria-selected", "true");
+    await page.getByLabel("Work email").fill("owner@example.com");
+    await page.getByTestId("email-otp-request").click();
+    await expect(page.getByText("We sent a 6-digit code to owner@example.com")).toBeVisible();
+    await expect(page.getByTestId("email-otp-resend")).toBeDisabled();
+    await expect(page.getByTestId("email-otp-code-input").locator("input")).toHaveCount(6);
+    if (process.env.LEADVIRT_EMAIL_AUTH_SCREENSHOTS === "1") {
+      await page.screenshot({ path: "artifacts/screenshots/email-auth-code-desktop.png", animations: "disabled" });
+    }
+    await page.getByTestId("email-otp-verify").click();
+
+    await expect(page).toHaveURL(`${webBase}/app`, { timeout: 30_000 });
+    expect(requestCount).toBe(1);
+    expect(verifyCount).toBe(1);
+    await expect.poll(async () => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session") ?? "")).toContain('"authMode":"email"');
+  });
+
+  test("email code signup opens onboarding on mobile", async ({ page }) => {
+    await page.route("**/api/auth/email-otp/request", async (route) => {
+      await route.fulfill({
+        headers: apiMockHeaders,
+        json: {
+          data: {
+            sent: true,
+            challengeId: "b".repeat(48),
+            expiresAt: "2026-07-10T20:10:00.000Z",
+            resendAfterSeconds: 60,
+            debugCode: "624105",
+          },
+        },
+      });
+    });
+    await page.route("**/api/auth/email-otp/verify", async (route) => {
+      await route.fulfill({ headers: apiMockHeaders, json: { data: { ...emailAuthResponse.data, isNewUser: true } } });
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${webBase}/signup`, { waitUntil: "networkidle" });
+    await page.getByLabel("Work email").fill("new-owner@example.com");
+    await page.getByTestId("email-otp-request").click();
+    if (process.env.LEADVIRT_EMAIL_AUTH_SCREENSHOTS === "1") {
+      await page.screenshot({ path: "artifacts/screenshots/email-auth-code-mobile.png", animations: "disabled" });
+    }
+    await page.getByTestId("email-otp-verify").click();
+    await expect(page).toHaveURL(`${webBase}/onboarding`, { timeout: 15_000 });
+  });
+
+  test("existing email account authenticating from signup opens the app", async ({ page }) => {
+    await page.route("**/api/auth/email-otp/request", async (route) => {
+      await route.fulfill({
+        headers: apiMockHeaders,
+        json: {
+          data: {
+            sent: true,
+            challengeId: "c".repeat(48),
+            expiresAt: "2026-07-10T20:10:00.000Z",
+            resendAfterSeconds: 60,
+            debugCode: "731408",
+          },
+        },
+      });
+    });
+    await page.route("**/api/auth/email-otp/verify", async (route) => {
+      await route.fulfill({ headers: apiMockHeaders, json: { data: { ...emailAuthResponse.data, isNewUser: false } } });
+    });
+
+    await page.goto(`${webBase}/signup`, { waitUntil: "networkidle" });
+    await page.getByLabel("Work email").fill("owner@example.com");
+    await page.getByTestId("email-otp-request").click();
+    await page.getByTestId("email-otp-verify").click();
+
+    await expect(page).toHaveURL(`${webBase}/app`, { timeout: 15_000 });
   });
 });

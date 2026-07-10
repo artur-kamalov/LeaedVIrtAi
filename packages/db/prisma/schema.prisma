@@ -258,6 +258,7 @@ model AuthSession {
   userId     String
   tenantId   String
   tokenHash  String    @unique
+  authMode   String    @default("credentials")
   expiresAt  DateTime
   revokedAt  DateTime?
   lastUsedAt DateTime?
@@ -271,6 +272,23 @@ model AuthSession {
 
   @@index([userId, expiresAt])
   @@index([tenantId, expiresAt])
+}
+
+model AuthEmailOtpChallenge {
+  id                String    @id
+  email             String
+  codeHash          String
+  deliveryMode      String
+  locale            String
+  attempts          Int       @default(0)
+  providerMessageId String?
+  expiresAt         DateTime
+  consumedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([email, createdAt])
+  @@index([expiresAt])
 }
 
 model AuthPasswordResetToken {

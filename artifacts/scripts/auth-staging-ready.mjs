@@ -247,13 +247,47 @@ function checkEnvironment() {
     "true; public auth endpoints are not rate limited",
   );
 
-  const emailProvider = process.env.EMAIL_PROVIDER ?? "mock";
+  const emailProvider = (process.env.EMAIL_PROVIDER ?? "mock").trim().toLowerCase();
   strictCheck(
     emailProvider !== "mock",
     "EMAIL_PROVIDER",
     emailProvider,
     "mock; password reset URLs may be exposed for local QA behavior",
   );
+
+  if (isTruthy(process.env.AUTH_EMAIL_OTP_ENABLED)) {
+    const emailOtpProvider = (process.env.EMAIL_OTP_PROVIDER ?? "mock").trim().toLowerCase();
+    strictCheck(
+      emailOtpProvider === "unisender",
+      "Email OTP provider",
+      emailOtpProvider,
+      `${emailOtpProvider}; AUTH_EMAIL_OTP_ENABLED requires EMAIL_OTP_PROVIDER=unisender in production`,
+    );
+    strictCheck(
+      Boolean(process.env.UNISENDER_API_KEY?.trim()),
+      "UNISENDER_API_KEY",
+      "configured",
+      "missing",
+    );
+    strictCheck(
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.UNISENDER_SENDER_EMAIL?.trim() ?? ""),
+      "UNISENDER_SENDER_EMAIL",
+      process.env.UNISENDER_SENDER_EMAIL ?? "missing",
+      "missing or invalid; sender verification must also be completed in UniSender",
+    );
+    strictCheck(
+      /^\d+$/.test(process.env.UNISENDER_LIST_ID?.trim() ?? "") && Number(process.env.UNISENDER_LIST_ID) > 0,
+      "UNISENDER_LIST_ID",
+      process.env.UNISENDER_LIST_ID ?? "missing",
+      "missing or not a positive integer",
+    );
+    strictCheck(
+      (process.env.AUTH_EMAIL_OTP_PEPPER?.trim().length ?? 0) >= 32,
+      "AUTH_EMAIL_OTP_PEPPER",
+      "configured",
+      "missing or shorter than 32 characters",
+    );
+  }
 
   strictCheck(
     nodeEnv === "production",

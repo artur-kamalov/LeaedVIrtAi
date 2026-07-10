@@ -2,6 +2,10 @@ import { expect, test } from "@playwright/test";
 
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 
+test.beforeEach(async ({ page }) => {
+  await page.context().addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
+});
+
 test("onboarding hydrates state and persists progress", async ({ page }) => {
   const statePatches: { currentStep?: string; data?: Record<string, unknown> }[] = [];
   const completedSteps: string[] = [];

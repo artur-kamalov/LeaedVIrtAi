@@ -8,6 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/apps/api/src/main.js",
     "lint": "eslint .",
+    "qa:auth:email-otp": "tsx ../../artifacts/scripts/email-otp-auth-smoke.ts",
+    "qa:auth:unisender-contract": "tsx ../../artifacts/scripts/unisender-email-otp-contract-smoke.ts",
     "qa:ai:provider": "tsx ../../artifacts/scripts/ai-provider-smoke.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

@@ -4,7 +4,7 @@ import { apiData, jsonBody } from "./client";
 export interface AuthMe extends User {
   role: UserRole;
   tenantId: string;
-  authMode: "credentials" | "telegram";
+  authMode: "credentials" | "email" | "telegram";
   expiresAt?: string;
   isNewUser?: boolean;
 }
@@ -27,6 +27,20 @@ export type TelegramLoginConfig = {
 export type TelegramOidcAuthPayload = {
   idToken: string;
   nonce?: string;
+};
+
+export type EmailOtpConfig = {
+  enabled: boolean;
+  codeLength: number;
+  resendAfterSeconds: number;
+};
+
+export type EmailOtpRequest = {
+  sent: boolean;
+  challengeId: string;
+  expiresAt: string;
+  resendAfterSeconds: number;
+  debugCode?: string;
 };
 
 export function getAuthMe() {
@@ -63,6 +77,24 @@ export function loginWithTelegramOidc(input: TelegramOidcAuthPayload) {
 
 export function getTelegramLoginConfig() {
   return apiData<TelegramLoginConfig>("/auth/telegram/config");
+}
+
+export function getEmailOtpConfig() {
+  return apiData<EmailOtpConfig>("/auth/email-otp/config");
+}
+
+export function requestEmailOtp(input: { email: string; locale: string }) {
+  return apiData<EmailOtpRequest>("/auth/email-otp/request", {
+    method: "POST",
+    ...jsonBody(input)
+  });
+}
+
+export function verifyEmailOtp(input: { challengeId: string; code: string }) {
+  return apiData<AuthMe>("/auth/email-otp/verify", {
+    method: "POST",
+    ...jsonBody(input)
+  });
 }
 
 export function requestPasswordReset(input: { email: string }) {

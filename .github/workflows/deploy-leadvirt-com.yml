@@ -121,6 +121,9 @@ jobs:
       - name: Verify release readiness scripts
         run: corepack pnpm run qa:release-readiness
 
+      - name: Verify UniSender email OTP contract
+        run: corepack pnpm run qa:auth:unisender-contract
+
       - name: Verify domain migration
         run: corepack pnpm run qa:domain-migration
 
@@ -156,6 +159,7 @@ jobs:
             fi
             sleep 2
           done
+          corepack pnpm run qa:auth:email-otp
           corepack pnpm run qa:ai:acceptance
 
       - name: Upload AI eval report

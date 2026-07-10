@@ -5,7 +5,7 @@ export interface RequestContext {
   userId: string;
   sessionId?: string;
   role: MembershipRole;
-  authMode: "credentials" | "telegram";
+  authMode: "credentials" | "email" | "telegram";
   tenant: Pick<Tenant, "id" | "name" | "slug" | "status" | "businessType" | "timezone">;
   user: Pick<User, "id" | "email" | "phone" | "name" | "avatarUrl" | "passwordChangeRequired">;
 }

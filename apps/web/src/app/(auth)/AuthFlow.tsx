@@ -4,9 +4,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
 import { motion } from "motion/react";
-import { CheckCircle2, Loader2, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowLeft, CheckCircle2, KeyRound, Loader2, Mail, Send, ShieldCheck, Sparkles } from "lucide-react";
 import { Toaster, toast } from "sonner";
-import { getTelegramLoginConfig, loginWithTelegram, type TelegramAuthPayload } from "@/lib/api/auth";
+import {
+  getEmailOtpConfig,
+  getTelegramLoginConfig,
+  loginWithTelegram,
+  requestEmailOtp,
+  verifyEmailOtp,
+  type AuthMe,
+  type TelegramAuthPayload,
+} from "@/lib/api/auth";
 import { BrandMark } from "@/design/components/BrandMark";
 import { LanguageSwitcher } from "@/design/components/LanguageSwitcher";
 import { BrandWordmark } from "@/design/components/BrandWordmark";
@@ -220,8 +228,75 @@ function TelegramLoginButton({
   );
 }
 
+function OtpCodeInput({
+  value,
+  onChange,
+  disabled,
+  label,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+  label: string;
+}) {
+  const refs = React.useRef<Array<HTMLInputElement | null>>([]);
+  const digits = Array.from({ length: 6 }, (_, index) => value[index] ?? "");
+
+  const replaceFrom = (index: number, input: string) => {
+    const inserted = input.replace(/\D/g, "");
+    if (!inserted) {
+      const next = digits.slice();
+      next[index] = "";
+      onChange(next.join(""));
+      return;
+    }
+
+    const next = digits.slice();
+    inserted.slice(0, 6 - index).split("").forEach((digit, offset) => {
+      next[index + offset] = digit;
+    });
+    const normalized = next.join("").slice(0, 6);
+    onChange(normalized);
+    refs.current[Math.min(index + inserted.length, 5)]?.focus();
+  };
+
+  return (
+    <div className="grid grid-cols-6 gap-2" data-testid="email-otp-code-input">
+      {digits.map((digit, index) => (
+        <input
+          key={index}
+          ref={(element) => {
+            refs.current[index] = element;
+          }}
+          type="text"
+          inputMode="numeric"
+          autoComplete={index === 0 ? "one-time-code" : "off"}
+          pattern="[0-9]*"
+          maxLength={1}
+          value={digit}
+          disabled={disabled}
+          aria-label={`${label} ${index + 1}`}
+          onChange={(event) => replaceFrom(index, event.target.value)}
+          onPaste={(event) => {
+            event.preventDefault();
+            replaceFrom(index, event.clipboardData.getData("text"));
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Backspace" && !digit && index > 0) {
+              refs.current[index - 1]?.focus();
+            }
+            if (event.key === "ArrowLeft" && index > 0) refs.current[index - 1]?.focus();
+            if (event.key === "ArrowRight" && index < 5) refs.current[index + 1]?.focus();
+          }}
+          className="h-12 min-w-0 rounded-md border border-white/10 bg-zinc-950/80 text-center text-lg font-bold text-zinc-50 outline-none transition-colors focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 disabled:opacity-60"
+        />
+      ))}
+    </div>
+  );
+}
+
 export function AuthFlow({ mode }: { mode: AuthMode }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const router = useRouter();
   const copyKeys = modeCopyKeys[mode];
   const copy = {
@@ -232,8 +307,64 @@ export function AuthFlow({ mode }: { mode: AuthMode }) {
     secondaryText: t(copyKeys.secondaryText),
     secondaryAction: t(copyKeys.secondaryAction),
   };
+  const [method, setMethod] = React.useState<"email" | "telegram">("email");
+  const [emailOtpEnabled, setEmailOtpEnabled] = React.useState<boolean | null>(null);
+  const [emailStep, setEmailStep] = React.useState<"address" | "code">("address");
+  const [email, setEmail] = React.useState("");
+  const [challengeId, setChallengeId] = React.useState("");
+  const [code, setCode] = React.useState("");
+  const [resendSeconds, setResendSeconds] = React.useState(0);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState("");
+
+  React.useEffect(() => {
+    let cancelled = false;
+    getEmailOtpConfig()
+      .then((config) => {
+        if (cancelled) return;
+        setEmailOtpEnabled(config.enabled);
+        if (!config.enabled) setMethod("telegram");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEmailOtpEnabled(false);
+          setMethod("telegram");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const timer = window.setInterval(() => {
+      setResendSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendSeconds]);
+
+  const completeAuth = React.useCallback(
+    (me: AuthMe) => {
+      window.localStorage.removeItem("leadvirt.demo.session");
+      window.localStorage.setItem(
+        "leadvirt.auth.session",
+        JSON.stringify({
+          email: me.email,
+          phone: me.phone,
+          name: me.name,
+          tenantId: me.tenantId,
+          role: me.role,
+          authMode: me.authMode,
+          expiresAt: me.expiresAt,
+          passwordChangeRequired: me.passwordChangeRequired,
+        }),
+      );
+      toast.success(me.isNewUser ? t("auth.toast.created") : t("auth.toast.welcome"));
+      router.push(me.isNewUser ? "/onboarding" : "/app");
+    },
+    [router, t],
+  );
 
   const handleTelegramAuth = React.useCallback(
     async (payload: TelegramAuthPayload) => {
@@ -242,38 +373,65 @@ export function AuthFlow({ mode }: { mode: AuthMode }) {
 
       try {
         const me = await loginWithTelegram(payload);
-        if (typeof window !== "undefined") {
-          window.localStorage.removeItem("leadvirt.demo.session");
-          window.localStorage.setItem(
-            "leadvirt.auth.session",
-            JSON.stringify({
-              email: me.email,
-              phone: me.phone,
-              name: me.name,
-              tenantId: me.tenantId,
-              role: me.role,
-              authMode: me.authMode,
-              expiresAt: me.expiresAt,
-              passwordChangeRequired: me.passwordChangeRequired
-            })
-          );
-        }
-
-        toast.success(me.isNewUser ? t("auth.toast.created") : t("auth.toast.welcome"));
-        router.push(mode === "signup" || me.isNewUser ? "/onboarding" : "/app");
+        completeAuth(me);
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : t("auth.error.login"));
       } finally {
         setLoading(false);
       }
     },
-    [mode, router, t]
+    [completeAuth, t]
   );
   const handleTelegramAuthStart = React.useCallback(
     (payload: TelegramAuthPayload) => {
       void handleTelegramAuth(payload);
     },
     [handleTelegramAuth]
+  );
+
+  const requestCode = React.useCallback(async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) return;
+    setError("");
+    setLoading(true);
+    try {
+      const response = await requestEmailOtp({ email: normalizedEmail, locale });
+      setEmail(normalizedEmail);
+      setChallengeId(response.challengeId);
+      setCode(response.debugCode ?? "");
+      setEmailStep("code");
+      setResendSeconds(response.resendAfterSeconds);
+      toast.success(t("auth.email.sent"));
+    } catch {
+      setError(t("auth.email.requestError"));
+    } finally {
+      setLoading(false);
+    }
+  }, [email, locale, t]);
+
+  const handleEmailRequest = React.useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      void requestCode();
+    },
+    [requestCode],
+  );
+
+  const handleEmailVerify = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!challengeId || code.length !== 6) return;
+      setError("");
+      setLoading(true);
+      try {
+        completeAuth(await verifyEmailOtp({ challengeId, code }));
+      } catch {
+        setError(t("auth.email.verifyError"));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [challengeId, code, completeAuth, t],
   );
 
   return (
@@ -355,10 +513,122 @@ export function AuthFlow({ mode }: { mode: AuthMode }) {
               </div>
 
               <div className="space-y-4">
-                <TelegramLoginButton label={copy.primaryAction} loading={loading} onAuth={handleTelegramAuthStart} />
+                <div className="grid grid-cols-2 gap-1 rounded-lg border border-white/10 bg-zinc-950/70 p-1" role="tablist" aria-label={copy.title}>
+                  <button
+                    type="button"
+                    role="tab"
+                    data-testid="auth-method-email"
+                    aria-selected={method === "email"}
+                    disabled={emailOtpEnabled !== true || loading}
+                    onClick={() => {
+                      setMethod("email");
+                      setError("");
+                    }}
+                    className={`flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:cursor-not-allowed disabled:opacity-40 ${
+                      method === "email" ? "bg-white/10 text-zinc-50" : "text-zinc-500 hover:text-zinc-200"
+                    }`}
+                  >
+                    <Mail className="h-4 w-4" aria-hidden="true" />
+                    {t("auth.method.email")}
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    data-testid="auth-method-telegram"
+                    aria-selected={method === "telegram"}
+                    disabled={loading}
+                    onClick={() => {
+                      setMethod("telegram");
+                      setError("");
+                    }}
+                    className={`flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:cursor-not-allowed disabled:opacity-40 ${
+                      method === "telegram" ? "bg-white/10 text-zinc-50" : "text-zinc-500 hover:text-zinc-200"
+                    }`}
+                  >
+                    <Send className="h-4 w-4" aria-hidden="true" />
+                    {t("auth.method.telegram")}
+                  </button>
+                </div>
+
+                {method === "email" && emailOtpEnabled === true && emailStep === "address" ? (
+                  <form className="space-y-4" data-testid="email-otp-request-form" onSubmit={handleEmailRequest}>
+                    <label className="block space-y-2 text-sm font-medium text-zinc-300">
+                      <span>{t("auth.email.label")}</span>
+                      <span className="relative block">
+                        <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" aria-hidden="true" />
+                        <input
+                          type="email"
+                          name="email"
+                          autoComplete="email"
+                          required
+                          autoFocus
+                          value={email}
+                          disabled={loading}
+                          onChange={(event) => setEmail(event.target.value)}
+                          placeholder={t("auth.email.placeholder")}
+                          className="h-12 w-full rounded-md border border-white/10 bg-zinc-950/80 pl-10 pr-3 text-sm text-zinc-50 outline-none transition-colors placeholder:text-zinc-600 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 disabled:opacity-60"
+                        />
+                      </span>
+                    </label>
+                    <Button type="submit" data-testid="email-otp-request" className="h-12 w-full rounded-md text-sm font-semibold" disabled={loading || !email.trim()}>
+                      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                      {loading ? t("auth.email.sending") : t("auth.email.send")}
+                    </Button>
+                  </form>
+                ) : null}
+
+                {method === "email" && emailOtpEnabled === true && emailStep === "code" ? (
+                  <form
+                    className="space-y-4"
+                    data-testid="email-otp-verify-form"
+                    onSubmit={(event) => {
+                      void handleEmailVerify(event);
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                      onClick={() => {
+                        setEmailStep("address");
+                        setChallengeId("");
+                        setCode("");
+                        setResendSeconds(0);
+                        setError("");
+                      }}
+                    >
+                      <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("auth.email.change")}
+                    </button>
+                    <div>
+                      <div className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
+                        <KeyRound className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+                        {t("auth.email.codeLabel")}
+                      </div>
+                      <p className="mt-1 text-xs leading-5 text-zinc-500">{t("auth.email.codeHint", { email })}</p>
+                    </div>
+                    <OtpCodeInput value={code} onChange={setCode} disabled={loading} label={t("auth.email.codeLabel")} />
+                    <Button type="submit" data-testid="email-otp-verify" className="h-12 w-full rounded-md text-sm font-semibold" disabled={loading || code.length !== 6}>
+                      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                      {loading ? t("auth.email.verifying") : t("auth.email.verify")}
+                    </Button>
+                    <button
+                      type="button"
+                      data-testid="email-otp-resend"
+                      disabled={loading || resendSeconds > 0}
+                      onClick={() => void requestCode()}
+                      className="mx-auto block text-xs font-semibold text-emerald-400 transition-colors hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:cursor-wait disabled:text-zinc-600"
+                    >
+                      {resendSeconds > 0 ? t("auth.email.resendIn", { seconds: resendSeconds }) : t("auth.email.resend")}
+                    </button>
+                  </form>
+                ) : null}
+
+                {method === "telegram" ? (
+                  <TelegramLoginButton label={copy.primaryAction} loading={loading} onAuth={handleTelegramAuthStart} />
+                ) : null}
 
                 {error ? (
-                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                  <div role="alert" className="rounded-md border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
                     {error}
                   </div>
                 ) : null}

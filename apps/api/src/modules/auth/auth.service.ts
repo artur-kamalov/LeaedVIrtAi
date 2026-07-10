@@ -10,6 +10,9 @@ import type { RequestPasswordResetDto } from "./dto/request-password-reset.dto.j
 import type { SignupDto } from "./dto/signup.dto.js";
 import type { TelegramAuthDto } from "./dto/telegram-auth.dto.js";
 import type { TelegramOidcAuthDto } from "./dto/telegram-oidc-auth.dto.js";
+import type { EmailOtpLocale, RequestEmailOtpDto } from "./dto/request-email-otp.dto.js";
+import type { VerifyEmailOtpDto } from "./dto/verify-email-otp.dto.js";
+import { EmailOtpChallengeService } from "./email-otp-challenge.service.js";
 import { authIdentifierWhere, parseAuthIdentifier } from "./auth-identifier.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
 import { decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, generateTotpSecret, totpAuthUri, verifyTotpCode } from "./totp.js";
@@ -42,7 +45,7 @@ type AuthTenant = {
   timezone: string;
 };
 
-type AuthMode = "credentials" | "telegram";
+type AuthMode = "credentials" | "email" | "telegram";
 
 type TelegramIdentity = {
   telegramId: number;
@@ -81,8 +84,29 @@ function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+function emailNameSeed(email: string) {
+  return email.split("@")[0]?.replace(/[._-]+/g, " ").trim() || "LeadVirt";
+}
+
 function hashSecret(secret: string) {
   return `sha256:${createHash("sha256").update(secret).digest("hex")}`;
+}
+
+function localeSetting(locale: EmailOtpLocale) {
+  const settings: Record<EmailOtpLocale, string> = {
+    en: "en-US",
+    es: "es-ES",
+    fr: "fr-FR",
+    de: "de-DE",
+    pt: "pt-BR",
+    ru: "ru-RU",
+  };
+  return settings[locale];
+}
+
+function sessionAuthMode(value: string, externalAuthId: string | null): AuthMode {
+  if (value === "email" || value === "telegram") return value;
+  return externalAuthId?.startsWith("telegram:") ? "telegram" : "credentials";
 }
 
 function cookieValue(value: string | string[] | undefined) {
@@ -294,7 +318,10 @@ async function verifyTelegramOidcToken(dto: TelegramOidcAuthDto): Promise<Telegr
 
 @Injectable()
 export class AuthService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EmailOtpChallengeService) private readonly emailOtpChallenges: EmailOtpChallengeService,
+  ) {}
 
   readSessionToken(request: Request) {
     return parseCookies(cookieValue(request.headers.cookie)).get(sessionCookieName);
@@ -339,7 +366,7 @@ export class AuthService {
       data: { lastUsedAt: now }
     });
 
-    const authMode: AuthMode = session.user.externalAuthId?.startsWith("telegram:") ? "telegram" : "credentials";
+    const authMode = sessionAuthMode(session.authMode, session.user.externalAuthId);
 
     return {
       tenantId: session.tenantId,
@@ -568,6 +595,10 @@ export class AuthService {
     return { botId: telegramBotId(), botUsername: telegramBotUsername() };
   }
 
+  emailOtpConfig() {
+    return this.emailOtpChallenges.config();
+  }
+
   private async loginWithTelegramIdentity(identity: TelegramIdentity, meta: AuthMeta = {}) {
     const externalAuthId = `telegram:${identity.telegramId}`;
     const displayName = identity.displayName;
@@ -671,6 +702,145 @@ export class AuthService {
     isNewUser = true;
     const session = await this.issueSession(created.user, created.tenant, created.role, meta, "telegram");
     return { ...session, data: { ...session.data, isNewUser } };
+  }
+
+  async requestEmailOtp(dto: RequestEmailOtpDto) {
+    return this.emailOtpChallenges.request(dto);
+  }
+
+  async verifyEmailOtp(dto: VerifyEmailOtpDto, meta: AuthMeta = {}) {
+    const challenge = await this.emailOtpChallenges.verify(dto);
+    const now = challenge.verifiedAt;
+    const token = randomBytes(32).toString("base64url");
+    const sessionExpiresAt = new Date(now.getTime() + sessionTtlMs);
+    return this.prisma.$transaction(async (tx) => {
+      await this.emailOtpChallenges.consume(tx, challenge);
+
+      const existing = await tx.user.findUnique({
+        where: { email: challenge.email },
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          name: true,
+          avatarUrl: true,
+          passwordChangeRequired: true,
+          deletedAt: true,
+          memberships: {
+            orderBy: { createdAt: "asc" },
+            include: {
+              tenant: {
+                select: { id: true, name: true, slug: true, status: true, businessType: true, timezone: true, deletedAt: true },
+              },
+            },
+          },
+        },
+      });
+
+      const activeMembership = !existing?.deletedAt
+        ? existing?.memberships.find((membership) => !membership.tenant.deletedAt)
+        : undefined;
+      let user: AuthUser;
+      let tenant: AuthTenant;
+      let role: MembershipRole;
+      let isNewUser = false;
+
+      if (existing && activeMembership) {
+        user = await tx.user.update({
+          where: { id: existing.id },
+          data: existing.passwordChangeRequired ? { passwordChangeRequired: false } : {},
+          select: { id: true, email: true, phone: true, name: true, avatarUrl: true, passwordChangeRequired: true },
+        });
+        tenant = activeMembership.tenant;
+        role = activeMembership.role;
+      } else {
+        const displayName = existing?.name?.trim() || emailNameSeed(challenge.email);
+        const companyName = `${displayName} workspace`;
+        const slug = await this.uniqueTenantSlug(companyName, tx);
+        tenant = await tx.tenant.create({
+          data: {
+            name: companyName,
+            slug,
+            status: "TRIALING",
+            businessType: "new email signup",
+            timezone: "UTC",
+            settings: {
+              productName: "LeadVirt.ai",
+              locale: localeSetting(challenge.locale),
+              signupSource: "email_otp",
+            } satisfies Prisma.InputJsonObject,
+          },
+          select: { id: true, name: true, slug: true, status: true, businessType: true, timezone: true },
+        });
+
+        user = existing
+          ? await tx.user.update({
+              where: { id: existing.id },
+              data: { name: displayName, deletedAt: null, passwordChangeRequired: false },
+              select: { id: true, email: true, phone: true, name: true, avatarUrl: true, passwordChangeRequired: true },
+            })
+          : await tx.user.create({
+              data: { email: challenge.email, name: displayName, passwordChangeRequired: false },
+              select: { id: true, email: true, phone: true, name: true, avatarUrl: true, passwordChangeRequired: true },
+            });
+
+        const membership = await tx.membership.create({
+          data: { tenantId: tenant.id, userId: user.id, role: "OWNER" },
+          select: { role: true },
+        });
+        role = membership.role;
+        await tx.onboardingState.create({
+          data: {
+            tenantId: tenant.id,
+            currentStep: "business",
+            completedSteps: [],
+            data: { companyName, authProvider: "email_otp" } satisfies Prisma.InputJsonObject,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            tenantId: tenant.id,
+            actorUserId: user.id,
+            action: "auth.email_signup",
+            entityType: "tenant",
+            entityId: tenant.id,
+            ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
+            ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
+            payload: { email: user.email, deliveryMode: challenge.deliveryMode } satisfies Prisma.InputJsonObject,
+          },
+        });
+        isNewUser = true;
+      }
+
+      await tx.authSession.create({
+        data: {
+          userId: user.id,
+          tenantId: tenant.id,
+          tokenHash: hashSecret(token),
+          authMode: "email",
+          expiresAt: sessionExpiresAt,
+          ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
+          ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          tenantId: tenant.id,
+          actorUserId: user.id,
+          action: "auth.login",
+          entityType: "auth_session",
+          ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
+          ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
+          payload: { email: user.email, phone: user.phone, authMode: "email" } satisfies Prisma.InputJsonObject,
+        },
+      });
+
+      return {
+        token,
+        expiresAt: sessionExpiresAt,
+        data: { ...this.authPayload(user, tenant, role, sessionExpiresAt, "email"), isNewUser },
+      };
+    });
   }
 
   async logout(token: string | undefined) {
@@ -839,6 +1009,7 @@ export class AuthService {
         userId: user.id,
         tenantId: tenant.id,
         tokenHash: hashSecret(token),
+        authMode,
         expiresAt,
         ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
         ...(meta.userAgent ? { userAgent: meta.userAgent } : {})
@@ -1172,12 +1343,15 @@ export class AuthService {
     };
   }
 
-  private async uniqueTenantSlug(companyName: string) {
+  private async uniqueTenantSlug(
+    companyName: string,
+    client: Pick<Prisma.TransactionClient, "tenant"> = this.prisma,
+  ) {
     const root = baseSlug(companyName);
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const suffix = attempt === 0 ? randomBytes(3).toString("hex") : randomBytes(4).toString("hex");
       const slug = `${root}-${suffix}`.slice(0, 64).replace(/-$/g, "");
-      const exists = await this.prisma.tenant.findUnique({ where: { slug }, select: { id: true } });
+      const exists = await client.tenant.findUnique({ where: { slug }, select: { id: true } });
       if (!exists) return slug;
     }
     throw new BadRequestException("Could not create a unique workspace slug.");

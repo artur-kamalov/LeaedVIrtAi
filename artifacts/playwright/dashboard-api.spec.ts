@@ -5,6 +5,7 @@ const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
 
 test.beforeEach(async ({ page }) => {
+  await page.context().addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
   await loginAsCleanUser(page, apiBase);
 });
 

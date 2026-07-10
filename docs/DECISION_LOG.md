@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-07-10: Add Passwordless Email OTP Through UniSender
+
+Decision: LeadVirt supports email OTP as a passwordless authentication mode alongside Telegram. OTP delivery uses the classic UniSender `sendEmail` API behind a provider adapter, while session authorization continues through database-backed HTTP-only cookies.
+
+Context: International users need an authentication path that does not require Telegram. UniSender requires a verified sender, a contact list, and at least 60 seconds between messages to the same recipient.
+
+Consequences:
+
+- Six-digit codes expire after 10 minutes, are stored only as keyed hashes, allow five attempts, and are consumed atomically once.
+- Request throttling is enforced in the API and database; delivery failures do not invalidate an earlier valid code.
+- `EMAIL_OTP_PROVIDER` is isolated from password-reset `EMAIL_PROVIDER`, and successfully delivered challenges retain the database resend lock after verification.
+- IP-wide throttling uses validated Nginx proxy metadata instead of trusting the first client-supplied forwarded address.
+- New verified emails create trial workspaces; existing users retain their workspace and receive `authMode=email` sessions.
+- Email OTP does not depend on password auth and does not require TOTP; mailbox possession is the authentication factor.
+- Production stays disabled until the exposed setup key is rotated and the configured sender is verified in UniSender.
+
 ## 2026-07-10: Use English As The Default Across Six UI Locales
 
 Decision: LeadVirt supports English, Spanish, French, German, Portuguese, and Russian through one typed localization contract. English is the default when no valid `leadvirt-locale` cookie exists.

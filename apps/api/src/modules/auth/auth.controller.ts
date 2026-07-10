@@ -1,4 +1,5 @@
 ﻿import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res, UseGuards } from "@nestjs/common";
+import { isIP } from "node:net";
 import type { Request, Response } from "express";
 import { CurrentContext } from "../../common/decorators/current-context.decorator.js";
 import type { RequestContext } from "../../common/request-context.js";
@@ -11,12 +12,28 @@ import { ConfirmPasswordResetDto } from "./dto/confirm-password-reset.dto.js";
 import { LoginDto } from "./dto/login.dto.js";
 import { RequestPasswordResetDto } from "./dto/request-password-reset.dto.js";
 import { SignupDto } from "./dto/signup.dto.js";
+import { RequestEmailOtpDto } from "./dto/request-email-otp.dto.js";
+import { VerifyEmailOtpDto } from "./dto/verify-email-otp.dto.js";
 
 function stringHeader(value: unknown) {
   if (Array.isArray(value)) {
     return typeof value[0] === "string" ? value[0] : undefined;
   }
   return typeof value === "string" ? value : undefined;
+}
+
+function validIp(value: string | undefined) {
+  const normalized = value?.trim();
+  return normalized && isIP(normalized) ? normalized : undefined;
+}
+
+function lastForwardedIp(value: string | undefined) {
+  const addresses = value?.split(",") ?? [];
+  for (let index = addresses.length - 1; index >= 0; index -= 1) {
+    const address = validIp(addresses[index]);
+    if (address) return address;
+  }
+  return undefined;
 }
 
 @Controller()
@@ -67,6 +84,29 @@ export class AuthController {
     return { data: this.authService.telegramLoginConfig() };
   }
 
+  @Get("auth/email-otp/config")
+  emailOtpConfig() {
+    return { data: this.authService.emailOtpConfig() };
+  }
+
+  @Post("auth/email-otp/request")
+  @HttpCode(200)
+  async requestEmailOtp(@Body() dto: RequestEmailOtpDto, @Req() request: Request) {
+    this.limit(request, "email-otp-request-ip", "all", 20, 10 * 60_000);
+    this.limit(request, "email-otp-request-minute", dto.email, 1, 60_000);
+    this.limit(request, "email-otp-request-hour", dto.email, 6, 60 * 60_000);
+    return { data: await this.authService.requestEmailOtp(dto) };
+  }
+
+  @Post("auth/email-otp/verify")
+  @HttpCode(200)
+  async verifyEmailOtp(@Body() dto: VerifyEmailOtpDto, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
+    this.limit(request, "email-otp-verify", dto.challengeId, 12, 10 * 60_000);
+    const result = await this.authService.verifyEmailOtp(dto, this.metaFromRequest(request));
+    this.authService.setSessionCookie(response, result.token);
+    return { data: result.data };
+  }
+
   @Post("auth/logout")
   @HttpCode(200)
   async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
@@ -110,7 +150,8 @@ export class AuthController {
 
   private metaFromRequest(request: Request) {
     const forwardedFor = stringHeader(request.headers["x-forwarded-for"]);
-    const ipAddress = forwardedFor?.split(",")[0]?.trim() || request.ip;
+    const realIp = validIp(stringHeader(request.headers["x-real-ip"]));
+    const ipAddress = realIp ?? lastForwardedIp(forwardedFor) ?? request.ip;
     const userAgent = stringHeader(request.headers["user-agent"]);
     return {
       ...(ipAddress ? { ipAddress } : {}),

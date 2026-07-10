@@ -38,6 +38,10 @@ const businessKnowledgeChunksMigrationUrl = new URL(
   "./migrations/20260705143000_business_knowledge_chunks/migration.sql",
   import.meta.url,
 );
+const emailOtpAuthMigrationUrl = new URL(
+  "./migrations/20260710190000_email_otp_auth/migration.sql",
+  import.meta.url,
+);
 
 function getDatabaseUrl() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -258,6 +262,27 @@ async function hasBusinessKnowledgeChunks(prisma: PrismaClient) {
   return rows[0]?.exists ?? false;
 }
 
+async function hasEmailOtpAuth(prisma: PrismaClient) {
+  const rows = await prisma.$queryRaw<Array<{ has_challenges: boolean; has_auth_mode: boolean }>>`
+    SELECT
+      EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'AuthEmailOtpChallenge'
+      ) AS "has_challenges",
+      EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'AuthSession'
+          AND column_name = 'authMode'
+      ) AS "has_auth_mode"
+  `;
+
+  return Boolean(rows[0]?.has_challenges && rows[0]?.has_auth_mode);
+}
+
 async function applySqlFile(prisma: PrismaClient, url: URL) {
   const sql = await readFile(url, "utf8");
   const statements = sql
@@ -342,6 +367,13 @@ async function main() {
     } else {
       const statementCount = await applySqlFile(prisma, businessKnowledgeChunksMigrationUrl);
       console.log(`Applied business_knowledge_chunks migration (${statementCount} statements).`);
+    }
+
+    if (await hasEmailOtpAuth(prisma)) {
+      console.log("Email OTP auth schema already exists; skipping email_otp_auth migration.");
+    } else {
+      const statementCount = await applySqlFile(prisma, emailOtpAuthMigrationUrl);
+      console.log(`Applied email_otp_auth migration (${statementCount} statements).`);
     }
   } finally {
     await prisma.$disconnect();
