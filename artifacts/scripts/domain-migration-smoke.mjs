@@ -129,6 +129,10 @@ assert(
   "Master Budet apex TLS certificate is not configured.",
 );
 assert(
+  nginx.includes("server_name www.masterbudet.ru;"),
+  "Master Budet www TLS redirect is not configured.",
+);
+assert(
   nginx.includes("return 308 https://masterbudet.ru$request_uri;"),
   "Master Budet HTTP traffic does not redirect to the HTTPS apex.",
 );

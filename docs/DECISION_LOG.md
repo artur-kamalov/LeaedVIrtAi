@@ -2,16 +2,15 @@
 
 ## 2026-07-10: Serve Master Budet Through The Shared HTTPS Edge
 
-Decision: The LeadVirt-managed nginx edge terminates TLS for the Master Budet apex and proxies it to the separately deployed `masterbudet-backend` and `masterbudet-frontend` services through deferred Docker DNS.
+Decision: The LeadVirt-managed nginx edge terminates TLS for Master Budet, proxies the apex to the separately deployed `masterbudet-backend` and `masterbudet-frontend` services through deferred Docker DNS, and redirects `www` to the apex.
 
-Context: Both products run on `193.187.92.88`, where LeadVirt owns public ports 80/443. Master Budet needs an independent certificate and SNI virtual host so HTTPS requests cannot fall through to LeadVirt's default server. The authoritative apex A record is on the new VPS, while `www.masterbudet.ru` still points to `31.207.75.50`.
+Context: Both products run on `193.187.92.88`, where LeadVirt owns public ports 80/443. Master Budet needs an independent certificate and SNI virtual hosts so HTTPS requests cannot fall through to LeadVirt's default server. The authoritative apex and `www` A records now point to the shared VPS.
 
 Consequences:
 
-- `http://masterbudet.ru` redirects to the HTTPS apex, which uses `/etc/letsencrypt/live/masterbudet.ru` and its own proxy routes.
+- Master Budet HTTP traffic and `https://www.masterbudet.ru` redirect to the HTTPS apex, which uses its own proxy routes.
 - Master Budet remains a separate Compose project and database; sharing the edge does not merge application ownership or data.
-- The generic certificate renewal job covers the new certificate.
-- `www` is intentionally excluded from TLS until its authoritative A record moves to the new VPS; after that change, the certificate and server name must be expanded.
+- `/etc/letsencrypt/live/masterbudet.ru` covers both the apex and `www`; the generic certificate renewal job renews it.
 
 ## 2026-07-10: Authorize Telegram Login On leadvirt.com
 
