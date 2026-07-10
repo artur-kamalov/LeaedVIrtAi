@@ -15,6 +15,7 @@ function assert(condition, message) {
 const workflowPath = ".github/workflows/deploy-leadvirt-com.yml";
 const workflow = read(workflowPath);
 const nginx = read("deploy/nginx.https.conf");
+const nginxHttp = read("deploy/nginx.conf");
 const cutover = read("deploy/enable-leadvirt-com-https.sh");
 const stagingEnv = read("deploy/env.staging.example");
 const readinessSmoke = read("artifacts/scripts/release-readiness-scripts-smoke.mjs");
@@ -44,6 +45,8 @@ assert(
   workflow.includes("environment: leadvirt-com"),
   "Deploy workflow does not use the leadvirt-com environment.",
 );
+assert(!workflow.includes("leadvirt.ru"), "Deploy workflow still configures the retired domain.");
+assert(!workflow.includes("LEGACY_DOMAIN"), "Deploy workflow still passes legacy-domain inputs.");
 
 const prepareIndex = workflow.indexOf("enable-leadvirt-com-https.sh");
 const switchIndex = workflow.indexOf('if [ -L "$current_link" ]');
@@ -58,22 +61,24 @@ assert(
   "Canonical certificate path is missing.",
 );
 assert(
-  nginx.includes("server_name leadvirt.ru www.leadvirt.ru;"),
-  "Legacy nginx server is missing.",
+  !nginx.includes("leadvirt.ru"),
+  "HTTPS nginx config still serves the retired domain.",
 );
 assert(
-  nginx.includes("/etc/letsencrypt/live/leadvirt.ru/fullchain.pem"),
-  "Legacy certificate path is missing.",
-);
-
-const legacyServer = nginx.slice(nginx.indexOf("server_name leadvirt.ru www.leadvirt.ru;"));
-assert(
-  /location \/api\/ \{[\s\S]*?proxy_pass http:\/\/leadvirt_api;/.test(legacyServer),
-  "Legacy API compatibility proxy is missing.",
+  !nginxHttp.includes("leadvirt.ru"),
+  "HTTP nginx config still serves the retired domain.",
 );
 assert(
-  legacyServer.includes("return 308 https://leadvirt.com$request_uri;"),
-  "Legacy browser redirect is missing.",
+  /listen 80 default_server;[\s\S]*?server_name _;[\s\S]*?return 444;/.test(nginx),
+  "Unknown HTTP hosts are not rejected.",
+);
+assert(
+  /listen 80 default_server;[\s\S]*?server_name _;[\s\S]*?return 444;/.test(nginxHttp),
+  "Pre-TLS nginx config does not reject unknown HTTP hosts.",
+);
+assert(
+  /listen 443 ssl default_server;[\s\S]*?ssl_reject_handshake on;/.test(nginx),
+  "Unknown HTTPS hosts are not rejected during the TLS handshake.",
 );
 
 assert(
@@ -92,6 +97,7 @@ assert(
   cutover.includes('--cert-name "$PRIMARY_DOMAIN"'),
   "Cutover certificate path is not deterministic.",
 );
+assert(!cutover.includes("LEGACY_DOMAIN"), "Cutover script still configures a legacy domain.");
 assert(
   cutover.includes("nginx -t -c /tmp/leadvirt-nginx.https.conf"),
   "Cutover script does not validate candidate nginx config.",
@@ -100,6 +106,7 @@ assert(
   stagingEnv.includes("NEXT_PUBLIC_APP_URL=https://leadvirt.com"),
   "Staging frontend origin is not canonical.",
 );
+assert(!stagingEnv.includes("leadvirt.ru"), "Staging CORS still permits the retired domain.");
 assert(
   readinessSmoke.includes('LEADVIRT_PUBLIC_WEB_BASE: "https://leadvirt.com"'),
   "Release smoke still targets the legacy domain.",
@@ -137,4 +144,4 @@ assert(
   "Master Budet HTTP traffic does not redirect to the HTTPS apex.",
 );
 
-console.log("PASS: LeadVirt.com cutover is gated and legacy-domain compatibility is configured.");
+console.log("PASS: LeadVirt.com is canonical and the retired domain is absent from runtime configuration.");

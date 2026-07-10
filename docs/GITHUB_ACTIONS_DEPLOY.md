@@ -53,7 +53,6 @@ LEADVIRT_DEPLOY_USER=deploy
 - `deploy` can write to `/opt/leadvirt` and run Docker.
 - `leadvirt.com` and `www.leadvirt.com` resolve to `193.187.92.88`.
 - The active nginx serves `/.well-known/acme-challenge/*` over HTTP.
-- The legacy certificate remains at `/etc/letsencrypt/live/leadvirt.ru`.
 
 ## What It Does
 
@@ -61,11 +60,11 @@ LEADVIRT_DEPLOY_USER=deploy
 2. Creates a source package without `.env`, `node_modules`, `.next`, `dist`, screenshots, or local caches.
 3. Uploads the package to the VPS.
 4. Extracts it to `/opt/leadvirt/releases/<sha>`.
-5. Verifies `.ai` DNS and the HTTP ACME path, then issues or renews the `.ai` certificate.
+5. Verifies `.com` DNS and the HTTP ACME path, then issues or renews the `.com` certificate.
 6. Updates public URL/CORS values in `/opt/leadvirt/secrets/.env` and validates the candidate nginx config.
 7. Points `/opt/leadvirt/current` to the new release and runs Docker Compose.
 8. Verifies `https://leadvirt.com/health` and no-cookie `401` on `/api/auth/me`.
-9. Keeps the 5 latest releases; `.ru` browser routes redirect while legacy API routes remain available.
+9. Keeps the 5 latest releases; nginx rejects unknown HTTP hosts and TLS handshakes.
 
 The deploy exits before changing the active release when DNS, ACME, certificate, or candidate nginx validation fails.
 

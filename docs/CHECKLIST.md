@@ -4,11 +4,13 @@ Last updated: 2026-07-10
 
 ## Next
 
-- [ ] Update any third-party OAuth callbacks, webhook senders, widget embeds, and operator bookmarks that still use `leadvirt.ru`.
+- [ ] Delete the former `.ru` apex and `www` records in Beget, then verify public DNS no longer resolves them after the 300-second TTL.
 - [ ] Add a tenant selector to `db:cleanup:pilot` so staging public-smoke cleanup does not require a tenant-scoped one-off command.
 
 ## Done
 
+- [x] Retired the former `.ru` runtime surface: removed nginx/API/CORS/workflow compatibility, rejected unmatched hosts, and removed its certificate from renewal.
+- [x] Audited production callbacks before retirement: migrated the Master Budet webhook bridge to `.com`, found no stored `.ru` URLs in the LeadVirt database, and confirmed the Telegram login bot has no webhook.
 - [x] Changed BotFather `/setdomain` for `@LeadVirtAi_bot` to `leadvirt.com`; the live iframe renders without `Bot domain invalid`, and its real button opens Telegram OAuth with the `.com` origin and return URL.
 - [x] Added isolated HTTPS handling for Master Budet to the shared nginx edge, retained deferred Docker DNS for the apex upstreams, and redirected HTTP plus `www` HTTPS to the secure apex. Beget, Cloudflare and Google resolve both names to `193.187.92.88`; the certificate covers both names and domain-migration regression coverage protects the routes.
 - [x] Deployed release `1b5246588620` through GitHub Actions run `29088096062`; `leadvirt.com` now has trusted Let's Encrypt TLS, canonical/public env, secure cookies, `.com`/`www`/`.ru` redirects, healthy app services, certificate renewal, live browser renders, and 3/3 public widget preflight with disposable records cleaned to zero.

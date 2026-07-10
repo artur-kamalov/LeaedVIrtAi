@@ -106,18 +106,15 @@ Runtime:
 - Secrets path: `/opt/leadvirt/secrets/.env`
 - Operator credentials path: `/opt/leadvirt/secrets/operator-login.txt`
 - Canonical public URL: `https://leadvirt.com`
-- Legacy URL: `https://leadvirt.ru`
-- Raw-IP fallback: `http://193.187.92.88`
 - Reverse proxy: nginx on ports `80` and `443`
 - Services: `postgres`, `redis`, `migrate`, `api`, `worker`, `web`, `nginx`
 
 Domain migration:
 
 - Canonical production domain: `leadvirt.com`.
-- Legacy domain: `leadvirt.ru`; keep its TLS certificate and API compatibility during migration.
 - `leadvirt.com` and `www.leadvirt.com` must resolve to `193.187.92.88` before cutover.
-- After cutover, browser traffic on both `www` hosts and `.ru` redirects to `https://leadvirt.com`.
-- Public env uses `https://leadvirt.com`; CORS temporarily accepts both domain families and auth cookies remain secure.
+- Public env and CORS use only `.com`; auth cookies remain secure.
+- Unknown HTTP hosts and TLS handshakes are rejected instead of falling through to the app.
 
 DNS check:
 
@@ -133,14 +130,13 @@ cd /opt/leadvirt/current
 deploy/enable-leadvirt-com-https.sh
 ```
 
-The script checks DNS and ACME routing, issues the `.ai` certificate, updates public app env, validates nginx, rebuilds the web/API/worker/nginx services, and verifies `/health`.
+The script checks DNS and ACME routing, issues the `.com` certificate, updates public app env, validates nginx, rebuilds the web/API/worker/nginx services, and verifies `/health`.
 
-After a successful cutover it installs `/etc/cron.d/leadvirt-certbot`, which renews both `.ai` and legacy `.ru` certificates daily.
+After a successful cutover it installs `/etc/cron.d/leadvirt-certbot`, which renews active certificates daily.
 
 Certificates:
 
 - Canonical path after cutover: `/etc/letsencrypt/live/leadvirt.com`
-- Legacy path: `/etc/letsencrypt/live/leadvirt.ru`
 - Renewal cron: `/etc/cron.d/leadvirt-certbot`
 
 Deploy command:
@@ -154,7 +150,7 @@ Verified:
 
 - `GET https://leadvirt.com/health` returns `200`.
 - `GET http://leadvirt.com/` redirects to `https://leadvirt.com/`.
-- Both `www` hosts and `https://leadvirt.ru/` redirect to `https://leadvirt.com/`.
+- `https://www.leadvirt.com/` redirects to `https://leadvirt.com/`.
 - `GET https://leadvirt.com/api/auth/me` without a cookie returns `401`.
 - Landing and `/demo` return `200`.
 - Browser visit to `/app` without a session redirects to `/login`.

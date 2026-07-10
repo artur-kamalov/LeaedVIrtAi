@@ -3,8 +3,6 @@ set -eu
 
 PRIMARY_DOMAIN="${PRIMARY_DOMAIN:-leadvirt.com}"
 WWW_DOMAIN="${WWW_DOMAIN:-www.leadvirt.com}"
-LEGACY_DOMAIN="${LEGACY_DOMAIN:-leadvirt.ru}"
-LEGACY_WWW_DOMAIN="${LEGACY_WWW_DOMAIN:-www.leadvirt.ru}"
 TARGET_IP="${DOMAIN_TARGET_IP:-193.187.92.88}"
 EMAIL="${CERTBOT_EMAIL:-admin@leadvirt.com}"
 ENV_FILE="${LEADVIRT_ENV_FILE:-/opt/leadvirt/secrets/.env}"
@@ -72,8 +70,6 @@ docker run --rm \
 
 PRIMARY_DOMAIN="$PRIMARY_DOMAIN" \
 WWW_DOMAIN="$WWW_DOMAIN" \
-LEGACY_DOMAIN="$LEGACY_DOMAIN" \
-LEGACY_WWW_DOMAIN="$LEGACY_WWW_DOMAIN" \
 python3 - "$ENV_FILE" <<'PY'
 import os
 import sys
@@ -84,8 +80,6 @@ primary = os.environ["PRIMARY_DOMAIN"]
 origins = [
     f"https://{primary}",
     f"https://{os.environ['WWW_DOMAIN']}",
-    f"https://{os.environ['LEGACY_DOMAIN']}",
-    f"https://{os.environ['LEGACY_WWW_DOMAIN']}",
 ]
 updates = {
     "APP_URL": origins[0],
@@ -142,4 +136,4 @@ docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.staging.yml up -d
 docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.staging.yml exec -T nginx nginx -t
 curl -fsS "https://$PRIMARY_DOMAIN/health"
 
-echo "HTTPS enabled for $PRIMARY_DOMAIN; $LEGACY_DOMAIN remains available for migration compatibility."
+echo "HTTPS enabled for $PRIMARY_DOMAIN."

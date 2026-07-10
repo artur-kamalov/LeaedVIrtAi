@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-10: Permanently Retire The Former .ru Domain
+
+Decision: The former `.ru` domain is no longer a LeadVirt runtime, redirect, API compatibility surface, CORS origin, or maintained TLS identity.
+
+Context: Production is established on `leadvirt.com`, BotFather uses `.com`, the Master Budet webhook bridge was migrated, the database contains no stored `.ru` URLs, and the Telegram login bot has no webhook.
+
+Consequences:
+
+- nginx rejects unmatched HTTP hosts and TLS handshakes instead of serving or redirecting the former domain.
+- Its Let's Encrypt certificate is deleted and no longer renewed.
+- The apex and `www` DNS records must be removed from the Beget zone so the names stop resolving after cache expiry.
+
 ## 2026-07-10: Serve Master Budet Through The Shared HTTPS Edge
 
 Decision: The LeadVirt-managed nginx edge terminates TLS for Master Budet, proxies the apex to the separately deployed `masterbudet-backend` and `masterbudet-frontend` services through deferred Docker DNS, and redirects `www` to the apex.

@@ -23,8 +23,6 @@ env:
   DEPLOY_ENV_FILE: /opt/leadvirt/secrets/.env
   PRIMARY_DOMAIN: leadvirt.com
   WWW_DOMAIN: www.leadvirt.com
-  LEGACY_DOMAIN: leadvirt.ru
-  LEGACY_WWW_DOMAIN: www.leadvirt.ru
   PUBLIC_URL: https://leadvirt.com
   NEXT_PUBLIC_API_URL: https://leadvirt.com/api
   NEXT_PUBLIC_APP_URL: https://leadvirt.com
@@ -255,7 +253,7 @@ jobs:
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/leadvirt_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
-            "DEPLOY_ROOT='$DEPLOY_ROOT' DEPLOY_ENV_FILE='$DEPLOY_ENV_FILE' DOMAIN_TARGET_IP='$DEPLOY_TARGET_IP' PRIMARY_DOMAIN='$PRIMARY_DOMAIN' WWW_DOMAIN='$WWW_DOMAIN' LEGACY_DOMAIN='$LEGACY_DOMAIN' LEGACY_WWW_DOMAIN='$LEGACY_WWW_DOMAIN' PUBLIC_URL='$PUBLIC_URL' RELEASE_SHA='$GITHUB_SHA' bash -s" <<'REMOTE'
+            "DEPLOY_ROOT='$DEPLOY_ROOT' DEPLOY_ENV_FILE='$DEPLOY_ENV_FILE' DOMAIN_TARGET_IP='$DEPLOY_TARGET_IP' PRIMARY_DOMAIN='$PRIMARY_DOMAIN' WWW_DOMAIN='$WWW_DOMAIN' PUBLIC_URL='$PUBLIC_URL' RELEASE_SHA='$GITHUB_SHA' bash -s" <<'REMOTE'
           set -euo pipefail
 
           release_id="${RELEASE_SHA:0:12}"
