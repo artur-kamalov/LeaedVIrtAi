@@ -9,6 +9,7 @@ Last updated: 2026-07-10
 
 ## Done
 
+- [x] Fixed the `.com` ACME preflight to write under `.well-known/acme-challenge`, preserved shared Master Budet HTTP routes with deferred Docker DNS, and verified both public ACME paths plus candidate-container nginx syntax and live Master Budet health proxying.
 - [x] Changed Beget DNS for `leadvirt.com` and `www.leadvirt.com` to `193.187.92.88`; Cloudflare and Google public resolvers return the VPS with a 300-second TTL and HTTP health returns `200`.
 - [x] Retargeted the migration to `leadvirt.com` and created the GitHub `leadvirt-com` environment; verified gated TLS/env deployment, nginx `.com` routing with `.ru` compatibility, public URLs, runbooks, migration QA, web typecheck/lint/build, Compose, POSIX shell syntax, candidate nginx syntax, and VPS Host-header health.
 - [x] Added provider-specific Integrations setup dialogs for amoCRM, Bitrix24, RetailCRM, Telegram, WhatsApp Business, Instagram, VK, Email, Google Calendar, Shopify, Shop-Script, and Webhook/API; request/soon cards now open requirements/docs instead of acting disabled or pretending to connect.

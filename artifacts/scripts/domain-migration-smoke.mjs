@@ -85,6 +85,10 @@ assert(
   "Cutover script does not preflight ACME routing.",
 );
 assert(
+  cutover.includes("$certbot_webroot/.well-known/acme-challenge"),
+  "Cutover preflight writes outside the ACME challenge directory.",
+);
+assert(
   cutover.includes('--cert-name "$PRIMARY_DOMAIN"'),
   "Cutover certificate path is not deterministic.",
 );
@@ -111,6 +115,14 @@ assert(
 assert(
   !pilotPacket.includes("demo-webhook-secret"),
   "Pilot packet contains a fallback webhook secret.",
+);
+assert(
+  nginx.includes("server_name masterbudet.ru www.masterbudet.ru;"),
+  "Shared Master Budet proxy routes are missing.",
+);
+assert(
+  nginx.includes("resolver 127.0.0.11 valid=30s ipv6=off;"),
+  "Master Budet proxy does not use deferred Docker DNS.",
 );
 
 console.log("PASS: LeadVirt.com cutover is gated and legacy-domain compatibility is configured.");

@@ -44,7 +44,9 @@ for domain in "$PRIMARY_DOMAIN" "$WWW_DOMAIN"; do
 done
 
 challenge_token="leadvirt-domain-cutover-$$"
-challenge_path="$certbot_webroot/$challenge_token"
+challenge_dir="$certbot_webroot/.well-known/acme-challenge"
+challenge_path="$challenge_dir/$challenge_token"
+mkdir -p "$challenge_dir"
 cleanup_challenge() {
   rm -f "$challenge_path"
 }

@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-10: Preserve Master Budet Routes In The Shared LeadVirt Edge
+
+Decision: LeadVirt's repository nginx configuration retains the live `masterbudet.ru` HTTP proxy routes. Master Budet upstream names use deferred Docker DNS so nginx can start when those containers are not attached.
+
+Context: The first `.com` deployment audit found live-only Master Budet routes in `/opt/leadvirt/current/deploy/nginx.conf`. Replacing nginx from the repository without merging them would take that site offline.
+
+Consequences:
+
+- LeadVirt domain deployments preserve Master Budet health, API, uploads, frontend, and ACME routing.
+- Missing Master Budet containers produce request-time `502` responses rather than preventing the LeadVirt nginx container from starting.
+- Domain migration QA guards the shared route and deferred resolver.
+
 ## 2026-07-10: Correct The Canonical Production Origin To leadvirt.com
 
 Decision: `https://leadvirt.com` is the canonical production origin. This supersedes the same-day `leadvirt.ai` migration decision; `LeadVirt.ai` remains the product name and existing staff/test account domain.
