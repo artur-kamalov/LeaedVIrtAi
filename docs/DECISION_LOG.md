@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-10: Cut Over Production To leadvirt.com
+
+Decision: `https://leadvirt.com` is live as the canonical production origin on release `1b5246588620`.
+
+Context: Beget DNS was moved to `193.187.92.88`; GitHub Actions run `29088096062` passed all verification and deployment gates after correcting the ACME preflight path.
+
+Consequences:
+
+- Apex TLS is trusted, `www.leadvirt.com` and browser traffic on `leadvirt.ru` redirect to the `.com` apex, and legacy `.ru` API routes remain proxied.
+- Runtime/build URLs and CORS use `.com`; certificate renewal covers apex and `www`.
+- Public widget routes and intake passed live Playwright checks; Telegram login remains blocked until BotFather allows `leadvirt.com`.
+
 ## 2026-07-10: Preserve Master Budet Routes In The Shared LeadVirt Edge
 
 Decision: LeadVirt's repository nginx configuration retains the live `masterbudet.ru` HTTP proxy routes. Master Budet upstream names use deferred Docker DNS so nginx can start when those containers are not attached.

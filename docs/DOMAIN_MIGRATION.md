@@ -1,6 +1,6 @@
 # LeadVirt.com Domain Migration
 
-Status on 2026-07-10: repository preparation and DNS cutover are complete. Apex and `www` resolve to `193.187.92.88`; TLS issuance, deployment, and live verification remain.
+Status on 2026-07-10: live at `https://leadvirt.com`. Apex and `www` resolve to `193.187.92.88`, Let's Encrypt TLS is active, and release `1b5246588620` passed public verification. Telegram login still requires BotFather `/setdomain` for `leadvirt.com`.
 
 ## 1. DNS
 

@@ -4,7 +4,7 @@ Generated: 2026-07-10T10:22:15.047Z
 
 This packet is for the first controlled test-client sessions. It uses the current local API state when available and falls back to seeded demo keys.
 
-Domain status: staged. Use the public links only after the DNS/TLS cutover in `docs/DOMAIN_MIGRATION.md` is complete.
+Domain status: live at `https://leadvirt.com`.
 
 ## Bases
 

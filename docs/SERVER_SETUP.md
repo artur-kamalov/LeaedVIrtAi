@@ -105,8 +105,8 @@ Runtime:
 - Source path: `/opt/leadvirt/current`
 - Secrets path: `/opt/leadvirt/secrets/.env`
 - Operator credentials path: `/opt/leadvirt/secrets/operator-login.txt`
-- Canonical target: `https://leadvirt.com`
-- Current URL until DNS cutover: `https://leadvirt.ru`
+- Canonical public URL: `https://leadvirt.com`
+- Legacy URL: `https://leadvirt.ru`
 - Raw-IP fallback: `http://193.187.92.88`
 - Reverse proxy: nginx on ports `80` and `443`
 - Services: `postgres`, `redis`, `migrate`, `api`, `worker`, `web`, `nginx`

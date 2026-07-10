@@ -4,11 +4,12 @@ Last updated: 2026-07-10
 
 ## Next
 
-- [ ] Run the VPS TLS/env cutover after DNS propagation, mark the pilot packet live, and verify `.com` health, auth, redirects, widget, and public intake.
 - [ ] Change the Telegram Login Widget allowed domain to `leadvirt.com` and update external OAuth callbacks, webhooks, embeds, and operator bookmarks.
+- [ ] Add a tenant selector to `db:cleanup:pilot` so staging public-smoke cleanup does not require a tenant-scoped one-off command.
 
 ## Done
 
+- [x] Deployed release `1b5246588620` through GitHub Actions run `29088096062`; `leadvirt.com` now has trusted Let's Encrypt TLS, canonical/public env, secure cookies, `.com`/`www`/`.ru` redirects, healthy app services, certificate renewal, live browser renders, and 3/3 public widget preflight with disposable records cleaned to zero.
 - [x] Fixed the `.com` ACME preflight to write under `.well-known/acme-challenge`, preserved shared Master Budet HTTP routes with deferred Docker DNS, and verified both public ACME paths plus candidate-container nginx syntax and live Master Budet health proxying.
 - [x] Changed Beget DNS for `leadvirt.com` and `www.leadvirt.com` to `193.187.92.88`; Cloudflare and Google public resolvers return the VPS with a 300-second TTL and HTTP health returns `200`.
 - [x] Retargeted the migration to `leadvirt.com` and created the GitHub `leadvirt-com` environment; verified gated TLS/env deployment, nginx `.com` routing with `.ru` compatibility, public URLs, runbooks, migration QA, web typecheck/lint/build, Compose, POSIX shell syntax, candidate nginx syntax, and VPS Host-header health.
