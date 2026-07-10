@@ -8,40 +8,47 @@ import { CheckCircle2, Loader2, Send, ShieldCheck, Sparkles } from "lucide-react
 import { Toaster, toast } from "sonner";
 import { getTelegramLoginConfig, loginWithTelegram, type TelegramAuthPayload } from "@/lib/api/auth";
 import { BrandMark } from "@/design/components/BrandMark";
+import { LanguageSwitcher } from "@/design/components/LanguageSwitcher";
 import { Button } from "@/design/components/ui/Button";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { TranslationKey } from "@/i18n/messages";
 
 type AuthMode = "login" | "signup";
 
-const modeCopy: Record<
+const modeCopyKeys: Record<
   AuthMode,
   {
-    title: string;
-    subtitle: string;
-    primaryAction: string;
+    title: TranslationKey;
+    subtitle: TranslationKey;
+    primaryAction: TranslationKey;
     secondaryHref: string;
-    secondaryText: string;
-    secondaryAction: string;
+    secondaryText: TranslationKey;
+    secondaryAction: TranslationKey;
   }
 > = {
   login: {
-    title: "Вход в LeadVirt.ai",
-    subtitle: "Войдите через Telegram, чтобы открыть рабочий кабинет.",
-    primaryAction: "Войти через Telegram",
+    title: "auth.login.title",
+    subtitle: "auth.login.subtitle",
+    primaryAction: "auth.login.primary",
     secondaryHref: "/signup",
-    secondaryText: "Новый аккаунт?",
-    secondaryAction: "Зарегистрироваться"
+    secondaryText: "auth.login.secondaryText",
+    secondaryAction: "auth.login.secondaryAction"
   },
   signup: {
-    title: "Запуск LeadVirt.ai",
-    subtitle: "Создайте workspace через Telegram и перейдите к настройке.",
-    primaryAction: "Продолжить через Telegram",
+    title: "auth.signup.title",
+    subtitle: "auth.signup.subtitle",
+    primaryAction: "auth.signup.primary",
     secondaryHref: "/login",
-    secondaryText: "Уже есть доступ?",
-    secondaryAction: "Войти"
+    secondaryText: "auth.signup.secondaryText",
+    secondaryAction: "auth.signup.secondaryAction"
   }
 };
 
-const highlights = ["Без пароля", "Подписанный Telegram вход", "Workspace из БД"];
+const highlightKeys: TranslationKey[] = [
+  "auth.highlight.passwordless",
+  "auth.highlight.telegram",
+  "auth.highlight.database",
+];
 const telegramWidgetScriptSrc = "https://telegram.org/js/telegram-widget.js?22";
 const allowLocalTelegramMock = process.env.NODE_ENV !== "production";
 
@@ -78,7 +85,7 @@ function normalizeTelegramWidgetPayload(value: unknown): TelegramAuthPayload | n
   };
 }
 
-function mountTelegramWidget(host: HTMLDivElement, botUsername: string) {
+function mountTelegramWidget(host: HTMLDivElement, botUsername: string, locale: "ru" | "en") {
   host.innerHTML = "";
   const script = document.createElement("script");
   script.src = telegramWidgetScriptSrc;
@@ -88,7 +95,7 @@ function mountTelegramWidget(host: HTMLDivElement, botUsername: string) {
   script.setAttribute("data-userpic", "false");
   script.setAttribute("data-radius", "12");
   script.setAttribute("data-request-access", "write");
-  script.setAttribute("data-lang", "ru");
+  script.setAttribute("data-lang", locale);
   script.setAttribute("data-onauth", "window.__leadvirtTelegramAuth(user)");
   host.appendChild(script);
 }
@@ -102,6 +109,7 @@ function TelegramLoginButton({
   loading: boolean;
   onAuth: (payload: TelegramAuthPayload) => void;
 }) {
+  const { locale, t } = useI18n();
   const [telegramBotUsername, setTelegramBotUsername] = React.useState<string | null>(null);
   const [configLoaded, setConfigLoaded] = React.useState(false);
   const widgetHostRef = React.useRef<HTMLDivElement | null>(null);
@@ -110,7 +118,7 @@ function TelegramLoginButton({
     window.__leadvirtTelegramAuth = (rawPayload) => {
       const payload = normalizeTelegramWidgetPayload(rawPayload);
       if (!payload) {
-        toast.error("Telegram вернул некорректный ответ");
+        toast.error(t("auth.telegram.invalid"));
         return;
       }
       onAuth(payload);
@@ -118,7 +126,7 @@ function TelegramLoginButton({
     return () => {
       delete window.__leadvirtTelegramAuth;
     };
-  }, [onAuth]);
+  }, [onAuth, t]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -143,11 +151,11 @@ function TelegramLoginButton({
   React.useEffect(() => {
     const host = widgetHostRef.current;
     if (!host || !telegramBotUsername) return;
-    mountTelegramWidget(host, telegramBotUsername);
+    mountTelegramWidget(host, telegramBotUsername, locale);
     return () => {
       host.innerHTML = "";
     };
-  }, [telegramBotUsername]);
+  }, [locale, telegramBotUsername]);
 
   if (allowLocalTelegramMock && configLoaded && !telegramBotUsername) {
     return (
@@ -174,9 +182,9 @@ function TelegramLoginButton({
   }
 
   const statusText = !configLoaded
-    ? "Готовим Telegram Login..."
+    ? t("auth.telegram.preparing")
     : !telegramBotUsername
-      ? "Telegram bot username не задан на API."
+      ? t("auth.telegram.missing")
       : "";
 
   return (
@@ -202,7 +210,7 @@ function TelegramLoginButton({
       {loading ? (
         <p className="flex items-center justify-center gap-2 text-xs text-zinc-500">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Проверяем Telegram...
+          {t("auth.telegram.verifying")}
         </p>
       ) : null}
       {statusText ? <p className="text-xs text-zinc-500">{statusText}</p> : null}
@@ -211,8 +219,17 @@ function TelegramLoginButton({
 }
 
 export function AuthFlow({ mode }: { mode: AuthMode }) {
+  const { t } = useI18n();
   const router = useRouter();
-  const copy = modeCopy[mode];
+  const copyKeys = modeCopyKeys[mode];
+  const copy = {
+    title: t(copyKeys.title),
+    subtitle: t(copyKeys.subtitle),
+    primaryAction: t(copyKeys.primaryAction),
+    secondaryHref: copyKeys.secondaryHref,
+    secondaryText: t(copyKeys.secondaryText),
+    secondaryAction: t(copyKeys.secondaryAction),
+  };
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState("");
 
@@ -240,15 +257,15 @@ export function AuthFlow({ mode }: { mode: AuthMode }) {
           );
         }
 
-        toast.success(me.isNewUser ? "Workspace создан" : "Добро пожаловать");
+        toast.success(me.isNewUser ? t("auth.toast.created") : t("auth.toast.welcome"));
         router.push(mode === "signup" || me.isNewUser ? "/onboarding" : "/app");
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Не удалось войти через Telegram");
+        setError(caught instanceof Error ? caught.message : t("auth.error.login"));
       } finally {
         setLoading(false);
       }
     },
-    [mode, router]
+    [mode, router, t]
   );
   const handleTelegramAuthStart = React.useCallback(
     (payload: TelegramAuthPayload) => {
@@ -281,11 +298,14 @@ export function AuthFlow({ mode }: { mode: AuthMode }) {
         <header className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <BrandMark className="h-9 w-9 rounded-xl" />
-            <span className="text-lg font-bold tracking-tight">AI Администратор</span>
+            <span className="hidden text-lg font-bold tracking-tight sm:inline">{t("brand.name")}</span>
           </Link>
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/">На сайт</Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <LanguageSwitcher compact />
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/">{t("auth.website")}</Link>
+            </Button>
+          </div>
         </header>
 
         <section className="grid flex-1 items-center gap-8 py-10 lg:grid-cols-[1fr_440px] lg:gap-14">
@@ -300,16 +320,16 @@ export function AuthFlow({ mode }: { mode: AuthMode }) {
               LeadVirt.ai workspace
             </div>
             <h1 className="max-w-2xl text-5xl font-bold leading-tight tracking-tight">
-              AI-администратор уже принимает заявки и ведёт диалоги.
+              {t("auth.hero.title")}
             </h1>
             <p className="mt-5 max-w-xl text-base leading-7 text-zinc-400">
-              Вход без пароля: Telegram подтверждает личность, LeadVirt открывает tenant workspace.
+              {t("auth.hero.description")}
             </p>
             <div className="mt-8 grid max-w-xl gap-3 sm:grid-cols-3">
-              {highlights.map((item) => (
-                <div key={item} className="rounded-2xl border border-white/8 bg-white/[0.04] p-4">
+              {highlightKeys.map((key) => (
+                <div key={key} className="rounded-2xl border border-white/8 bg-white/[0.04] p-4">
                   <CheckCircle2 className="mb-3 h-5 w-5 text-emerald-400" />
-                  <p className="text-sm font-semibold text-zinc-100">{item}</p>
+                  <p className="text-sm font-semibold text-zinc-100">{t(key)}</p>
                 </div>
               ))}
             </div>

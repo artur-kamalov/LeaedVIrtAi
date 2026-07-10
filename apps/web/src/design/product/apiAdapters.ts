@@ -9,6 +9,7 @@ import type {
 } from "@leadvirt/types";
 import type { ChatMessage, Lead } from "./types";
 import type { ChannelId, StageId } from "./shared";
+import { intlLocale, type Locale } from "@/i18n/config";
 
 export function channelIdFromType(channelType?: ChannelType | null): ChannelId {
   switch (channelType) {
@@ -82,37 +83,38 @@ export function tempFromTemperature(temperature?: LeadTemperature | null): Lead[
   }
 }
 
-export function relativeTimeLabel(value?: string | null) {
+export function relativeTimeLabel(value?: string | null, locale: Locale = "ru") {
   if (!value) return "—";
   const timestamp = new Date(value).getTime();
   if (!Number.isFinite(timestamp)) return "—";
 
   const diffMinutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
-  if (diffMinutes < 1) return "сейчас";
-  if (diffMinutes < 60) return `${diffMinutes} мин`;
+  if (diffMinutes < 1) return locale === "en" ? "now" : "сейчас";
+  if (diffMinutes < 60) return `${diffMinutes} ${locale === "en" ? "min" : "мин"}`;
 
   const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours} ч`;
+  if (diffHours < 24) return `${diffHours} ${locale === "en" ? "h" : "ч"}`;
 
   const diffDays = Math.round(diffHours / 24);
-  return `${diffDays} д`;
+  return `${diffDays} ${locale === "en" ? "d" : "д"}`;
 }
 
-export function formatMessageTime(value?: string | null) {
+export function formatMessageTime(value?: string | null, locale: Locale = "ru") {
   if (!value) {
-    return new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    return new Date().toLocaleTimeString(intlLocale(locale), { hour: "2-digit", minute: "2-digit" });
   }
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    return new Date().toLocaleTimeString(intlLocale(locale), { hour: "2-digit", minute: "2-digit" });
   }
 
-  return date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleTimeString(intlLocale(locale), { hour: "2-digit", minute: "2-digit" });
 }
 
-export function localizeSeedText(value?: string | null) {
+export function localizeSeedText(value?: string | null, locale: Locale = "ru") {
   if (!value) return "";
+  if (locale === "en") return value;
 
   const exact: Record<string, string> = {
     "Delivery Demo": "Тест доставки",

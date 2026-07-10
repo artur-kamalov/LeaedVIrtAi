@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { 
   Bot, 
@@ -14,8 +16,11 @@ import { LandingHeader } from "./LandingHeader";
 import { DeferredNichesSection } from "./DeferredNichesSection";
 import { PricingSection } from "./PricingSection";
 import { BrandMark } from "./BrandMark";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export function LandingPage() {
+  const { t } = useI18n();
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-50 font-sans selection:bg-emerald-500/30 selection:text-emerald-200 overflow-x-hidden">
       <GlowBg />
@@ -49,23 +54,23 @@ export function LandingPage() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
-                Новый стандарт обработки лидов
+                {t("landing.badge")}
               </div>
               <h1 className="text-5xl lg:text-7xl font-bold tracking-tight leading-[1.1] mb-6">
-                AI-администратор для <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-400">заявок</span> и сообщений
+                {t("landing.hero.before")} <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-400">{t("landing.hero.highlight")}</span> {t("landing.hero.after")}
               </h1>
               <p className="text-lg text-zinc-400 mb-8 leading-relaxed max-w-xl">
-                Отвечает 24/7, квалифицирует клиентов, записывает на услуги, помогает с заказами и передаёт заявки в CRM. Идеальный сотрудник, который никогда не спит.
+                {t("landing.hero.description")}
               </p>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
                 <Button size="lg" className="h-10 w-full sm:w-auto group" asChild>
                   <Link href="/onboarding" prefetch={false} className="leading-none">
-                    Попробовать бесплатно
+                    {t("landing.nav.trial")}
                     <ChevronRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
                   </Link>
                 </Button>
                 <Button variant="outline" size="lg" className="h-10 w-full sm:w-auto" asChild>
-                  <Link href="/demo" prefetch={false} className="leading-none">Смотреть демо</Link>
+                  <Link href="/demo" prefetch={false} className="leading-none">{t("landing.hero.demo")}</Link>
                 </Button>
               </div>
             </div>
@@ -83,8 +88,8 @@ export function LandingPage() {
           <div className="absolute inset-0 bg-zinc-900/20 border-y border-white/5" />
           <div className="container mx-auto px-6 relative">
             <div className="leadvirt-reveal-up text-center max-w-2xl mx-auto mb-20">
-              <h2 className="text-3xl md:text-4xl font-bold mb-4">Как это работает</h2>
-              <p className="text-zinc-400">Полностью автономный процесс от первого сообщения до записи в вашей системе.</p>
+              <h2 className="text-3xl md:text-4xl font-bold mb-4">{t("landing.how.title")}</h2>
+              <p className="text-zinc-400">{t("landing.how.description")}</p>
             </div>
 
             <div className="relative">
@@ -95,10 +100,10 @@ export function LandingPage() {
 
               <div className="grid md:grid-cols-4 gap-8 relative z-10">
                 {[
-                  { step: "01", title: "Клиент пишет", desc: "В любой удобный канал: Telegram, WhatsApp, Instagram или виджет на сайте." },
-                  { step: "02", title: "AI уточняет", desc: "Задает правильные вопросы, квалифицирует лида и подбирает услугу." },
-                  { step: "03", title: "Создаёт запись", desc: "Оформляет заказ или бронирует время в вашем календаре." },
-                  { step: "04", title: "Готовый результат", desc: "Команда видит структурированную заявку в CRM или дашборде." }
+                  { step: "01", title: t("landing.how.step1.title"), desc: t("landing.how.step1.description") },
+                  { step: "02", title: t("landing.how.step2.title"), desc: t("landing.how.step2.description") },
+                  { step: "03", title: t("landing.how.step3.title"), desc: t("landing.how.step3.description") },
+                  { step: "04", title: t("landing.how.step4.title"), desc: t("landing.how.step4.description") }
                 ].map((item, i) => (
                   <div
                     key={i} 
@@ -135,8 +140,8 @@ export function LandingPage() {
         {/* FEATURES (BENTO GRID) */}
         <section id="features" className="leadvirt-deferred-paint py-24 container mx-auto px-6">
           <div className="text-center max-w-2xl mx-auto mb-16">
-            <h2 className="text-3xl md:text-5xl font-bold mb-4">Что умеет AI Администратор</h2>
-            <p className="text-zinc-400 text-lg">Заменяет целый отдел обработки входящих обращений.</p>
+            <h2 className="text-3xl md:text-5xl font-bold mb-4">{t("landing.features.title")}</h2>
+            <p className="text-zinc-400 text-lg">{t("landing.features.description")}</p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-6 auto-rows-[280px]">
@@ -153,13 +158,13 @@ export function LandingPage() {
               <div className="leadvirt-card-glow-emerald absolute right-0 top-0 w-64 h-64 rounded-full pointer-events-none" />
               <div className="relative z-10 max-w-sm">
                 <Zap className="w-8 h-8 text-emerald-400 mb-4" />
-                <h3 className="text-2xl font-bold mb-2">Ответы 24/7</h3>
-                <p className="text-zinc-400">Мгновенные ответы ночью, в выходные и праздники. Ни один клиент не уйдет к конкурентам из-за долгого ожидания.</p>
+                <h3 className="text-2xl font-bold mb-2">{t("landing.features.always.title")}</h3>
+                <p className="text-zinc-400">{t("landing.features.always.description")}</p>
               </div>
               <div className="relative z-10 mt-6 bg-zinc-950/80 backdrop-blur rounded-2xl p-4 border border-white/5 max-w-sm">
                 <div className="flex gap-3 items-center text-sm text-zinc-300">
                   <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>Среднее время ответа: 18 сек</span>
+                  <span>{t("landing.features.responseTime")}</span>
                 </div>
               </div>
             </div>
@@ -175,8 +180,8 @@ export function LandingPage() {
               </div>
               <div className="relative z-10">
                 <MessageCircle className="w-8 h-8 text-blue-400 mb-4" />
-                <h3 className="text-xl font-bold mb-2">Квалификация лидов</h3>
-                <p className="text-zinc-400 text-sm">Сам задаст нужные вопросы и отсеет нецелевые обращения.</p>
+                <h3 className="text-xl font-bold mb-2">{t("landing.features.qualification.title")}</h3>
+                <p className="text-zinc-400 text-sm">{t("landing.features.qualification.description")}</p>
               </div>
             </div>
 
@@ -191,8 +196,8 @@ export function LandingPage() {
               </div>
               <div className="relative z-10">
                 <Bot className="w-8 h-8 text-purple-400 mb-4" />
-                <h3 className="text-xl font-bold mb-2">Повторные касания</h3>
-                <p className="text-zinc-400 text-sm">Напомнит о записи или предложит повторить заказ через месяц.</p>
+                <h3 className="text-xl font-bold mb-2">{t("landing.features.followup.title")}</h3>
+                <p className="text-zinc-400 text-sm">{t("landing.features.followup.description")}</p>
               </div>
             </div>
 
@@ -209,8 +214,8 @@ export function LandingPage() {
               <div className="leadvirt-card-glow-indigo absolute left-0 bottom-0 w-64 h-64 rounded-full pointer-events-none" />
               <div className="relative z-10 max-w-md">
                 <LineChart className="w-8 h-8 text-indigo-400 mb-4" />
-                <h3 className="text-2xl font-bold mb-2">Передача в CRM и Аналитика</h3>
-                <p className="text-zinc-400">Вся история переписки, теги, контакты и записи автоматически попадают в вашу CRM-систему (AmoCRM, Bitrix24, Yclients и др.)</p>
+                <h3 className="text-2xl font-bold mb-2">{t("landing.features.crm.title")}</h3>
+                <p className="text-zinc-400">{t("landing.features.crm.description")}</p>
               </div>
             </div>
           </div>
@@ -221,10 +226,10 @@ export function LandingPage() {
           <div className="container mx-auto px-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8 divide-x divide-white/5">
               {[
-                { val: "18 сек", label: "Среднее время ответа" },
-                { val: "+28%", label: "Конверсия в запись" },
-                { val: "1 248", label: "Обработанных лидов" },
-                { val: "20+", label: "Готовых интеграций" }
+                { val: t("landing.metrics.response.value"), label: t("landing.metrics.response.label") },
+                { val: "+28%", label: t("landing.metrics.conversion.label") },
+                { val: "1 248", label: t("landing.metrics.leads.label") },
+                { val: "20+", label: t("landing.metrics.integrations.label") }
               ].map((metric, i) => (
                 <div key={i} className={`flex flex-col items-center justify-center text-center ${i === 0 || i === 2 ? 'pl-0' : 'pl-8'} ${i === 1 || i === 3 ? 'pr-0' : 'pr-8'} border-l-0 md:border-l first:border-l-0 border-white/5`}>
                   <div className="text-4xl md:text-5xl font-bold text-white mb-2">{metric.val}</div>
@@ -254,14 +259,14 @@ export function LandingPage() {
             <div className="leadvirt-cta-card-glow absolute -top-40 -right-40 w-80 h-80 rounded-full pointer-events-none" />
             
             <div className="relative z-10">
-              <h2 className="text-4xl md:text-6xl font-bold mb-6 tracking-tight">Не теряйте клиентов, <br/>пока команда занята</h2>
+              <h2 className="text-4xl md:text-6xl font-bold mb-6 tracking-tight">{t("landing.cta.title.before")} <br/>{t("landing.cta.title.after")}</h2>
               <p className="text-xl text-zinc-400 mb-10 max-w-2xl mx-auto">
-                Подключите AI Администратора сегодня и начните конвертировать каждое сообщение в выручку.
+                {t("landing.cta.description")}
               </p>
               <Button size="lg" className="h-16 px-10 text-lg w-full sm:w-auto shadow-[0_0_40px_rgba(52,211,153,0.3)]" asChild>
-                <Link href="/onboarding" prefetch={false}>Подключить AI Администратора</Link>
+                <Link href="/onboarding" prefetch={false}>{t("landing.cta.action")}</Link>
               </Button>
-              <p className="text-sm text-zinc-500 mt-6">Бесплатный тестовый период 7 дней. Привязка карты не требуется.</p>
+              <p className="text-sm text-zinc-500 mt-6">{t("landing.cta.note")}</p>
             </div>
           </div>
         </section>
@@ -273,9 +278,9 @@ export function LandingPage() {
         <div className="container mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-2">
             <BrandMark className="h-6 w-6 rounded-md" />
-            <span className="text-lg font-bold tracking-tight">AI Администратор</span>
+            <span className="text-lg font-bold tracking-tight">{t("brand.name")}</span>
           </div>
-          <p className="text-zinc-500 text-sm">© 2026 AI Администратор. Все права защищены.</p>
+          <p className="text-zinc-500 text-sm">{t("landing.footer.rights")}</p>
         </div>
       </footer>
     </div>

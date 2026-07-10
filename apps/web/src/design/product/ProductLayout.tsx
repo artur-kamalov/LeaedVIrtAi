@@ -41,30 +41,49 @@ import { hrefForRoute, useNav, type Route } from "./nav";
 import { useTheme } from "./theme";
 import { Avatar } from "./shared";
 import { BrandMark } from "../components/BrandMark";
+import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { Button } from "../components/ui/Button";
 import { TooltipProvider, Tip, Dropdown, DropdownItem, DropdownLabel, DropdownSeparator } from "./ui";
 import { useProductMode, type ProductMode } from "./ProductMode";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { Locale } from "@/i18n/config";
+import type { TranslationKey, TranslationValues } from "@/i18n/messages";
 
 type NotificationItem = { id: string; icon: LucideIcon; color: string; text: string; time: string; unread: boolean };
+type Translate = (key: TranslationKey, values?: TranslationValues) => string;
 
-const navItems: { id: Route; label: string; icon: LucideIcon }[] = [
-  { id: "dashboard", label: "Обзор", icon: LayoutDashboard },
-  { id: "inbox", label: "Входящие", icon: Inbox },
-  { id: "pipeline", label: "Воронка / CRM", icon: KanbanSquare },
-  { id: "automation", label: "Автоматизация", icon: Workflow },
-  { id: "analytics", label: "Аналитика", icon: BarChart3 },
-  { id: "audit", label: "AI audit", icon: ShieldCheck },
-  { id: "integrations", label: "Интеграции", icon: Plug },
-  { id: "settings", label: "Настройки", icon: Settings },
+const navItems: { id: Route; labelKey: TranslationKey; icon: LucideIcon }[] = [
+  { id: "dashboard", labelKey: "product.nav.dashboard", icon: LayoutDashboard },
+  { id: "inbox", labelKey: "product.nav.inbox", icon: Inbox },
+  { id: "pipeline", labelKey: "product.nav.pipeline", icon: KanbanSquare },
+  { id: "automation", labelKey: "product.nav.automation", icon: Workflow },
+  { id: "analytics", labelKey: "product.nav.analytics", icon: BarChart3 },
+  { id: "audit", labelKey: "product.nav.audit", icon: ShieldCheck },
+  { id: "integrations", labelKey: "product.nav.integrations", icon: Plug },
+  { id: "settings", labelKey: "product.nav.settings", icon: Settings },
 ];
 
-const mobileNav: { id: Route; label: string; icon: LucideIcon }[] = [
-  { id: "dashboard", label: "Обзор", icon: LayoutDashboard },
-  { id: "inbox", label: "Чаты", icon: Inbox },
-  { id: "pipeline", label: "Воронка", icon: KanbanSquare },
-  { id: "analytics", label: "Аналитика", icon: BarChart3 },
-  { id: "settings", label: "Ещё", icon: Settings },
+const mobileNav: { id: Route; labelKey: TranslationKey; icon: LucideIcon }[] = [
+  { id: "dashboard", labelKey: "product.nav.dashboard", icon: LayoutDashboard },
+  { id: "inbox", labelKey: "product.mobile.chats", icon: Inbox },
+  { id: "pipeline", labelKey: "product.mobile.pipeline", icon: KanbanSquare },
+  { id: "analytics", labelKey: "product.nav.analytics", icon: BarChart3 },
+  { id: "settings", labelKey: "product.mobile.more", icon: Settings },
 ];
+
+const productTitleKeys: Record<string, TranslationKey> = {
+  "Обзор": "product.nav.dashboard",
+  "Входящие": "product.nav.inbox",
+  "Воронка / CRM": "product.nav.pipeline",
+  "Автоматизация": "product.nav.automation",
+  "Аналитика": "product.nav.analytics",
+  "AI audit": "product.nav.audit",
+  "Интеграции": "product.nav.integrations",
+  "Настройки": "product.nav.settings",
+  "Биллинг": "product.title.billing",
+  "Диалог": "product.title.conversation",
+  "Онбординг": "product.title.onboarding",
+};
 
 interface ProductIdentity {
   tenantName: string;
@@ -97,24 +116,24 @@ function notificationMetaFromAction(action: string): Pick<NotificationItem, "ico
   return { icon: Bot, color: "text-violet-400" };
 }
 
-function notificationTimeLabel(createdAt: string) {
-  const label = relativeTimeLabel(createdAt);
-  if (label === "сейчас" || label === "—") return label;
-  return `${label} назад`;
+function notificationTimeLabel(createdAt: string, locale: Locale, t: Translate) {
+  const label = relativeTimeLabel(createdAt, locale);
+  if (label === t("common.now") || label === "—") return label;
+  return `${label} ${t("common.ago")}`;
 }
 
-function notificationBadgeLabel(count: number) {
-  if (count <= 0) return "нет новых";
-  if (count === 1) return "1 новое";
-  return `${count} новых`;
+function notificationBadgeLabel(count: number, t: Translate) {
+  if (count <= 0) return t("product.notifications.noNew");
+  if (count === 1) return t("product.notifications.oneNew");
+  return t("product.notifications.manyNew", { count });
 }
 
-function notificationsFromActivity(activity: DashboardSummary["recentActivity"]): NotificationItem[] {
+function notificationsFromActivity(activity: DashboardSummary["recentActivity"], locale: Locale, t: Translate): NotificationItem[] {
   return activity.slice(0, 5).map((item, index) => ({
     id: item.id,
     ...notificationMetaFromAction(item.action),
-    text: localizeSeedText(item.title),
-    time: notificationTimeLabel(item.createdAt),
+    text: localizeSeedText(item.title, locale),
+    time: notificationTimeLabel(item.createdAt, locale, t),
     unread: index < 2,
   }));
 }
@@ -125,30 +144,30 @@ function daysUntil(value: string) {
   return Math.max(0, Math.ceil((timestamp - Date.now()) / 86400000));
 }
 
-function subscriptionStatusLabel(status: string) {
-  if (status === "ACTIVE") return "активен";
-  if (status === "TRIALING") return "пробный";
-  if (status === "CANCELLED" || status === "CANCELED") return "отменён";
-  if (status === "PAST_DUE") return "требует оплаты";
+function subscriptionStatusLabel(status: string, t: Translate) {
+  if (status === "ACTIVE") return t("product.billing.active");
+  if (status === "TRIALING") return t("product.billing.trial");
+  if (status === "CANCELLED" || status === "CANCELED") return t("product.billing.cancelled");
+  if (status === "PAST_DUE") return t("product.billing.pastDue");
   return status.toLowerCase();
 }
 
-function billingSummary(subscription: Subscription | null) {
+function billingSummary(subscription: Subscription | null, t: Translate) {
   if (!subscription) {
     return {
       active: false,
-      title: "Тариф не выбран",
-      detail: "Подключите план в биллинге",
-      action: "Выбрать тариф",
+      title: t("product.billing.noneTitle"),
+      detail: t("product.billing.noneDetail"),
+      action: t("product.billing.choose"),
     };
   }
 
   const daysLeft = daysUntil(subscription.periodEnd);
   return {
     active: subscription.status !== "CANCELLED" && subscription.status !== "CANCELED",
-    title: `Тариф «${subscription.plan.name}»`,
-    detail: `${subscriptionStatusLabel(subscription.status)}${daysLeft === null ? "" : ` · ${daysLeft} дн. до конца периода`}`,
-    action: "Управлять тарифом",
+    title: t("product.billing.plan", { name: subscription.plan.name }),
+    detail: `${subscriptionStatusLabel(subscription.status, t)}${daysLeft === null ? "" : ` · ${t("product.billing.daysLeft", { count: daysLeft })}`}`,
+    action: t("product.billing.manage"),
   };
 }
 
@@ -194,7 +213,7 @@ function useProductIdentity(mode: ProductMode) {
   return identity;
 }
 
-function useProductBilling(disabled: boolean, mode: ProductMode) {
+function useProductBilling(disabled: boolean, mode: ProductMode, t: Translate) {
   const [subscription, setSubscription] = React.useState<Subscription | null>(null);
   const [resolved, setResolved] = React.useState(false);
 
@@ -236,21 +255,21 @@ function useProductBilling(disabled: boolean, mode: ProductMode) {
   if (mode === "demo") {
     return {
       active: true,
-      title: "Demo preview",
-      detail: "Read-only пример данных",
-      action: "Создать аккаунт",
+      title: t("product.billing.demoTitle"),
+      detail: t("product.billing.demoDetail"),
+      action: t("product.billing.createAccount"),
     };
   }
 
-  return resolved ? billingSummary(subscription) : {
+  return resolved ? billingSummary(subscription, t) : {
     active: false,
-    title: "Загрузка тарифа",
-    detail: "Проверяем биллинг",
-    action: "Биллинг",
+    title: t("product.billing.loadingTitle"),
+    detail: t("product.billing.loadingDetail"),
+    action: t("product.billing.shortAction"),
   };
 }
 
-function useProductNotifications(disabled: boolean) {
+function useProductNotifications(disabled: boolean, locale: Locale, t: Translate) {
   const [apiNotifications, setApiNotifications] = React.useState<NotificationItem[] | null>(null);
   const [apiResolved, setApiResolved] = React.useState(false);
 
@@ -267,7 +286,7 @@ function useProductNotifications(disabled: boolean) {
     void getDashboardSummary()
       .then((summary) => {
         if (active) {
-          setApiNotifications(notificationsFromActivity(summary.recentActivity));
+          setApiNotifications(notificationsFromActivity(summary.recentActivity, locale, t));
           setApiResolved(true);
         }
       })
@@ -281,7 +300,7 @@ function useProductNotifications(disabled: boolean) {
     return () => {
       active = false;
     };
-  }, [disabled]);
+  }, [disabled, locale, t]);
 
   if (apiResolved) {
     return { notifications: apiNotifications ?? [], apiBacked: true };
@@ -301,6 +320,7 @@ function NavLink({
   mode: ProductMode;
   onClick?: () => void;
 }) {
+  const { t } = useI18n();
   const Icon = item.icon;
   return (
     <Link
@@ -321,7 +341,7 @@ function NavLink({
         />
       )}
       <Icon className={cn("w-5 h-5 relative z-10", active && "text-emerald-400")} />
-      <span className="relative z-10 truncate">{item.label}</span>
+      <span className="relative z-10 truncate">{t(item.labelKey)}</span>
     </Link>
   );
 }
@@ -339,12 +359,14 @@ export function ProductLayout({
   const { route, go } = useNav();
   const router = useRouter();
   const { theme, toggle } = useTheme();
+  const { locale, t } = useI18n();
+  const localizedTitle = productTitleKeys[title] ? t(productTitleKeys[title]) : title;
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [loggingOut, setLoggingOut] = React.useState(false);
   const [globalSearch, setGlobalSearch] = React.useState("");
   const identity = useProductIdentity(mode);
-  const billing = useProductBilling(identity.passwordChangeRequired, mode);
-  const productNotifications = useProductNotifications(identity.passwordChangeRequired);
+  const billing = useProductBilling(identity.passwordChangeRequired, mode, t);
+  const productNotifications = useProductNotifications(identity.passwordChangeRequired, locale, t);
   const unreadNotificationCount = productNotifications.apiBacked
     ? productNotifications.notifications.length
     : productNotifications.notifications.filter((item) => item.unread).length;
@@ -371,11 +393,11 @@ export function ProductLayout({
       }
       router.replace("/login");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось выйти из аккаунта");
+      toast.error(error instanceof Error ? error.message : t("product.account.logoutError"));
     } finally {
       setLoggingOut(false);
     }
-  }, [demo, loggingOut, router]);
+  }, [demo, loggingOut, router, t]);
 
   const handleGlobalSearch = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -392,7 +414,7 @@ export function ProductLayout({
         className="flex h-20 w-full min-w-0 shrink-0 items-center gap-2 px-3"
       >
         <BrandMark className="h-8 w-8 rounded-lg" />
-        <span className="truncate text-lg font-bold tracking-tight">AI Администратор</span>
+        <span className="truncate text-lg font-bold tracking-tight">{t("brand.name")}</span>
       </Link>
 
       <nav className="min-w-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-3">
@@ -429,7 +451,9 @@ export function ProductLayout({
           </Button>
         </div>
 
-        <Dropdown
+          <LanguageSwitcher className="mt-3 w-full justify-center" />
+
+          <Dropdown
           align="start"
           trigger={
             <button className="mt-3 flex w-full min-w-0 items-center gap-3 rounded-xl px-2 py-2 hover:bg-white/5 transition-colors">
@@ -442,12 +466,12 @@ export function ProductLayout({
             </button>
           }
         >
-          <DropdownLabel>Аккаунт</DropdownLabel>
-          <DropdownItem icon={UserCircle} onClick={() => go("settings")}>Профиль компании</DropdownItem>
-          <DropdownItem icon={CreditCard} onClick={() => go("billing")}>Биллинг и тариф</DropdownItem>
-          <DropdownItem icon={Settings} onClick={() => go("settings")}>Настройки</DropdownItem>
+          <DropdownLabel>{t("product.account.label")}</DropdownLabel>
+          <DropdownItem icon={UserCircle} onClick={() => go("settings")}>{t("product.account.profile")}</DropdownItem>
+          <DropdownItem icon={CreditCard} onClick={() => go("billing")}>{t("product.account.billing")}</DropdownItem>
+          <DropdownItem icon={Settings} onClick={() => go("settings")}>{t("product.account.settings")}</DropdownItem>
           <DropdownSeparator />
-          <DropdownItem icon={LogOut} danger={!demo} onClick={() => void handleLogout()}>{demo ? "Создать workspace" : loggingOut ? "Выходим..." : "Выйти"}</DropdownItem>
+          <DropdownItem icon={LogOut} danger={!demo} onClick={() => void handleLogout()}>{demo ? t("product.account.create") : loggingOut ? t("product.account.loggingOut") : t("product.account.logout")}</DropdownItem>
         </Dropdown>
       </div>
     </div>
@@ -509,13 +533,13 @@ export function ProductLayout({
         <header className="sticky top-0 z-30 h-16 lg:h-20 border-b border-white/5 bg-zinc-950/60 backdrop-blur-xl">
           <div className="h-full px-4 lg:px-8 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              <button aria-label="Открыть меню" className="lg:hidden text-zinc-400" onClick={() => setMobileOpen(true)}>
+              <button aria-label={t("product.menu.open")} className="lg:hidden text-zinc-400" onClick={() => setMobileOpen(true)}>
                 <Menu className="w-6 h-6" />
               </button>
-              <h1 className="text-lg lg:text-2xl font-bold tracking-tight truncate">{title}</h1>
+              <h1 className="text-lg lg:text-2xl font-bold tracking-tight truncate">{localizedTitle}</h1>
               {demo && (
                 <span className="hidden sm:inline-flex shrink-0 items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
-                  Demo read-only
+                  {t("product.demo.readOnly")}
                 </span>
               )}
             </div>
@@ -523,25 +547,26 @@ export function ProductLayout({
             <div className="flex items-center gap-2 lg:gap-3">
               <form
                 role="search"
-                aria-label="Поиск лидов и чатов"
+                aria-label={t("product.search.form")}
                 action={hrefForRoute("inbox", {}, mode)}
                 onSubmit={handleGlobalSearch}
                 className="hidden md:flex items-center gap-2 rounded-full bg-white/5 border border-white/5 px-3 h-10 w-64"
               >
                 <Search className="w-4 h-4 text-zinc-500" />
                 <input
-                  aria-label="Глобальный поиск"
+                  aria-label={t("product.search.input")}
                   name="q"
                   value={globalSearch}
                   onChange={(event) => setGlobalSearch(event.target.value)}
-                  placeholder="Поиск лидов, чатов..."
+                  placeholder={t("product.search.placeholder")}
                   className="bg-transparent text-sm outline-none placeholder:text-zinc-600 w-full"
                 />
               </form>
-              <Tip content={theme === "dark" ? "Светлая тема" : "Тёмная тема"}>
+              <LanguageSwitcher compact className="hidden sm:inline-flex" />
+              <Tip content={theme === "dark" ? t("product.theme.light") : t("product.theme.dark")}>
                 <button
                   onClick={toggle}
-                  aria-label="Переключить тему"
+                  aria-label={t("product.theme.toggle")}
                   className="w-10 h-10 rounded-full bg-white/5 border border-white/5 flex items-center justify-center text-zinc-400 hover:text-emerald-400 transition-colors"
                 >
                   <AnimatePresence mode="wait" initial={false}>
@@ -561,7 +586,7 @@ export function ProductLayout({
               <Dropdown
                 className="w-[340px] p-0 overflow-hidden"
                 trigger={
-                  <button aria-label="Уведомления" className="relative w-10 h-10 rounded-full bg-white/5 border border-white/5 flex items-center justify-center text-zinc-400 hover:text-zinc-100 transition-colors">
+                  <button aria-label={t("product.notifications.label")} className="relative w-10 h-10 rounded-full bg-white/5 border border-white/5 flex items-center justify-center text-zinc-400 hover:text-zinc-100 transition-colors">
                     <Bell className="w-5 h-5" />
                     {unreadNotificationCount > 0 && (
                       <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
@@ -570,16 +595,16 @@ export function ProductLayout({
                 }
               >
                 <div className="flex items-center justify-between px-4 py-3 border-b border-white/8">
-                  <span className="text-sm font-semibold text-zinc-100">Уведомления</span>
+                  <span className="text-sm font-semibold text-zinc-100">{t("product.notifications.label")}</span>
                   <span className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 rounded-full px-2 py-0.5">
-                    {notificationBadgeLabel(unreadNotificationCount)}
+                    {notificationBadgeLabel(unreadNotificationCount, t)}
                   </span>
                 </div>
                 <div className="max-h-80 overflow-y-auto p-1.5">
                   {productNotifications.notifications.length === 0 && (
                     <div className="rounded-xl px-3 py-4 text-sm text-zinc-400">
-                      <p className="font-medium text-zinc-300">Новых событий пока нет</p>
-                      <p className="mt-1 text-xs text-zinc-500">Когда появятся лиды, записи или CRM-синхронизации, они будут здесь.</p>
+                      <p className="font-medium text-zinc-300">{t("product.notifications.none")}</p>
+                      <p className="mt-1 text-xs text-zinc-500">{t("product.notifications.noneDetail")}</p>
                     </div>
                   )}
                   {productNotifications.notifications.map((n) => {
@@ -603,12 +628,12 @@ export function ProductLayout({
                   })}
                 </div>
                 <Link href={hrefForRoute("inbox", {}, mode)} className="block w-full text-center text-sm font-medium text-emerald-400 hover:bg-white/5 py-3 border-t border-white/8 transition-colors">
-                  Открыть все
+                  {t("product.notifications.openAll")}
                 </Link>
               </Dropdown>
               <Button size="sm" className="hidden sm:inline-flex" asChild>
                 <Link href={hrefForRoute("inbox", {}, mode)} data-testid="product-topbar-new-lead">
-                  <Plus className="w-4 h-4 mr-1.5" /> Новый лид
+                  <Plus className="w-4 h-4 mr-1.5" /> {t("product.newLead")}
                 </Link>
               </Button>
             </div>
@@ -633,7 +658,7 @@ export function ProductLayout({
                 className={cn("flex flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors", active ? "text-emerald-400" : "text-zinc-500")}
               >
                 <Icon className="w-5 h-5" />
-                {item.label}
+                {t(item.labelKey)}
               </Link>
             );
           })}

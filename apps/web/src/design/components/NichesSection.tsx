@@ -15,19 +15,35 @@ import {
   Database
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { TranslationKey } from "@/i18n/messages";
 
-const niches = [
+const nicheDefinitions: Array<{
+  id: string;
+  icon: typeof Scissors;
+  titleKey: TranslationKey;
+  descriptionKey: TranslationKey;
+  userKey: TranslationKey;
+  aiKey: TranslationKey;
+  taskKey: TranslationKey;
+  color: string;
+  bgColor: string;
+  gradient: string;
+  crmColor: string;
+  crmBg: string;
+  crmBorder: string;
+}> = [
   {
     id: "beauty",
     icon: Scissors,
-    title: "Бьюти-сфера",
-    desc: "Автоматическая запись, консультация по прайсу и напоминания о визитах.",
+    titleKey: "niches.beauty.title",
+    descriptionKey: "niches.beauty.description",
     color: "text-pink-400",
     bgColor: "bg-pink-400/10",
     gradient: "from-pink-500/20",
-    userMsg: "Привет! Есть свободное окно на стрижку сегодня вечером?",
-    aiMsg: "Здравствуйте! Да, к мастеру Алексею есть окна на 18:00 и 19:30. Записать вас на какое время?",
-    crmTask: "Новая запись: Стрижка, 19:30",
+    userKey: "niches.beauty.user",
+    aiKey: "niches.beauty.ai",
+    taskKey: "niches.beauty.task",
     crmColor: "text-pink-400",
     crmBg: "bg-pink-500/10",
     crmBorder: "border-pink-500/20"
@@ -35,14 +51,14 @@ const niches = [
   {
     id: "medicine",
     icon: HeartPulse,
-    title: "Медицина",
-    desc: "Квалификация симптомов, запись к врачам, сбор первичного анамнеза.",
+    titleKey: "niches.medicine.title",
+    descriptionKey: "niches.medicine.description",
     color: "text-blue-400",
     bgColor: "bg-blue-400/10",
     gradient: "from-blue-500/20",
-    userMsg: "Добрый день. Как записаться к кардиологу?",
-    aiMsg: "Добрый день! Ближайшая запись к доктору Смирнову — завтра в 14:00. Подсказать стоимость приема?",
-    crmTask: "Лид в CRM: Запись к кардиологу",
+    userKey: "niches.medicine.user",
+    aiKey: "niches.medicine.ai",
+    taskKey: "niches.medicine.task",
     crmColor: "text-blue-400",
     crmBg: "bg-blue-500/10",
     crmBorder: "border-blue-500/20"
@@ -50,14 +66,14 @@ const niches = [
   {
     id: "ecom",
     icon: ShoppingBag,
-    title: "E-commerce",
-    desc: "Ответы по наличию, помощь с выбором размера, статусы заказов.",
+    titleKey: "niches.ecom.title",
+    descriptionKey: "niches.ecom.description",
     color: "text-orange-400",
     bgColor: "bg-orange-400/10",
     gradient: "from-orange-500/20",
-    userMsg: "А этот свитер есть в размере L в черном цвете?",
-    aiMsg: "Да, черный свитер в размере L есть в наличии (осталось 2 шт). Оформить заказ с доставкой?",
-    crmTask: "Новый заказ: Свитер (L, Черный)",
+    userKey: "niches.ecom.user",
+    aiKey: "niches.ecom.ai",
+    taskKey: "niches.ecom.task",
     crmColor: "text-orange-400",
     crmBg: "bg-orange-500/10",
     crmBorder: "border-orange-500/20"
@@ -65,14 +81,14 @@ const niches = [
   {
     id: "edu",
     icon: GraduationCap,
-    title: "Образование",
-    desc: "Продажа курсов, отправка ссылок на вебинары, ответы на частые вопросы.",
+    titleKey: "niches.education.title",
+    descriptionKey: "niches.education.description",
     color: "text-purple-400",
     bgColor: "bg-purple-400/10",
     gradient: "from-purple-500/20",
-    userMsg: "Сколько длится курс по дизайну?",
-    aiMsg: "Курс длится 3 месяца. Обучение проходит онлайн, 2 раза в неделю. Отправить вам полную программу?",
-    crmTask: "Запрос: Программа курса 'Дизайн'",
+    userKey: "niches.education.user",
+    aiKey: "niches.education.ai",
+    taskKey: "niches.education.task",
     crmColor: "text-purple-400",
     crmBg: "bg-purple-500/10",
     crmBorder: "border-purple-500/20"
@@ -80,14 +96,14 @@ const niches = [
   {
     id: "auto",
     icon: Car,
-    title: "Автосервисы",
-    desc: "Запись на ТО, расчет примерной стоимости работ, статус ремонта.",
+    titleKey: "niches.auto.title",
+    descriptionKey: "niches.auto.description",
     color: "text-yellow-400",
     bgColor: "bg-yellow-400/10",
     gradient: "from-yellow-500/20",
-    userMsg: "Сколько стоит поменять масло на Toyota Camry?",
-    aiMsg: "Замена масла с вашими расходниками — 1500₽. Работа + наше масло — от 6500₽. Записать вас?",
-    crmTask: "Лид: Замена масла (Camry)",
+    userKey: "niches.auto.user",
+    aiKey: "niches.auto.ai",
+    taskKey: "niches.auto.task",
     crmColor: "text-yellow-400",
     crmBg: "bg-yellow-500/10",
     crmBorder: "border-yellow-500/20"
@@ -95,14 +111,14 @@ const niches = [
   {
     id: "services",
     icon: Briefcase,
-    title: "Услуги (B2B/B2C)",
-    desc: "Клининг, юристы, ремонт. Оценка стоимости по фото и сбор деталей.",
+    titleKey: "niches.services.title",
+    descriptionKey: "niches.services.description",
     color: "text-emerald-400",
     bgColor: "bg-emerald-400/10",
     gradient: "from-emerald-500/20",
-    userMsg: "Нужна генеральная уборка 2-комнатной квартиры. Сколько стоит?",
-    aiMsg: "Генеральная уборка 2-комн. квартиры стоит от 4500₽ (около 4 часов). На какой день вам удобно?",
-    crmTask: "Лид: Ген. уборка (2к)",
+    userKey: "niches.services.user",
+    aiKey: "niches.services.ai",
+    taskKey: "niches.services.task",
     crmColor: "text-emerald-400",
     crmBg: "bg-emerald-500/10",
     crmBorder: "border-emerald-500/20"
@@ -110,6 +126,15 @@ const niches = [
 ];
 
 export const NichesSection = () => {
+  const { t } = useI18n();
+  const niches = nicheDefinitions.map((niche) => ({
+    ...niche,
+    title: t(niche.titleKey),
+    desc: t(niche.descriptionKey),
+    userMsg: t(niche.userKey),
+    aiMsg: t(niche.aiKey),
+    crmTask: t(niche.taskKey),
+  }));
   const [activeNicheId, setActiveNicheId] = useState(niches[0].id);
   const active = niches.find(n => n.id === activeNicheId) || niches[0];
 
@@ -123,11 +148,11 @@ export const NichesSection = () => {
       >
         <div className="flex-1">
           <h2 className="text-3xl md:text-5xl font-bold mb-4 leading-tight">
-            Идеально подходит для <br/>
-            <span className="text-zinc-500">любого бизнеса</span>
+            {t("niches.title.before")} <br/>
+            <span className="text-zinc-500">{t("niches.title.highlight")}</span>
           </h2>
           <p className="text-zinc-400 text-lg max-w-md">
-            AI мгновенно адаптируется под специфику вашей сферы, изучает услуги, прайс и общается в вашем Tone of Voice.
+            {t("niches.description")}
           </p>
         </div>
       </motion.div>
@@ -257,7 +282,7 @@ export const NichesSection = () => {
                         <Database className={cn("w-5 h-5", active.color)} />
                       </div>
                       <div>
-                        <div className="text-xs text-zinc-400 font-medium mb-0.5">Добавлено в CRM</div>
+                        <div className="text-xs text-zinc-400 font-medium mb-0.5">{t("niches.crmAdded")}</div>
                         <div className="text-sm font-semibold text-zinc-100">{active.crmTask}</div>
                       </div>
                       <CheckCircle2 className={cn("w-5 h-5 ml-2", active.color)} />

@@ -1,7 +1,12 @@
+"use client";
+
 import React from "react";
 import { MessageSquare, Calendar, Database, Sparkles, CheckCircle2 } from "lucide-react";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export const HeroVisual = () => {
+  const { t } = useI18n();
+
   return (
     <div className="relative w-full aspect-square md:aspect-video max-w-4xl mx-auto mt-16 lg:mt-0 flex items-center justify-center">
       {/* Background abstract elements */}
@@ -25,9 +30,9 @@ export const HeroVisual = () => {
       {/* Incoming Messages (Left) */}
       <div className="absolute left-[10%] top-[20%] space-y-4 z-10">
         {[
-          { text: "Хочу записаться на завтра", delay: 0 },
-          { text: "Сколько стоит услуга?", delay: 1.5 },
-          { text: "Где вы находитесь?", delay: 0.8 },
+          { text: t("hero.message.booking"), delay: 0 },
+          { text: t("hero.message.price"), delay: 1.5 },
+          { text: t("hero.message.location"), delay: 0.8 },
         ].map((msg, i) => (
           <div
             key={i}
@@ -43,9 +48,9 @@ export const HeroVisual = () => {
       {/* Outgoing CRM / Tasks (Right) */}
       <div className="absolute right-[10%] bottom-[20%] space-y-4 z-10">
         {[
-          { icon: Calendar, text: "Новая запись: 14:00", color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/20", delay: 0.5 },
-          { icon: Database, text: "Лид добавлен в CRM", color: "text-purple-400", bg: "bg-purple-400/10", border: "border-purple-400/20", delay: 2 },
-          { icon: CheckCircle2, text: "Вопрос решен", color: "text-emerald-400", bg: "bg-emerald-400/10", border: "border-emerald-400/20", delay: 1.2 },
+          { icon: Calendar, text: t("hero.task.booking"), color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/20", delay: 0.5 },
+          { icon: Database, text: t("hero.task.crm"), color: "text-purple-400", bg: "bg-purple-400/10", border: "border-purple-400/20", delay: 2 },
+          { icon: CheckCircle2, text: t("hero.task.resolved"), color: "text-emerald-400", bg: "bg-emerald-400/10", border: "border-emerald-400/20", delay: 1.2 },
         ].map((task, i) => (
           <div
             key={i}

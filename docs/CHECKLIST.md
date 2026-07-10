@@ -4,11 +4,14 @@ Last updated: 2026-07-10
 
 ## Next
 
+- [ ] Localize the remaining operational pages: Inbox, conversation, pipeline, automation, analytics, AI audit, integrations, settings/billing, and widget configuration.
+- [ ] Move API-generated labels and tenant locale preferences into the localization contract so language follows signed-in users across browsers.
 - [ ] Delete the former `.ru` apex and `www` records in Beget, then verify public DNS no longer resolves them after the 300-second TTL.
 - [ ] Add a tenant selector to `db:cleanup:pilot` so staging public-smoke cleanup does not require a tenant-scoped one-off command.
 
 ## Done
 
+- [x] Added persisted Russian/English localization with typed messages, locale-aware date/number/currency formatting, language menus, Telegram widget locale, and Playwright coverage across marketing, auth, onboarding, workspace shell, and dashboard.
 - [x] Retired the former `.ru` runtime surface: removed nginx/API/CORS/workflow compatibility, rejected unmatched hosts, and removed its certificate from renewal.
 - [x] Audited production callbacks before retirement: migrated the Master Budet webhook bridge to `.com`, found no stored `.ru` URLs in the LeadVirt database, and confirmed the Telegram login bot has no webhook.
 - [x] Changed BotFather `/setdomain` for `@LeadVirtAi_bot` to `leadvirt.com`; the live iframe renders without `Bot domain invalid`, and its real button opens Telegram OAuth with the `.com` origin and return URL.

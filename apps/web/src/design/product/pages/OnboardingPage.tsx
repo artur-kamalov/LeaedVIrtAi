@@ -25,9 +25,12 @@ import {
 import { useNav } from "../nav";
 import { Button } from "../../components/ui/Button";
 import { BrandMark } from "../../components/BrandMark";
+import { LanguageSwitcher } from "../../components/LanguageSwitcher";
 import { Card, channels } from "../shared";
 import { cn } from "../../lib/utils";
 import { completeOnboardingStep, getOnboardingState, updateOnboardingState } from "@/lib/api/onboarding";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { TranslationKey } from "@/i18n/messages";
 
 /* ------------------------------------------------------------------ */
 /* Types & constants                                                    */
@@ -51,48 +54,28 @@ const TOTAL_STEPS = 6;
 const stepIds = ["business", "channels", "scenario", "company", "crm", "launch"] as const;
 
 const businessTypes = [
-  { id: "services", label: "Услуги", icon: Briefcase },
-  { id: "beauty", label: "Бьюти-студия", icon: Scissors },
-  { id: "shop", label: "Интернет-магазин", icon: ShoppingBag },
-  { id: "clinic", label: "Клиника", icon: Stethoscope },
-  { id: "education", label: "Образование", icon: GraduationCap },
-  { id: "auto", label: "Автосервис", icon: Car },
-  { id: "local", label: "Локальный бизнес", icon: MapPin },
-];
+  { id: "services", labelKey: "onboarding.business.services", icon: Briefcase },
+  { id: "beauty", labelKey: "onboarding.business.beauty", icon: Scissors },
+  { id: "shop", labelKey: "onboarding.business.shop", icon: ShoppingBag },
+  { id: "clinic", labelKey: "onboarding.business.clinic", icon: Stethoscope },
+  { id: "education", labelKey: "onboarding.business.education", icon: GraduationCap },
+  { id: "auto", labelKey: "onboarding.business.auto", icon: Car },
+  { id: "local", labelKey: "onboarding.business.local", icon: MapPin },
+] satisfies Array<{ id: string; labelKey: TranslationKey; icon: typeof Briefcase }>;
 
 const aiScenarios = [
-  {
-    id: "booking",
-    label: "Запись на услугу",
-    desc: "AI записывает клиентов автоматически, уточняет дату, время и специалиста",
-    icon: CalendarCheck,
-  },
-  {
-    id: "order",
-    label: "Оформление заказа",
-    desc: "Принимает заказы, уточняет детали и передаёт в обработку",
-    icon: PackageCheck,
-  },
-  {
-    id: "consult",
-    label: "Консультация и квалификация",
-    desc: "Отвечает на вопросы, выявляет потребности и квалифицирует лиды",
-    icon: MessageSquare,
-  },
-  {
-    id: "support",
-    label: "Поддержка клиентов",
-    desc: "Обрабатывает типовые обращения, снижает нагрузку на команду",
-    icon: HeadphonesIcon,
-  },
-];
+  { id: "booking", labelKey: "onboarding.scenario.booking", descriptionKey: "onboarding.scenario.bookingDescription", icon: CalendarCheck },
+  { id: "order", labelKey: "onboarding.scenario.order", descriptionKey: "onboarding.scenario.orderDescription", icon: PackageCheck },
+  { id: "consult", labelKey: "onboarding.scenario.consult", descriptionKey: "onboarding.scenario.consultDescription", icon: MessageSquare },
+  { id: "support", labelKey: "onboarding.scenario.support", descriptionKey: "onboarding.scenario.supportDescription", icon: HeadphonesIcon },
+] satisfies Array<{ id: string; labelKey: TranslationKey; descriptionKey: TranslationKey; icon: typeof CalendarCheck }>;
 
 const crmOptions = [
-  { id: "amo", label: "amoCRM", desc: "Популярная CRM для продаж в России", icon: Database },
-  { id: "bitrix", label: "Bitrix24", desc: "Корпоративный портал с воронкой продаж", icon: Building2 },
-  { id: "retail", label: "RetailCRM", desc: "Специализированная CRM для e-commerce", icon: ShoppingBag },
-  { id: "none", label: "Без CRM (дашборд)", desc: "Все лиды будут в AI Администраторе", icon: Bot },
-];
+  { id: "amo", label: "amoCRM", descriptionKey: "onboarding.crm.amoDescription", icon: Database },
+  { id: "bitrix", label: "Bitrix24", descriptionKey: "onboarding.crm.bitrixDescription", icon: Building2 },
+  { id: "retail", label: "RetailCRM", descriptionKey: "onboarding.crm.retailDescription", icon: ShoppingBag },
+  { id: "none", labelKey: "onboarding.crm.none", descriptionKey: "onboarding.crm.noneDescription", icon: Bot },
+] satisfies Array<{ id: string; label?: string; labelKey?: TranslationKey; descriptionKey: TranslationKey; icon: typeof Database }>;
 
 const channelIds: ChannelId[] = ["instagram", "whatsapp", "telegram", "website", "webhook", "vk", "email", "call"];
 
@@ -162,22 +145,24 @@ function GlowOrbs() {
 }
 
 function Logo({ onClick }: { onClick: () => void }) {
+  const { t } = useI18n();
   return (
-    <button onClick={onClick} className="flex items-center gap-2.5 group" aria-label="AI Администратор">
+    <button onClick={onClick} className="flex items-center gap-2.5 group" aria-label={t("brand.name")}>
       <BrandMark className="h-9 w-9 rounded-xl shadow-lg shadow-emerald-500/20" />
       <span className="font-bold text-zinc-100 tracking-tight text-sm hidden sm:block">
-        AI Администратор
+        {t("brand.name")}
       </span>
     </button>
   );
 }
 
 function ProgressBar({ step }: { step: number }) {
+  const { t } = useI18n();
   const pct = ((step + 1) / TOTAL_STEPS) * 100;
   return (
     <div className="flex items-center gap-3">
       <span className="text-xs text-zinc-500 whitespace-nowrap">
-        Шаг {step + 1} из {TOTAL_STEPS}
+        {t("onboarding.step", { current: step + 1, total: TOTAL_STEPS })}
       </span>
       <div className="w-24 sm:w-40 h-1 rounded-full bg-zinc-800 overflow-hidden">
         <motion.div
@@ -246,13 +231,14 @@ function StepBusinessType({
   value: string | null;
   onChange: (v: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent">
-          С каким бизнесом работаем?
+          {t("onboarding.business.title")}
         </h2>
-        <p className="text-zinc-400 mt-2">Выберите тип бизнеса — AI подстроится под вашу нишу</p>
+        <p className="text-zinc-400 mt-2">{t("onboarding.business.description")}</p>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {businessTypes.map((b) => {
@@ -269,7 +255,7 @@ function StepBusinessType({
                   <Icon className={cn("w-4.5 h-4.5", value === b.id ? "text-emerald-400" : "text-zinc-400")} />
                 </div>
                 <span className={cn("text-sm font-semibold", value === b.id ? "text-emerald-300" : "text-zinc-200")}>
-                  {b.label}
+                  {t(b.labelKey)}
                 </span>
               </div>
             </SelectCard>
@@ -287,6 +273,7 @@ function StepChannels({
   value: ChannelId[];
   onChange: (v: ChannelId[]) => void;
 }) {
+  const { t } = useI18n();
   const toggle = (id: ChannelId) => {
     onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
   };
@@ -294,9 +281,9 @@ function StepChannels({
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent">
-          Откуда приходят клиенты?
+          {t("onboarding.channels.title")}
         </h2>
-        <p className="text-zinc-400 mt-2">Выберите каналы, которые хотите подключить</p>
+        <p className="text-zinc-400 mt-2">{t("onboarding.channels.description")}</p>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {channelIds.map((id) => {
@@ -310,7 +297,7 @@ function StepChannels({
                   <Icon className={cn("w-4 h-4", ch.color)} />
                 </div>
                 <span className={cn("text-sm font-semibold", sel ? "text-emerald-300" : "text-zinc-200")}>
-                  {ch.label}
+                  {ch.labelKey ? t(ch.labelKey) : ch.label}
                 </span>
               </div>
             </SelectCard>
@@ -328,13 +315,14 @@ function StepScenario({
   value: string | null;
   onChange: (v: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent">
-          Выберите сценарий AI
+          {t("onboarding.scenario.title")}
         </h2>
-        <p className="text-zinc-400 mt-2">Как должен работать ваш AI-ассистент?</p>
+        <p className="text-zinc-400 mt-2">{t("onboarding.scenario.description")}</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {aiScenarios.map((s) => {
@@ -347,8 +335,8 @@ function StepScenario({
                   <Icon className={cn("w-4.5 h-4.5", sel ? "text-emerald-400" : "text-zinc-400")} />
                 </div>
                 <div>
-                  <div className={cn("text-sm font-bold", sel ? "text-emerald-300" : "text-zinc-100")}>{s.label}</div>
-                  <div className="text-xs text-zinc-500 mt-0.5 leading-relaxed">{s.desc}</div>
+                  <div className={cn("text-sm font-bold", sel ? "text-emerald-300" : "text-zinc-100")}>{t(s.labelKey)}</div>
+                  <div className="text-xs text-zinc-500 mt-0.5 leading-relaxed">{t(s.descriptionKey)}</div>
                 </div>
               </div>
             </SelectCard>
@@ -366,6 +354,7 @@ function StepCompanyInfo({
   value: CompanyInfo;
   onChange: (v: CompanyInfo) => void;
 }) {
+  const { t } = useI18n();
   const field = (k: keyof CompanyInfo) => ({
     value: value[k],
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -378,92 +367,92 @@ function StepCompanyInfo({
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent">
-          Информация о компании
+          {t("onboarding.company.title")}
         </h2>
-        <p className="text-zinc-400 mt-2">AI использует эти данные для общения с клиентами</p>
+        <p className="text-zinc-400 mt-2">{t("onboarding.company.description")}</p>
       </div>
       <div className="space-y-4">
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Название компании</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.name")}</label>
           <input
             {...field("name")}
-            placeholder="Например: Студия красоты «Аура»"
+            placeholder={t("onboarding.company.namePlaceholder")}
             className={inputCls}
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">О компании</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.about")}</label>
           <textarea
             {...(field("description") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
             rows={3}
-            placeholder="Чем занимается ваша компания, ваши преимущества..."
+            placeholder={t("onboarding.company.aboutPlaceholder")}
             className={textareaCls}
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Каталог, услуги и цены</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.catalog")}</label>
           <textarea
             {...(field("servicesCatalog") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
             rows={5}
-            placeholder="Например: стрижка женская - 2500 ₽, 60 минут; окрашивание - от 6000 ₽; консультация - бесплатно."
+            placeholder={t("onboarding.company.catalogPlaceholder")}
             className={textareaCls}
           />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-              <Clock className="w-3 h-3" />Рабочие часы
+              <Clock className="w-3 h-3" />{t("onboarding.company.hours")}
             </label>
             <input
               {...field("hours")}
-              placeholder="Пн–Пт 9:00–18:00"
+              placeholder={t("onboarding.company.hoursPlaceholder")}
               className={inputCls}
             />
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-              <DollarSign className="w-3 h-3" />Средний чек
+              <DollarSign className="w-3 h-3" />{t("onboarding.company.average")}
             </label>
             <input
               {...field("avgCheck")}
-              placeholder="2 000 – 5 000 ₽"
+              placeholder={t("onboarding.company.averagePlaceholder")}
               className={inputCls}
             />
           </div>
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Свободные окна и правила записи</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.availability")}</label>
           <textarea
             {...(field("availability") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
             rows={4}
-            placeholder="Например: свободные окна вторник-четверг 12:00-17:00; запись минимум за 2 часа; перенос не позже чем за сутки."
+            placeholder={t("onboarding.company.availabilityPlaceholder")}
             className={textareaCls}
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">FAQ и частые возражения</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.faq")}</label>
           <textarea
             {...(field("faq") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
             rows={4}
-            placeholder="Например: можно ли с детьми, сколько держится результат, какие есть противопоказания, чем вы отличаетесь."
+            placeholder={t("onboarding.company.faqPlaceholder")}
             className={textareaCls}
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Правила, ограничения, что нельзя обещать</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.policies")}</label>
           <textarea
             {...(field("policies") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
             rows={4}
-            placeholder="Например: не обещать точную цену без консультации; не давать медицинских гарантий; скидки только после согласования."
+            placeholder={t("onboarding.company.policiesPlaceholder")}
             className={textareaCls}
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Когда звать человека</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.escalation")}</label>
           <textarea
             {...(field("escalationRules") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
             rows={3}
-            placeholder="Например: клиент злится, просит возврат, хочет нестандартную скидку, спрашивает юридические или медицинские детали."
+            placeholder={t("onboarding.company.escalationPlaceholder")}
             className={textareaCls}
           />
         </div>
@@ -479,13 +468,14 @@ function StepCRM({
   value: string | null;
   onChange: (v: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent">
-          Куда отправлять лиды?
+          {t("onboarding.crm.title")}
         </h2>
-        <p className="text-zinc-400 mt-2">Выберите CRM или оставьте всё внутри системы</p>
+        <p className="text-zinc-400 mt-2">{t("onboarding.crm.description")}</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {crmOptions.map((c) => {
@@ -498,8 +488,8 @@ function StepCRM({
                   <Icon className={cn("w-4.5 h-4.5", sel ? "text-emerald-400" : "text-zinc-400")} />
                 </div>
                 <div>
-                  <div className={cn("text-sm font-bold", sel ? "text-emerald-300" : "text-zinc-100")}>{c.label}</div>
-                  <div className="text-xs text-zinc-500 mt-0.5">{c.desc}</div>
+                  <div className={cn("text-sm font-bold", sel ? "text-emerald-300" : "text-zinc-100")}>{c.labelKey ? t(c.labelKey) : c.label}</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">{t(c.descriptionKey)}</div>
                 </div>
               </div>
             </SelectCard>
@@ -525,17 +515,21 @@ function StepLaunch({
   companyName: string;
   onLaunch: () => void;
 }) {
-  const btLabel = businessTypes.find((b) => b.id === businessType)?.label ?? "—";
-  const scenLabel = aiScenarios.find((s) => s.id === scenario)?.label ?? "—";
-  const crmLabel = crmOptions.find((c) => c.id === crm)?.label ?? "—";
-  const channelLabels = selectedChannels.map((id) => channels[id].label);
+  const { t } = useI18n();
+  const business = businessTypes.find((item) => item.id === businessType);
+  const selectedScenario = aiScenarios.find((item) => item.id === scenario);
+  const selectedCrm = crmOptions.find((item) => item.id === crm);
+  const btLabel = business ? t(business.labelKey) : "—";
+  const scenLabel = selectedScenario ? t(selectedScenario.labelKey) : "—";
+  const crmLabel = selectedCrm ? (selectedCrm.labelKey ? t(selectedCrm.labelKey) : selectedCrm.label) : "—";
+  const channelLabels = selectedChannels.map((id) => channels[id].labelKey ? t(channels[id].labelKey) : channels[id].label);
 
   const summaryItems = [
-    { label: "Бизнес", value: btLabel },
-    { label: "Каналы", value: channelLabels.length ? channelLabels.join(", ") : "Не выбраны" },
-    { label: "Сценарий AI", value: scenLabel },
+    { label: t("onboarding.summary.business"), value: btLabel },
+    { label: t("onboarding.summary.channels"), value: channelLabels.length ? channelLabels.join(", ") : t("onboarding.summary.notSelected") },
+    { label: t("onboarding.summary.scenario"), value: scenLabel },
     { label: "CRM", value: crmLabel },
-    ...(companyName ? [{ label: "Компания", value: companyName }] : []),
+    ...(companyName ? [{ label: t("onboarding.summary.company"), value: companyName }] : []),
   ];
 
   return (
@@ -551,17 +545,17 @@ function StepLaunch({
         </motion.div>
         <div>
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-50">
-            Всё готово! 🚀
+            {t("onboarding.ready.title")}
           </h2>
           <p className="text-zinc-400 mt-2">
-            AI Администратор настроен и готов к работе
+            {t("onboarding.ready.description")}
           </p>
         </div>
       </div>
 
       {/* Summary card */}
       <Card className="p-5 text-left">
-        <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Итог настройки</div>
+        <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">{t("onboarding.ready.summary")}</div>
         <div className="space-y-2.5">
           {summaryItems.map((item) => (
             <div key={item.label} className="flex items-start justify-between gap-4">
@@ -575,7 +569,7 @@ function StepLaunch({
       {/* Launch button (desktop) */}
       <div className="hidden sm:flex justify-center">
         <Button size="lg" onClick={onLaunch} className="gap-2 shadow-xl shadow-emerald-500/20">
-          Запустить AI Администратора
+          {t("onboarding.launch")}
           <ChevronRight className="w-5 h-5" />
         </Button>
       </div>
@@ -588,6 +582,7 @@ function StepLaunch({
 /* ------------------------------------------------------------------ */
 
 export function OnboardingPage() {
+  const { t } = useI18n();
   const { go } = useNav();
 
   const [step, setStep] = useState(0);
@@ -764,13 +759,16 @@ export function OnboardingPage() {
       <header className="relative z-10 flex items-center justify-between px-4 sm:px-8 py-4 border-b border-white/5 backdrop-blur-sm bg-zinc-950/70">
         <Logo onClick={() => go("landing")} />
         <ProgressBar step={step} />
-        <button
-          onClick={() => go("dashboard")}
-          className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
-        >
-          <X className="w-4 h-4" />
-          <span className="hidden sm:inline">Пропустить</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher compact />
+          <button
+            onClick={() => go("dashboard")}
+            className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            <X className="w-4 h-4" />
+            <span className="hidden sm:inline">{t("onboarding.skip")}</span>
+          </button>
+        </div>
       </header>
 
       {/* ---- Step content ---- */}
@@ -778,6 +776,7 @@ export function OnboardingPage() {
         <div className="w-full max-w-2xl">
           <AnimatePresence mode="wait" custom={dir}>
             <motion.div
+              data-testid="onboarding-step-panel"
               key={step}
               custom={dir}
               variants={slideVariants}
@@ -802,7 +801,7 @@ export function OnboardingPage() {
                 className="gap-1.5"
               >
                 <ChevronLeft className="w-4 h-4" />
-                Назад
+                {t("onboarding.back")}
               </Button>
               <Button
                 variant="primary"
@@ -810,7 +809,7 @@ export function OnboardingPage() {
                 disabled={!isStepValid() || saving}
                 className="gap-1.5"
               >
-                Далее
+                {t("onboarding.next")}
                 <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
@@ -822,7 +821,7 @@ export function OnboardingPage() {
       <div className="sm:hidden fixed bottom-0 inset-x-0 z-20 border-t border-white/5 bg-zinc-950/90 backdrop-blur-xl px-4 py-3 safe-area-inset-bottom">
         {isLastStep ? (
           <Button size="lg" onClick={() => void handleLaunch()} disabled={saving} className="w-full gap-2 shadow-xl shadow-emerald-500/20">
-            Запустить AI Администратора
+            {t("onboarding.launch")}
             <ChevronRight className="w-5 h-5" />
           </Button>
         ) : (
@@ -842,7 +841,7 @@ export function OnboardingPage() {
               disabled={!isStepValid() || saving}
               className="flex-1 gap-1.5"
             >
-              Далее
+              {t("onboarding.next")}
               <ChevronRight className="w-5 h-5" />
             </Button>
           </div>

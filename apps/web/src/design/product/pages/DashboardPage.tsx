@@ -44,26 +44,34 @@ import type { DashboardMetricDeltas, DashboardRecentLead, DashboardSummary } fro
 import type { ChannelId } from "../shared";
 import { channelIdFromType, localizeSeedText, relativeTimeLabel, stageFromStatus } from "../apiAdapters";
 import { useApiResource } from "../useApiResource";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { Locale } from "@/i18n/config";
+import type { TranslationKey, TranslationValues } from "@/i18n/messages";
 
 /* ─── helpers ─── */
-function formatRub(v: number) {
-  return v.toLocaleString("ru-RU") + " ₽";
+type Translate = (key: TranslationKey, values?: TranslationValues) => string;
+
+function emptyLeadsByDay(locale: Locale) {
+  return (locale === "en" ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]).map((name) => ({
+    name,
+    leads: 0,
+    booked: 0,
+  }));
 }
 
-function todayLabel() {
-  return new Date().toLocaleDateString("ru-RU", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+function localizeWeekday(value: string, locale: Locale) {
+  if (locale === "ru") return value;
+  const weekdays: Record<string, string> = {
+    "Пн": "Mon",
+    "Вт": "Tue",
+    "Ср": "Wed",
+    "Чт": "Thu",
+    "Пт": "Fri",
+    "Сб": "Sat",
+    "Вс": "Sun",
+  };
+  return weekdays[value] ?? value;
 }
-
-const emptyLeadsByDay = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((name) => ({
-  name,
-  leads: 0,
-  booked: 0,
-}));
 
 /* ─── Custom tooltip for recharts ─── */
 function ChartTooltip({ active, payload, label }: any) {
@@ -99,10 +107,10 @@ function activityTypeFromAction(action: string): ActivityType {
   return "ai";
 }
 
-function dashboardRelativeTimeLabel(value: string) {
-  const label = relativeTimeLabel(value);
-  if (label === "—" || label === "сейчас") return "только что";
-  return `${label} назад`;
+function dashboardRelativeTimeLabel(value: string, locale: Locale, t: Translate) {
+  const label = relativeTimeLabel(value, locale);
+  if (label === "—" || label === t("common.now")) return t("common.justNow");
+  return `${label} ${t("common.ago")}`;
 }
 
 function useDashboardSummaryResource() {
@@ -131,33 +139,33 @@ function summarizeChannelPerformance(summary: DashboardSummary) {
   }));
 }
 
-function formatMetricDelta(value: number | undefined, fallback: string, suffix = "%") {
+function formatMetricDelta(value: number | undefined, fallback: string, formatNumber: (value: number) => string, suffix = "%") {
   if (value === undefined || !Number.isFinite(value)) return fallback;
   const rounded = Math.round(value * 10) / 10;
   const sign = rounded > 0 ? "+" : "";
-  return `${sign}${rounded.toLocaleString("ru-RU")}${suffix}`;
+  return `${sign}${formatNumber(rounded)}${suffix}`;
 }
 
-function leadName(lead: DashboardRecentLead) {
-  return localizeSeedText(lead.name) || "Клиент LeadVirt";
+function leadName(lead: DashboardRecentLead, locale: Locale, t: Translate) {
+  return localizeSeedText(lead.name, locale) || t("dashboard.fallback.client");
 }
 
-function leadService(lead: DashboardRecentLead) {
-  return localizeSeedText(lead.interest ?? lead.summary ?? lead.source) || "Новый лид";
+function leadService(lead: DashboardRecentLead, locale: Locale, t: Translate) {
+  return localizeSeedText(lead.interest ?? lead.summary ?? lead.source, locale) || t("dashboard.fallback.lead");
 }
 
-function leadTime(lead: DashboardRecentLead) {
-  return relativeTimeLabel(lead.lastMessageAt ?? lead.createdAt);
+function leadTime(lead: DashboardRecentLead, locale: Locale) {
+  return relativeTimeLabel(lead.lastMessageAt ?? lead.createdAt, locale);
 }
 
-function dashboardDeltaConfig(deltas: DashboardMetricDeltas | undefined) {
+function dashboardDeltaConfig(deltas: DashboardMetricDeltas | undefined, pointsSuffix: string) {
   return [
     { value: deltas?.newLeadsPercent, suffix: "%", positiveWhen: (value: number) => value >= 0 },
     { value: deltas?.aiConversationsPercent, suffix: "%", positiveWhen: (value: number) => value >= 0 },
     { value: deltas?.bookingsOrdersPercent, suffix: "%", positiveWhen: (value: number) => value >= 0 },
     { value: deltas?.leadsSentToCrmPercent, suffix: "%", positiveWhen: (value: number) => value >= 0 },
     { value: deltas?.averageResponseTimePercent, suffix: "%", positiveWhen: (value: number) => value <= 0 },
-    { value: deltas?.conversionRatePoints, suffix: " п.п.", positiveWhen: (value: number) => value >= 0 },
+    { value: deltas?.conversionRatePoints, suffix: pointsSuffix, positiveWhen: (value: number) => value >= 0 },
   ];
 }
 
@@ -165,6 +173,7 @@ function dashboardDeltaConfig(deltas: DashboardMetricDeltas | undefined) {
    DashboardPage
 ══════════════════════════════════════════════════ */
 export function DashboardPage() {
+  const { locale, formatCurrency, formatDate, formatNumber, t } = useI18n();
   const { mode } = useNav();
   const summaryResource = useDashboardSummaryResource();
   const tenantResource = useCurrentTenantResource();
@@ -179,7 +188,7 @@ export function DashboardPage() {
   const stats = [
     {
       icon: Users,
-      label: "Новые лиды",
+      label: t("dashboard.metric.newLeads"),
       value: "0",
       delta: "0%",
       positive: true,
@@ -187,7 +196,7 @@ export function DashboardPage() {
     },
     {
       icon: MessageSquare,
-      label: "Диалоги AI",
+      label: t("dashboard.metric.aiDialogs"),
       value: "0",
       delta: "0%",
       positive: true,
@@ -195,7 +204,7 @@ export function DashboardPage() {
     },
     {
       icon: CalendarCheck,
-      label: "Записи / заказы",
+      label: t("dashboard.metric.bookings"),
       value: "0",
       delta: "0%",
       positive: true,
@@ -203,7 +212,7 @@ export function DashboardPage() {
     },
     {
       icon: GitMerge,
-      label: "Лиды в CRM",
+      label: t("dashboard.metric.crmLeads"),
       value: "0",
       delta: "0%",
       positive: true,
@@ -211,15 +220,15 @@ export function DashboardPage() {
     },
     {
       icon: Timer,
-      label: "Среднее время ответа",
-      value: "0 сек",
+      label: t("dashboard.metric.responseTime"),
+      value: t("dashboard.metric.seconds", { count: 0 }),
       delta: "0%",
       positive: true,
       accent: "text-amber-400",
     },
     {
       icon: TrendingUp,
-      label: "Конверсия",
+      label: t("dashboard.metric.conversion"),
       value: "0%",
       delta: "0%",
       positive: true,
@@ -230,38 +239,40 @@ export function DashboardPage() {
   const dashboardStats = stats.map((stat, index) => {
     const values = summary
       ? [
-          summary.metrics.newLeadsCount.toLocaleString("ru-RU"),
-          summary.metrics.aiConversationsCount.toLocaleString("ru-RU"),
-          summary.metrics.bookingsOrdersCreated.toLocaleString("ru-RU"),
-          summary.metrics.leadsSentToCrm.toLocaleString("ru-RU"),
-          `${summary.metrics.averageResponseTimeSeconds} сек`,
+          formatNumber(summary.metrics.newLeadsCount),
+          formatNumber(summary.metrics.aiConversationsCount),
+          formatNumber(summary.metrics.bookingsOrdersCreated),
+          formatNumber(summary.metrics.leadsSentToCrm),
+          t("dashboard.metric.seconds", { count: summary.metrics.averageResponseTimeSeconds }),
           `${summary.metrics.conversionRate}%`,
         ]
       : [];
-    const delta = summary ? dashboardDeltaConfig(summary.metrics.deltas)[index] : undefined;
+    const delta = summary ? dashboardDeltaConfig(summary.metrics.deltas, t("dashboard.metric.points"))[index] : undefined;
 
     return {
       ...stat,
       value: values[index] ?? stat.value,
-      delta: delta ? formatMetricDelta(delta.value, stat.delta, delta.suffix) : stat.delta,
+      delta: delta ? formatMetricDelta(delta.value, stat.delta, formatNumber, delta.suffix) : stat.delta,
       positive: delta?.value === undefined ? stat.positive : delta.positiveWhen(delta.value),
     };
   });
   const recentLeads = summary?.recentLeads ?? [];
-  const dashboardLeadsByDay = summary?.trend?.length ? summary.trend : emptyLeadsByDay;
+  const dashboardLeadsByDay = summary?.trend?.length
+    ? summary.trend.map((item) => ({ ...item, name: localizeWeekday(item.name, locale) }))
+    : emptyLeadsByDay(locale);
   const dashboardChannelPerformance = summary ? summarizeChannelPerformance(summary) : [];
   const dashboardActivity = summary
     ? summary.recentActivity.map((item) => ({
         id: item.id,
         type: activityTypeFromAction(item.action),
-        text: item.title,
-        time: dashboardRelativeTimeLabel(item.createdAt),
+        text: localizeSeedText(item.title, locale),
+        time: dashboardRelativeTimeLabel(item.createdAt, locale, t),
       }))
     : [];
 
   if (loading || summaryResource.isLoading) {
     return (
-      <ProductLayout title="Обзор">
+      <ProductLayout title={t("dashboard.title")}>
         <div className="space-y-8">
           {/* Stat cards skeleton */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -284,7 +295,7 @@ export function DashboardPage() {
   }
 
   return (
-    <ProductLayout title="Обзор">
+    <ProductLayout title={t("dashboard.title")}>
       {/* ── Glow orbs (decorative) ── */}
       <div className="pointer-events-none fixed top-20 right-0 w-96 h-96 bg-emerald-500/5 blur-[130px] rounded-full" />
       <div className="pointer-events-none fixed bottom-32 left-1/4 w-72 h-72 bg-indigo-500/5 blur-[120px] rounded-full" />
@@ -300,9 +311,9 @@ export function DashboardPage() {
         >
           <div>
             <h2 className="text-2xl font-bold tracking-tight text-zinc-50">
-              Добро пожаловать, {tenantName}
+              {t("dashboard.welcome", { name: tenantName })}
             </h2>
-            <p className="text-sm text-zinc-500 mt-1 capitalize">{todayLabel()}</p>
+            <p className="text-sm text-zinc-500 mt-1 capitalize">{formatDate(new Date(), { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
@@ -314,7 +325,7 @@ export function DashboardPage() {
             >
               <Link href={hrefForRoute("inbox", {}, mode)}>
                 <UserPlus className="w-4 h-4 mr-1.5" />
-                Новый лид
+                {t("dashboard.action.newLead")}
               </Link>
             </Button>
             <Button
@@ -325,7 +336,7 @@ export function DashboardPage() {
             >
               <Link href={hrefForRoute("automation", {}, mode)}>
                 <Sparkles className="w-4 h-4 mr-1.5" />
-                Сценарии
+                {t("dashboard.action.scenarios")}
               </Link>
             </Button>
             <Button
@@ -336,7 +347,7 @@ export function DashboardPage() {
             >
               <Link href={hrefForRoute("analytics", {}, mode)}>
                 <Zap className="w-4 h-4 mr-1.5" />
-                Аналитика
+                {t("dashboard.action.analytics")}
               </Link>
             </Button>
           </div>
@@ -370,14 +381,14 @@ export function DashboardPage() {
           >
             <Card className="p-6">
               <SectionTitle
-                title="Лиды за неделю"
-                sub="Новые обращения и состоявшиеся записи по дням"
+                title={t("dashboard.chart.title")}
+                sub={t("dashboard.chart.description")}
                 action={
                   <Link
                     href={hrefForRoute("analytics", {}, mode)}
                     className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1"
                   >
-                    Подробнее <ChevronRight className="w-3.5 h-3.5" />
+                    {t("dashboard.chart.details")} <ChevronRight className="w-3.5 h-3.5" />
                   </Link>
                 }
               />
@@ -413,7 +424,7 @@ export function DashboardPage() {
                       key="leads"
                       type="monotone"
                       dataKey="leads"
-                      name="Лиды"
+                      name={t("dashboard.chart.leads")}
                       stroke="#34d399"
                       strokeWidth={2}
                       fill="url(#gradLeads)"
@@ -424,7 +435,7 @@ export function DashboardPage() {
                       key="booked"
                       type="monotone"
                       dataKey="booked"
-                      name="Записи"
+                      name={t("dashboard.chart.bookings")}
                       stroke="#818cf8"
                       strokeWidth={2}
                       fill="url(#gradBooked)"
@@ -438,11 +449,11 @@ export function DashboardPage() {
               <div className="flex items-center gap-5 mt-4">
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-0.5 bg-emerald-400 rounded-full" />
-                  <span className="text-xs text-zinc-500">Лиды</span>
+                  <span className="text-xs text-zinc-500">{t("dashboard.chart.leads")}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-0.5 bg-indigo-400 rounded-full" />
-                  <span className="text-xs text-zinc-500">Записи</span>
+                  <span className="text-xs text-zinc-500">{t("dashboard.chart.bookings")}</span>
                 </div>
               </div>
             </Card>
@@ -455,12 +466,12 @@ export function DashboardPage() {
             transition={{ duration: 0.55, delay: 0.38, ease: "easeOut" }}
           >
             <Card className="p-6 h-full">
-              <SectionTitle title="Каналы" sub="Лиды и конверсия" />
+              <SectionTitle title={t("dashboard.channels.title")} sub={t("dashboard.channels.description")} />
               <div className="space-y-4">
                 {dashboardChannelPerformance.length === 0 && (
                   <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-5">
-                    <p className="text-sm font-medium text-zinc-300">Каналы пока не подключены</p>
-                    <p className="mt-1 text-xs text-zinc-500">Подключите виджет, Telegram или Webhook/API в интеграциях.</p>
+                    <p className="text-sm font-medium text-zinc-300">{t("dashboard.channels.empty")}</p>
+                    <p className="mt-1 text-xs text-zinc-500">{t("dashboard.channels.emptyDetail")}</p>
                   </div>
                 )}
                 {dashboardChannelPerformance.map((cp, i) => (
@@ -473,7 +484,7 @@ export function DashboardPage() {
                     <div className="flex items-center justify-between mb-1.5">
                       <ChannelBadge id={cp.channel} withLabel />
                       <div className="flex items-center gap-3 text-xs">
-                        <span className="text-zinc-400">{cp.leads} лидов</span>
+                        <span className="text-zinc-400">{t("dashboard.channels.leads", { count: formatNumber(cp.leads) })}</span>
                         <span className="text-emerald-400 font-semibold">{cp.conv}%</span>
                       </div>
                     </div>
@@ -503,22 +514,22 @@ export function DashboardPage() {
           >
             <Card className="p-6">
               <SectionTitle
-                title="Последние лиды"
-                sub="Актуальные обращения"
+                title={t("dashboard.recent.title")}
+                sub={t("dashboard.recent.description")}
                 action={
                   <Link
                     href={hrefForRoute("inbox", {}, mode)}
                     className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1"
                   >
-                    Все лиды <ChevronRight className="w-3.5 h-3.5" />
+                    {t("dashboard.recent.all")} <ChevronRight className="w-3.5 h-3.5" />
                   </Link>
                 }
               />
               <div className="space-y-1">
                 {recentLeads.length === 0 && (
                   <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-5">
-                    <p className="text-sm font-medium text-zinc-300">Лидов пока нет</p>
-                    <p className="mt-1 text-xs text-zinc-500">Новые обращения появятся здесь после подключения канала или входящего webhook.</p>
+                    <p className="text-sm font-medium text-zinc-300">{t("dashboard.recent.empty")}</p>
+                    <p className="mt-1 text-xs text-zinc-500">{t("dashboard.recent.emptyDetail")}</p>
                   </div>
                 )}
                 {recentLeads.map((lead, i) => (
@@ -532,19 +543,19 @@ export function DashboardPage() {
                       href={lead.conversationId ? hrefForRoute("conversation", { id: lead.conversationId }, mode) : hrefForRoute("pipeline", {}, mode)}
                       className="w-full flex items-center gap-3 rounded-2xl px-3 py-3 hover:bg-white/5 transition-colors text-left group"
                     >
-                      <Avatar name={leadName(lead)} size={38} />
+                      <Avatar name={leadName(lead, locale, t)} size={38} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-sm font-medium text-zinc-100 truncate">{leadName(lead)}</span>
+                          <span className="text-sm font-medium text-zinc-100 truncate">{leadName(lead, locale, t)}</span>
                           <ChannelBadge id={channelIdFromType(lead.channelType)} />
                         </div>
-                        <span className="text-xs text-zinc-500 truncate block">{leadService(lead)}</span>
+                        <span className="text-xs text-zinc-500 truncate block">{leadService(lead, locale, t)}</span>
                       </div>
                       <div className="flex flex-col items-end gap-1.5 shrink-0">
                         <StatusPill stage={stageFromStatus(lead.status)} />
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold text-emerald-400">{formatRub(lead.valueAmount ?? 0)}</span>
-                          <span className="text-[10px] text-zinc-600">{leadTime(lead)}</span>
+                          <span className="text-xs font-semibold text-emerald-400">{formatCurrency(lead.valueAmount ?? 0)}</span>
+                          <span className="text-[10px] text-zinc-600">{leadTime(lead, locale)}</span>
                         </div>
                       </div>
                       <ChevronRight className="w-4 h-4 text-zinc-700 group-hover:text-zinc-400 transition-colors shrink-0 ml-1" />
@@ -563,8 +574,8 @@ export function DashboardPage() {
           >
             <Card className="p-6">
               <SectionTitle
-                title="Активность"
-                sub="События в реальном времени"
+                title={t("dashboard.activity.title")}
+                sub={t("dashboard.activity.description")}
                 action={
                   <span className="inline-flex items-center gap-1.5">
                     <span className="relative flex h-2 w-2">
@@ -581,8 +592,8 @@ export function DashboardPage() {
                 <div className="space-y-1">
                   {dashboardActivity.length === 0 && (
                     <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-4 py-5">
-                      <p className="text-sm font-medium text-zinc-300">Событий пока нет</p>
-                      <p className="mt-1 text-xs text-zinc-500">Продуктовые события появятся после лидов, задач, записей или подключений.</p>
+                      <p className="text-sm font-medium text-zinc-300">{t("dashboard.activity.empty")}</p>
+                      <p className="mt-1 text-xs text-zinc-500">{t("dashboard.activity.emptyDetail")}</p>
                     </div>
                   )}
                   {dashboardActivity.map((item, i) => {

@@ -1,21 +1,50 @@
+"use client";
+
 import React from "react";
 import Link from "next/link";
 import { Check, Sparkles } from "lucide-react";
 import { Button } from "./ui/Button";
 import { plans } from "../product/plans";
 import { cn } from "../lib/utils";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { TranslationKey } from "@/i18n/messages";
+
+const planCopy: Record<string, { tagline: TranslationKey; cta: TranslationKey; features: TranslationKey[] }> = {
+  start: {
+    tagline: "pricing.start.tagline",
+    cta: "pricing.start.cta",
+    features: ["pricing.feature.ai500", "pricing.feature.channels2", "pricing.feature.users3", "pricing.feature.scenarios3", "pricing.feature.basicAnalytics", "pricing.feature.crm"],
+  },
+  pro: {
+    tagline: "pricing.pro.tagline",
+    cta: "pricing.pro.cta",
+    features: ["pricing.feature.ai2500", "pricing.feature.channels5", "pricing.feature.users10", "pricing.feature.scenarios15", "pricing.feature.advancedAnalytics", "pricing.feature.automation", "pricing.feature.prioritySupport"],
+  },
+  business: {
+    tagline: "pricing.business.tagline",
+    cta: "pricing.business.cta",
+    features: ["pricing.feature.ai10000", "pricing.feature.channels10", "pricing.feature.users25", "pricing.feature.scenarios50", "pricing.feature.aiInsights", "pricing.feature.abTests", "pricing.feature.accountManager"],
+  },
+  corporate: {
+    tagline: "pricing.corporate.tagline",
+    cta: "pricing.corporate.cta",
+    features: ["pricing.feature.customLimits", "pricing.feature.sla", "pricing.feature.customIntegrations", "pricing.feature.dedicatedInfra", "pricing.feature.teamTraining", "pricing.feature.personalManager"],
+  },
+};
 
 export function PricingSection() {
+  const { t } = useI18n();
+
   return (
     <section id="pricing" className="leadvirt-deferred-paint py-24 container mx-auto px-6 relative">
       <div className="text-center max-w-2xl mx-auto mb-16">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/50 border border-zinc-800 text-sm font-medium text-emerald-400 mb-6 backdrop-blur-sm">
           <Sparkles className="w-3.5 h-3.5" />
-          Прозрачные тарифы
+          {t("pricing.badge")}
         </div>
-        <h2 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">Выберите свой тариф</h2>
+        <h2 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">{t("pricing.title")}</h2>
         <p className="text-zinc-400 text-lg">
-          Начните с малого и масштабируйтесь по мере роста. Без скрытых платежей и долгих контрактов.
+          {t("pricing.description")}
         </p>
       </div>
 
@@ -37,20 +66,20 @@ export function PricingSection() {
                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400 px-3 py-1 text-xs font-bold text-zinc-950 shadow-[0_0_20px_rgba(52,211,153,0.5)]">
                     <Sparkles className="w-3.5 h-3.5" />
-                    Популярный
+                    {t("pricing.popular")}
                   </span>
                 </div>
               </>
             )}
 
             <h3 className="text-xl font-bold tracking-tight mb-1">{plan.name}</h3>
-            <p className="text-sm text-zinc-400 mb-6 min-h-[40px]">{plan.tagline}</p>
+            <p className="text-sm text-zinc-400 mb-6 min-h-[40px]">{t(planCopy[plan.id].tagline)}</p>
 
             <div className="mb-6">
               <div className="flex items-baseline gap-1.5">
-                <span className="text-4xl font-bold tracking-tight">{plan.price}</span>
+                <span className="text-4xl font-bold tracking-tight">{plan.id === "corporate" ? t("pricing.corporate.price") : plan.price}</span>
               </div>
-              <span className="text-sm text-zinc-500">{plan.priceNote}</span>
+              <span className="text-sm text-zinc-500">{t("pricing.perMonth")}</span>
             </div>
 
             <Button
@@ -58,12 +87,12 @@ export function PricingSection() {
               className="w-full mb-8"
               asChild
             >
-              <Link href="/onboarding" prefetch={false}>{plan.cta}</Link>
+              <Link href="/onboarding" prefetch={false}>{t(planCopy[plan.id].cta)}</Link>
             </Button>
 
             <ul className="space-y-3 mt-auto">
-              {plan.features.map((f) => (
-                <li key={f} className="flex items-start gap-3 text-sm">
+              {planCopy[plan.id].features.map((featureKey) => (
+                <li key={featureKey} className="flex items-start gap-3 text-sm">
                   <span
                     className={cn(
                       "mt-0.5 w-5 h-5 shrink-0 rounded-full flex items-center justify-center",
@@ -72,7 +101,7 @@ export function PricingSection() {
                   >
                     <Check className="w-3 h-3" />
                   </span>
-                  <span className="text-zinc-300">{f}</span>
+                  <span className="text-zinc-300">{t(featureKey)}</span>
                 </li>
               ))}
             </ul>
@@ -81,7 +110,7 @@ export function PricingSection() {
       </div>
 
       <p className="text-center text-sm text-zinc-500 mt-10">
-        Все тарифы включают бесплатный пробный период 7 дней. Привязка карты не требуется.
+        {t("pricing.note")}
       </p>
     </section>
   );

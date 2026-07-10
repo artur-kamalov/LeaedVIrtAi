@@ -1,5 +1,18 @@
 # Decision Log
 
+## 2026-07-10: Start UI Localization With Russian And English
+
+Decision: LeadVirt supports Russian and English through one typed client localization contract. Russian remains the default, and the selected locale persists in the `leadvirt-locale` cookie.
+
+Context: The production UI was Russian-only, including fixed `ru-RU` formatters and Telegram widget language. The `.com` product needs an English path without duplicating routes or changing existing public URLs.
+
+Consequences:
+
+- Landing, pricing, industry examples, auth, onboarding, product shell, and dashboard switch immediately between RU and EN.
+- The root layout sets the HTML language from the cookie; shared formatters use the active locale.
+- Existing paths remain canonical without locale prefixes.
+- Deep operational pages remain a tracked migration and must not be described as fully localized yet.
+
 ## 2026-07-10: Permanently Retire The Former .ru Domain
 
 Decision: The former `.ru` domain is no longer a LeadVirt runtime, redirect, API compatibility surface, CORS origin, or maintained TLS identity.

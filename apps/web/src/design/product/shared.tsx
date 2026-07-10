@@ -11,6 +11,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { TranslationKey } from "@/i18n/messages";
 
 /* ============================================================
    Channels
@@ -27,25 +29,26 @@ export type ChannelId =
 
 export const channels: Record<
   ChannelId,
-  { label: string; icon: LucideIcon; color: string; bg: string }
+  { label: string; labelKey?: TranslationKey; icon: LucideIcon; color: string; bg: string }
 > = {
   instagram: { label: "Instagram", icon: Instagram, color: "text-pink-400", bg: "bg-pink-500/10" },
   whatsapp: { label: "WhatsApp", icon: MessageCircle, color: "text-emerald-400", bg: "bg-emerald-500/10" },
   telegram: { label: "Telegram", icon: Send, color: "text-sky-400", bg: "bg-sky-500/10" },
-  website: { label: "Сайт", icon: Globe, color: "text-indigo-400", bg: "bg-indigo-500/10" },
+  website: { label: "Сайт", labelKey: "channel.website", icon: Globe, color: "text-indigo-400", bg: "bg-indigo-500/10" },
   webhook: { label: "Webhook/API", icon: Radio, color: "text-cyan-400", bg: "bg-cyan-500/10" },
   vk: { label: "VK", icon: MessageCircle, color: "text-blue-400", bg: "bg-blue-500/10" },
   email: { label: "Email", icon: Mail, color: "text-amber-400", bg: "bg-amber-500/10" },
-  call: { label: "Звонок", icon: Phone, color: "text-teal-400", bg: "bg-teal-500/10" },
+  call: { label: "Звонок", labelKey: "channel.call", icon: Phone, color: "text-teal-400", bg: "bg-teal-500/10" },
 };
 
 export function ChannelBadge({ id, withLabel = false }: { id: ChannelId; withLabel?: boolean }) {
+  const { t } = useI18n();
   const c = channels[id];
   const Icon = c.icon;
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-1", c.bg)}>
       <Icon className={cn("w-3.5 h-3.5", c.color)} />
-      {withLabel && <span className={cn("text-xs font-medium", c.color)}>{c.label}</span>}
+      {withLabel && <span className={cn("text-xs font-medium", c.color)}>{c.labelKey ? t(c.labelKey) : c.label}</span>}
     </span>
   );
 }
@@ -61,37 +64,39 @@ export type StageId =
   | "crm"
   | "closed";
 
-export const stages: Record<StageId, { label: string; color: string; dot: string; border: string }> = {
-  new: { label: "Новый", color: "text-sky-300", dot: "bg-sky-400", border: "border-sky-500/30" },
-  progress: { label: "В работе", color: "text-amber-300", dot: "bg-amber-400", border: "border-amber-500/30" },
-  qualified: { label: "Квалифицирован", color: "text-violet-300", dot: "bg-violet-400", border: "border-violet-500/30" },
-  booked: { label: "Записан / Заказ", color: "text-emerald-300", dot: "bg-emerald-400", border: "border-emerald-500/30" },
-  crm: { label: "Отправлен в CRM", color: "text-teal-300", dot: "bg-teal-400", border: "border-teal-500/30" },
-  closed: { label: "Закрыт", color: "text-zinc-400", dot: "bg-zinc-500", border: "border-zinc-600/30" },
+export const stages: Record<StageId, { label: string; labelKey: TranslationKey; color: string; dot: string; border: string }> = {
+  new: { label: "Новый", labelKey: "stage.new", color: "text-sky-300", dot: "bg-sky-400", border: "border-sky-500/30" },
+  progress: { label: "В работе", labelKey: "stage.progress", color: "text-amber-300", dot: "bg-amber-400", border: "border-amber-500/30" },
+  qualified: { label: "Квалифицирован", labelKey: "stage.qualified", color: "text-violet-300", dot: "bg-violet-400", border: "border-violet-500/30" },
+  booked: { label: "Записан / Заказ", labelKey: "stage.booked", color: "text-emerald-300", dot: "bg-emerald-400", border: "border-emerald-500/30" },
+  crm: { label: "Отправлен в CRM", labelKey: "stage.crm", color: "text-teal-300", dot: "bg-teal-400", border: "border-teal-500/30" },
+  closed: { label: "Закрыт", labelKey: "stage.closed", color: "text-zinc-400", dot: "bg-zinc-500", border: "border-zinc-600/30" },
 };
 
 export const stageOrder: StageId[] = ["new", "progress", "qualified", "booked", "crm", "closed"];
 
 export function StatusPill({ stage }: { stage: StageId }) {
+  const { t } = useI18n();
   const s = stages[stage];
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium bg-white/[0.02]", s.border, s.color)}>
       <span className={cn("w-1.5 h-1.5 rounded-full", s.dot)} />
-      {s.label}
+      {t(s.labelKey)}
     </span>
   );
 }
 
 export type Temp = "hot" | "warm" | "cold";
-export const temps: Record<Temp, { label: string; color: string; bg: string }> = {
-  hot: { label: "Горячий", color: "text-rose-300", bg: "bg-rose-500/15" },
-  warm: { label: "Тёплый", color: "text-amber-300", bg: "bg-amber-500/15" },
-  cold: { label: "Холодный", color: "text-sky-300", bg: "bg-sky-500/15" },
+export const temps: Record<Temp, { label: string; labelKey: TranslationKey; color: string; bg: string }> = {
+  hot: { label: "Горячий", labelKey: "temperature.hot", color: "text-rose-300", bg: "bg-rose-500/15" },
+  warm: { label: "Тёплый", labelKey: "temperature.warm", color: "text-amber-300", bg: "bg-amber-500/15" },
+  cold: { label: "Холодный", labelKey: "temperature.cold", color: "text-sky-300", bg: "bg-sky-500/15" },
 };
 
 export function TempPill({ t }: { t: Temp }) {
+  const { t: translate } = useI18n();
   const v = temps[t];
-  return <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", v.bg, v.color)}>{v.label}</span>;
+  return <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", v.bg, v.color)}>{translate(v.labelKey)}</span>;
 }
 
 /* ============================================================
