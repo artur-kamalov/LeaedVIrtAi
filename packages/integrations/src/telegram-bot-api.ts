@@ -22,10 +22,16 @@ interface TelegramResponse<T> {
   description?: string;
 }
 
+function telegramBotApiBaseUrl() {
+  return (
+    process.env.TELEGRAM_BOT_API_BASE_URL?.trim() || "https://api.telegram.org"
+  ).replace(/\/+$/, "");
+}
+
 export class TelegramBotApiClient {
   constructor(
     private readonly fetcher: typeof fetch = fetch,
-    private readonly apiBase = "https://api.telegram.org",
+    private readonly apiBase = telegramBotApiBaseUrl(),
     private readonly timeoutMs = 10_000,
   ) {}
 

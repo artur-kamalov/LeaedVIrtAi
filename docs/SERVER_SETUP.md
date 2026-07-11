@@ -159,7 +159,7 @@ Verified:
 - Real OpenAI provider smoke passes from the staging API container through the FR AI gateway.
 - Main reverse proxy was migrated from Caddy to nginx on 2026-07-04.
 
-## FR AI Gateway
+## FR External API Gateway
 
 Completed on 2026-07-03.
 
@@ -167,7 +167,8 @@ Runtime:
 
 - Hostname: `fr-vmnano`
 - Public IPv4: `147.90.14.240`
-- Gateway URL: `https://147-90-14-240.sslip.io:8443/v1`
+- OpenAI gateway URL: `https://147-90-14-240.sslip.io:8443/v1`
+- Telegram gateway URL: `https://147-90-14-240.sslip.io:8443/telegram`
 - Source path: `/opt/leadvirt/ai-gateway`
 - Compose file: `deploy/ai-gateway/docker-compose.yml`
 - Reverse proxy: nginx on ports `80` and `8443`
@@ -177,8 +178,8 @@ Runtime:
 
 Purpose:
 
-- Route staging OpenAI API traffic through a supported-region VPS.
-- Allow proxy access only from main staging IP `193.187.92.88`.
+- Route staging OpenAI and Telegram Bot API traffic through a supported-region VPS.
+- Allow proxy access only from main staging IP `193.187.92.88`; Telegram access and non-emergency error logs are disabled to avoid recording bot tokens.
 - Keep local/direct access to OpenAI routes blocked with `403 forbidden`.
 
 Verified:
@@ -186,6 +187,8 @@ Verified:
 - `GET http://147-90-14-240.sslip.io/health` returns `200`.
 - Local request to `https://147-90-14-240.sslip.io:8443/v1/models` returns gateway `403 forbidden`.
 - Request from `193.187.92.88` to the same route reaches OpenAI and returns `401 invalid_api_key` with an intentionally invalid key.
+- A configured bot `getMe` request from `193.187.92.88` through `/telegram/` returns `200`; an external request to the same gateway route returns `403`.
 - Staging `AI_BASE_URL` now points at `https://147-90-14-240.sslip.io:8443/v1`.
+- Staging `TELEGRAM_BOT_API_BASE_URL` points at `https://147-90-14-240.sslip.io:8443/telegram`.
 - `qa:ai:provider` passes inside the staging API container.
 - Gateway runtime was migrated from Caddy to nginx on 2026-07-04.

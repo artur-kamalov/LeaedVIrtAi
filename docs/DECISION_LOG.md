@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-11: Route Telegram Through The Restricted FR Gateway
+
+Decision: API and worker Telegram Bot API calls use `TELEGRAM_BOT_API_BASE_URL`, pointed in production to the existing French external API gateway.
+
+Context: The main LeadVirt VPS cannot reach `api.telegram.org`, so managed bot validation and webhook provisioning returned a temporary-unavailable error even though the integration flow was correct.
+
+Consequences:
+
+- The FR Nginx gateway maps `/telegram/` to `api.telegram.org` and remains restricted to the main VPS source IP.
+- Telegram access and non-emergency error logging are disabled at the gateway because Bot API paths contain secret bot tokens.
+- Local development defaults to direct Telegram access; production config selects the gateway for API provisioning and worker delivery.
+
 ## 2026-07-11: Run Integrations From Compiled JavaScript
 
 Decision: The integrations workspace package exposes `dist/index.js` in production and CI imports that exact entry point after building it.

@@ -1,6 +1,6 @@
-# LeadVirt AI Gateway
+# LeadVirt External API Gateway
 
-Purpose: route LeadVirt OpenAI API traffic through a supported-region VPS while keeping the main app on the primary staging server.
+Purpose: route LeadVirt OpenAI and Telegram Bot API traffic through a supported-region VPS while keeping the main app on the primary staging server.
 
 Current host:
 
@@ -8,6 +8,7 @@ Current host:
 fr-vmnano
 147.90.14.240
 https://147-90-14-240.sslip.io:8443/v1
+https://147-90-14-240.sslip.io:8443/telegram
 ```
 
 Deploy:
@@ -18,7 +19,7 @@ mkdir -p certbot/www
 docker compose up -d
 ```
 
-The nginx gateway allows OpenAI proxy traffic only from the main LeadVirt server IP `193.187.92.88`. Public `/health` is intentionally available for a simple uptime check.
+The nginx gateway allows OpenAI and Telegram proxy traffic only from the main LeadVirt server IP `193.187.92.88`. Public `/health` is intentionally available for a simple uptime check. Telegram access and non-emergency error logging are disabled because Bot API request paths contain bot tokens.
 
 Port note: `443` is intentionally left to the existing `xray` service on the FR VPS; nginx serves the AI gateway on `8443` and uses `80` for health checks and ACME HTTP validation.
 
@@ -46,4 +47,5 @@ Main LeadVirt env:
 
 ```text
 AI_BASE_URL=https://147-90-14-240.sslip.io:8443/v1
+TELEGRAM_BOT_API_BASE_URL=https://147-90-14-240.sslip.io:8443/telegram
 ```

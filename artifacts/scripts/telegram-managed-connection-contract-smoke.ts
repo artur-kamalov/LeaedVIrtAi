@@ -11,13 +11,13 @@ function assert(condition: unknown, message: string): asserts condition {
 
 process.env.INTEGRATION_CREDENTIALS_ENCRYPTION_KEY = "telegram-contract-key";
 
-const requests: Array<{ method: string; payload: Record<string, unknown> }> = [];
+const requests: Array<{ url: string; method: string; payload: Record<string, unknown> }> = [];
 let webhookUrl = "";
 const fetcher: typeof fetch = async (input, init) => {
   const url = String(input);
   const method = url.split("/").at(-1) ?? "";
   const payload = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-  requests.push({ method, payload });
+  requests.push({ url, method, payload });
 
   let result: unknown = true;
   if (method === "getMe") {
@@ -53,6 +53,16 @@ async function main() {
   const client = new TelegramBotApiClient(fetcher, "https://telegram.contract.test");
   const profile = await client.getMe(botToken);
   assert(profile.username === "leadvirt_test_bot", "getMe did not return the bot profile.");
+
+  process.env.TELEGRAM_BOT_API_BASE_URL = "https://gateway.contract.test/telegram/";
+  const gatewayClient = new TelegramBotApiClient(fetcher);
+  await gatewayClient.getMe(botToken);
+  assert(
+    requests.at(-1)?.url ===
+      "https://gateway.contract.test/telegram/bot987654321:AA-contract-token/getMe",
+    "Telegram gateway base URL was not applied.",
+  );
+  delete process.env.TELEGRAM_BOT_API_BASE_URL;
 
   await client.setWebhook({
     botToken,
@@ -93,7 +103,7 @@ async function main() {
     requests.some((request) => request.method === "deleteWebhook"),
     "Webhook disconnect was not called.",
   );
-  console.log("Telegram managed connection contract: 10/10 checks passed");
+  console.log("Telegram managed connection contract: 11/11 checks passed");
 }
 
 void main();
