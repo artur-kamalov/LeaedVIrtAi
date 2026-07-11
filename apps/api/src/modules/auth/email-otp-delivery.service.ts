@@ -1,4 +1,5 @@
-import { Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { Inject, Injectable, Optional, ServiceUnavailableException } from "@nestjs/common";
+import nodemailer from "nodemailer";
 import type { EmailOtpLocale } from "./dto/request-email-otp.dto.js";
 
 type EmailCopy = {
@@ -67,6 +68,44 @@ type UniSenderResponse = {
   result?: unknown;
 };
 
+type SmtpTransportOptions = {
+  host: string;
+  port: number;
+  secure: boolean;
+  auth: { user: string; pass: string };
+  connectionTimeout: number;
+  greetingTimeout: number;
+  socketTimeout: number;
+  tls: { servername: string; rejectUnauthorized: true };
+};
+
+type SmtpMessage = {
+  from: { name: string; address: string };
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+  headers: Record<string, string>;
+  disableFileAccess: true;
+  disableUrlAccess: true;
+};
+
+type SmtpTransportClient = {
+  sendMail(message: SmtpMessage): Promise<{ messageId?: unknown }>;
+  close(): void;
+};
+
+export type SmtpTransportFactory = (options: SmtpTransportOptions) => SmtpTransportClient;
+export const EMAIL_OTP_SMTP_TRANSPORT_FACTORY = Symbol("EMAIL_OTP_SMTP_TRANSPORT_FACTORY");
+
+const defaultSmtpTransportFactory: SmtpTransportFactory = (options) => {
+  const transporter = nodemailer.createTransport(options);
+  return {
+    sendMail: async (message) => transporter.sendMail(message),
+    close: () => transporter.close(),
+  };
+};
+
 function envFlag(value: string | undefined) {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) return null;
@@ -79,21 +118,24 @@ function provider() {
   return (process.env.EMAIL_OTP_PROVIDER ?? "mock").trim().toLowerCase();
 }
 
-function senderFromEnvironment() {
-  const explicitEmail = process.env.UNISENDER_SENDER_EMAIL?.trim();
-  const explicitName = process.env.UNISENDER_SENDER_NAME?.trim();
+function emailFromEnvironment() {
   const emailFrom = process.env.EMAIL_FROM?.trim() ?? "";
   const angleMatch = emailFrom.match(/^\s*(.*?)\s*<([^<>]+)>\s*$/);
   const fallbackEmail = angleMatch?.[2]?.trim() || (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailFrom) ? emailFrom : "");
   const fallbackName = angleMatch?.[1]?.trim().replace(/^['"]|['"]$/g, "") || "LeadVirt.ai";
+  return { email: fallbackEmail, name: fallbackName };
+}
+
+function senderFromEnvironment(email: string | undefined, name: string | undefined) {
+  const fallback = emailFromEnvironment();
   return {
-    email: explicitEmail || fallbackEmail,
-    name: explicitName || fallbackName,
+    email: email?.trim() || fallback.email,
+    name: name?.trim() || fallback.name,
   };
 }
 
 function uniSenderConfiguration() {
-  const sender = senderFromEnvironment();
+  const sender = senderFromEnvironment(process.env.UNISENDER_SENDER_EMAIL, process.env.UNISENDER_SENDER_NAME);
   const listId = process.env.UNISENDER_LIST_ID?.trim() ?? "";
   const senderReady = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sender.email);
   const listReady = /^\d+$/.test(listId) && Number(listId) > 0;
@@ -103,6 +145,32 @@ function uniSenderConfiguration() {
     listId,
     sender,
     ready: Boolean(process.env.UNISENDER_API_KEY?.trim() && senderReady && listReady),
+  };
+}
+
+function positiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function smtpConfiguration() {
+  const host = process.env.SMTP_HOST?.trim() ?? "";
+  const port = positiveInteger(process.env.SMTP_PORT, 465);
+  const user = process.env.SMTP_USER?.trim() ?? "";
+  const password = process.env.SMTP_PASSWORD ?? "";
+  const sender = senderFromEnvironment(process.env.SMTP_FROM_EMAIL, process.env.SMTP_FROM_NAME);
+  const senderReady = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sender.email);
+  return {
+    host,
+    port,
+    secure: envFlag(process.env.SMTP_SECURE) ?? port === 465,
+    user,
+    password,
+    sender,
+    connectionTimeout: positiveInteger(process.env.SMTP_CONNECTION_TIMEOUT_MS, 10_000),
+    greetingTimeout: positiveInteger(process.env.SMTP_GREETING_TIMEOUT_MS, 10_000),
+    socketTimeout: positiveInteger(process.env.SMTP_SOCKET_TIMEOUT_MS, 15_000),
+    ready: Boolean(host && user && password && senderReady),
   };
 }
 
@@ -128,6 +196,10 @@ function htmlBody(copy: EmailCopy, code: string) {
 </div>`.trim();
 }
 
+function textBody(copy: EmailCopy, code: string) {
+  return `${copy.title}\n\n${copy.description}\n\n${code}\n\n${copy.expiry}\n${copy.warning}`;
+}
+
 function firstDeliveryResult(payload: UniSenderResponse) {
   if (!Array.isArray(payload.result)) return null;
   const first: unknown = (payload.result as unknown[])[0];
@@ -136,10 +208,22 @@ function firstDeliveryResult(payload: UniSenderResponse) {
 
 @Injectable()
 export class EmailOtpDeliveryService {
+  private readonly smtpTransportFactory: SmtpTransportFactory;
+
+  constructor(
+    @Optional()
+    @Inject(EMAIL_OTP_SMTP_TRANSPORT_FACTORY)
+    smtpTransportFactory?: SmtpTransportFactory,
+  ) {
+    this.smtpTransportFactory = smtpTransportFactory ?? defaultSmtpTransportFactory;
+  }
+
   config() {
     const mode = provider();
     const mockReady = mode === "mock" && process.env.NODE_ENV !== "production";
-    const providerReady = mode === "unisender" && uniSenderConfiguration().ready;
+    const providerReady =
+      (mode === "unisender" && uniSenderConfiguration().ready) ||
+      (mode === "smtp" && smtpConfiguration().ready);
     return {
       enabled: featureEnabled() && (mockReady || providerReady),
     };
@@ -160,6 +244,45 @@ export class EmailOtpDeliveryService {
 
     if (provider() === "mock") {
       return { providerMessageId: `mock:${input.challengeId}` };
+    }
+
+    if (provider() === "smtp") {
+      const config = smtpConfiguration();
+      const copy = emailCopy[input.locale];
+      const transport = this.smtpTransportFactory({
+        host: config.host,
+        port: config.port,
+        secure: config.secure,
+        auth: { user: config.user, pass: config.password },
+        connectionTimeout: config.connectionTimeout,
+        greetingTimeout: config.greetingTimeout,
+        socketTimeout: config.socketTimeout,
+        tls: { servername: config.host, rejectUnauthorized: true },
+      });
+      try {
+        const result = await transport.sendMail({
+          from: { name: config.sender.name, address: config.sender.email },
+          to: input.email,
+          subject: copy.subject,
+          text: textBody(copy, input.code),
+          html: htmlBody(copy, input.code),
+          headers: { "X-LeadVirt-Purpose": "email_otp" },
+          disableFileAccess: true,
+          disableUrlAccess: true,
+        });
+        if (typeof result.messageId !== "string" || !result.messageId) {
+          throw new Error("SMTP did not return a message id.");
+        }
+        return { providerMessageId: result.messageId };
+      } catch {
+        throw new ServiceUnavailableException("Email delivery is temporarily unavailable.");
+      } finally {
+        try {
+          transport.close();
+        } catch {
+          // Cleanup must not change an already accepted SMTP delivery result.
+        }
+      }
     }
 
     const config = uniSenderConfiguration();

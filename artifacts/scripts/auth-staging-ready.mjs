@@ -258,29 +258,48 @@ function checkEnvironment() {
   if (isTruthy(process.env.AUTH_EMAIL_OTP_ENABLED)) {
     const emailOtpProvider = (process.env.EMAIL_OTP_PROVIDER ?? "mock").trim().toLowerCase();
     strictCheck(
-      emailOtpProvider === "unisender",
+      ["smtp", "unisender"].includes(emailOtpProvider),
       "Email OTP provider",
       emailOtpProvider,
-      `${emailOtpProvider}; AUTH_EMAIL_OTP_ENABLED requires EMAIL_OTP_PROVIDER=unisender in production`,
+      `${emailOtpProvider}; AUTH_EMAIL_OTP_ENABLED requires EMAIL_OTP_PROVIDER=smtp or unisender in production`,
     );
-    strictCheck(
-      Boolean(process.env.UNISENDER_API_KEY?.trim()),
-      "UNISENDER_API_KEY",
-      "configured",
-      "missing",
-    );
-    strictCheck(
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.UNISENDER_SENDER_EMAIL?.trim() ?? ""),
-      "UNISENDER_SENDER_EMAIL",
-      process.env.UNISENDER_SENDER_EMAIL ?? "missing",
-      "missing or invalid; sender verification must also be completed in UniSender",
-    );
-    strictCheck(
-      /^\d+$/.test(process.env.UNISENDER_LIST_ID?.trim() ?? "") && Number(process.env.UNISENDER_LIST_ID) > 0,
-      "UNISENDER_LIST_ID",
-      process.env.UNISENDER_LIST_ID ?? "missing",
-      "missing or not a positive integer",
-    );
+    if (emailOtpProvider === "smtp") {
+      strictCheck(Boolean(process.env.SMTP_HOST?.trim()), "SMTP_HOST", process.env.SMTP_HOST ?? "missing", "missing");
+      strictCheck(
+        /^\d+$/.test(process.env.SMTP_PORT?.trim() ?? "") && Number(process.env.SMTP_PORT) > 0,
+        "SMTP_PORT",
+        process.env.SMTP_PORT ?? "missing",
+        "missing or not a positive integer",
+      );
+      strictCheck(
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.SMTP_USER?.trim() ?? ""),
+        "SMTP_USER",
+        process.env.SMTP_USER ?? "missing",
+        "missing or invalid",
+      );
+      strictCheck(Boolean(process.env.SMTP_PASSWORD), "SMTP_PASSWORD", "configured", "missing");
+      strictCheck(
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.SMTP_FROM_EMAIL?.trim() ?? ""),
+        "SMTP_FROM_EMAIL",
+        process.env.SMTP_FROM_EMAIL ?? "missing",
+        "missing or invalid",
+      );
+    }
+    if (emailOtpProvider === "unisender") {
+      strictCheck(Boolean(process.env.UNISENDER_API_KEY?.trim()), "UNISENDER_API_KEY", "configured", "missing");
+      strictCheck(
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.UNISENDER_SENDER_EMAIL?.trim() ?? ""),
+        "UNISENDER_SENDER_EMAIL",
+        process.env.UNISENDER_SENDER_EMAIL ?? "missing",
+        "missing or invalid; sender verification must also be completed in UniSender",
+      );
+      strictCheck(
+        /^\d+$/.test(process.env.UNISENDER_LIST_ID?.trim() ?? "") && Number(process.env.UNISENDER_LIST_ID) > 0,
+        "UNISENDER_LIST_ID",
+        process.env.UNISENDER_LIST_ID ?? "missing",
+        "missing or not a positive integer",
+      );
+    }
     strictCheck(
       (process.env.AUTH_EMAIL_OTP_PEPPER?.trim().length ?? 0) >= 32,
       "AUTH_EMAIL_OTP_PEPPER",

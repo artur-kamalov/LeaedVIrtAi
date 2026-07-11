@@ -27,6 +27,7 @@
     "qa:auth:identifier-policy": "node artifacts/scripts/auth-identifier-policy.mjs",
     "qa:auth:telegram": "node artifacts/scripts/auth-telegram-smoke.mjs",
     "qa:auth:email-otp": "corepack pnpm --filter @leadvirt/api qa:auth:email-otp",
+    "qa:auth:smtp-contract": "corepack pnpm --filter @leadvirt/api qa:auth:smtp-contract",
     "qa:auth:unisender-contract": "corepack pnpm --filter @leadvirt/api qa:auth:unisender-contract",
     "qa:auth:staging-ready": "node artifacts/scripts/auth-staging-ready.mjs",
     "qa:ai:provider": "corepack pnpm --filter @leadvirt/api qa:ai:provider",

@@ -124,6 +124,9 @@ jobs:
       - name: Verify UniSender email OTP contract
         run: corepack pnpm run qa:auth:unisender-contract
 
+      - name: Verify SMTP email OTP contract
+        run: corepack pnpm run qa:auth:smtp-contract
+
       - name: Verify domain migration
         run: corepack pnpm run qa:domain-migration
 

@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-11: Use Beget SMTP For Initial Email OTP Delivery
+
+Decision: LeadVirt uses authenticated Beget SMTP for production email OTP until `leadvirt.com` becomes eligible for UniSender sender verification. UniSender remains supported behind the same provider boundary.
+
+Context: UniSender blocks SMTP/sender setup for domains registered less than 30 days ago. Beget already hosts the domain mailbox and provides authenticated SMTP over implicit TLS on port 465.
+
+Consequences:
+
+- `EMAIL_OTP_PROVIDER=smtp` uses `smtp.beget.com` with the full mailbox address and a server-only password.
+- SMTP delivery uses TLS certificate validation, bounded connection/socket timeouts, and closes each transport after the OTP is accepted.
+- Production remains fail-closed until the mailbox password is stored and a real delivery smoke succeeds.
+
 ## 2026-07-10: Add Passwordless Email OTP Through UniSender
 
 Decision: LeadVirt supports email OTP as a passwordless authentication mode alongside Telegram. OTP delivery uses the classic UniSender `sendEmail` API behind a provider adapter, while session authorization continues through database-backed HTTP-only cookies.
