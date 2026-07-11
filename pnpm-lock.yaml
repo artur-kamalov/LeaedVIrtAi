@@ -264,10 +264,6 @@ importers:
         version: 5.9.3
 
   packages/integrations:
-    dependencies:
-      '@leadvirt/types':
-        specifier: workspace:*
-        version: link:../types
     devDependencies:
       '@types/node':
         specifier: ^24.0.3

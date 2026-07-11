@@ -105,6 +105,7 @@ jobs:
           corepack pnpm --filter @leadvirt/integrations typecheck
           corepack pnpm --filter @leadvirt/integrations lint
           corepack pnpm --filter @leadvirt/integrations build
+          corepack pnpm --filter @leadvirt/integrations runtime-check
 
       - name: Verify API
         run: |

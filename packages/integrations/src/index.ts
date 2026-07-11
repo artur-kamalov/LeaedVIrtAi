@@ -1,8 +1,18 @@
-import type { ChannelType } from "@leadvirt/types";
 import { TelegramBotApiClient } from "./telegram-bot-api.js";
 
 export * from "./credentials.js";
 export * from "./telegram-bot-api.js";
+
+export type IntegrationChannelType =
+  | "WEBSITE"
+  | "TELEGRAM"
+  | "WHATSAPP"
+  | "INSTAGRAM"
+  | "VK"
+  | "EMAIL"
+  | "WEBHOOK"
+  | "PHONE"
+  | "DEMO";
 
 export interface WebhookVerificationInput {
   headers: Record<string, string | string[] | undefined>;
@@ -47,7 +57,7 @@ export interface SendMessageResult {
 }
 
 export interface ChannelAdapter {
-  type: ChannelType;
+  type: IntegrationChannelType;
   verifyWebhook?(input: WebhookVerificationInput): Promise<boolean>;
   normalizeInbound(input: unknown): Promise<NormalizedInboundMessage>;
   sendMessage(input: SendMessageInput): Promise<SendMessageResult>;
@@ -83,7 +93,7 @@ export interface CalendarAdapter {
 }
 
 abstract class StubChannelAdapter implements ChannelAdapter {
-  abstract type: ChannelType;
+  abstract type: IntegrationChannelType;
 
   normalizeInbound(input: unknown): Promise<NormalizedInboundMessage> {
     return Promise.resolve({
@@ -110,9 +120,11 @@ export class WebsiteWidgetAdapter extends StubChannelAdapter {
 
 export class TelegramAdapter extends StubChannelAdapter {
   type = "TELEGRAM" as const;
+  private readonly botApi: TelegramBotApiClient;
 
-  constructor(private readonly botApi = new TelegramBotApiClient()) {
+  constructor(botApi = new TelegramBotApiClient()) {
     super();
+    this.botApi = botApi;
   }
 
   verifyWebhook(input: WebhookVerificationInput): Promise<boolean> {

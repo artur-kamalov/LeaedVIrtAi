@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-11: Run Integrations From Compiled JavaScript
+
+Decision: The integrations workspace package exposes `dist/index.js` in production and CI imports that exact entry point after building it.
+
+Context: API and worker production processes previously resolved the package to TypeScript source. Node 24 strip-only loading cannot execute all TypeScript syntax and does not resolve the package's `.js` relative imports to `.ts` source files.
+
+Consequences:
+
+- API and worker load ordinary JavaScript from the integrations package in production.
+- The package no longer depends on the wider shared-types source tree just to describe adapter channel literals.
+- Deployment verification fails before rollout when the built integrations entry point cannot be imported by Node.
+
 ## 2026-07-11: Manage Telegram Setup Behind One Bot Token
 
 Decision: Clients provide only the BotFather token. LeadVirt owns Telegram webhook provisioning, verification, security, health checks, reconnect, disconnect, and outbound delivery.

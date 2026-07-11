@@ -3,15 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "eslint .",
+    "runtime-check": "node -e \"import('./dist/index.js').then(() => console.log('Integrations runtime import passed'))\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
-  "dependencies": {
-    "@leadvirt/types": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.3",
