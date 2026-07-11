@@ -190,6 +190,7 @@ Verified:
 - Local request to `https://147-90-14-240.sslip.io:8443/v1/models` returns gateway `403 forbidden`.
 - Request from `193.187.92.88` to the same route reaches OpenAI and returns `401 invalid_api_key` with an intentionally invalid key.
 - A configured bot `getMe` request from `193.187.92.88` through `/telegram/` returns `200`; an external request to the same gateway route returns `403`.
+- The POST-only `/telegram-webhook/` relay preserves Telegram's secret header and body; production migration drained seven pending updates to zero and all seven returned `201` from LeadVirt.
 - Staging `AI_BASE_URL` now points at `https://147-90-14-240.sslip.io:8443/v1`.
 - Staging `TELEGRAM_BOT_API_BASE_URL` points at `https://147-90-14-240.sslip.io:8443/telegram`.
 - `qa:ai:provider` passes inside the staging API container.
