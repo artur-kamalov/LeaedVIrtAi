@@ -1,5 +1,18 @@
 # Decision Log
 
+## 2026-07-13: Keep Active Conversations Fresh With Visible Polling
+
+Decision: The Inbox and open conversation refresh every four seconds while the document is visible and refresh immediately when the window regains focus. Refreshes keep the last successful state after transient failures, never apply responses made stale by a concurrent mutation, and do not disturb a manager reading message history.
+
+Context: Telegram updates were reaching the relay, API, database, and Inbox query, but the client fetched only once on mount. A message received after the page opened remained invisible until navigation or reload.
+
+Consequences:
+
+- New inbound messages appear without a full page reload.
+- Hidden tabs stop polling, and overlapping requests are suppressed.
+- Concurrent sends and actions take precedence over older poll responses.
+- Managers reading earlier messages keep their scroll position when a poll completes.
+
 ## 2026-07-11: Route Telegram Through The Restricted FR Gateway
 
 Decision: API and worker Telegram Bot API calls use `TELEGRAM_BOT_API_BASE_URL`, while Telegram registers webhooks through `TELEGRAM_WEBHOOK_BASE_URL`; both point in production to the French external API gateway.

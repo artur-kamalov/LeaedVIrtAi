@@ -1,6 +1,6 @@
 # LeadVirt Checklist
 
-Last updated: 2026-07-11
+Last updated: 2026-07-13
 
 ## Next
 
@@ -11,6 +11,7 @@ Last updated: 2026-07-11
 
 ## Done
 
+- [x] Fixed stale Telegram Inbox UX after confirming live delivery was healthy: the Inbox and open conversation refresh every four seconds only while visible and immediately on focus, retain the last successful state through transient failures, reject poll responses made stale by sends/actions, avoid replacing unchanged message arrays, and preserve scroll position while a manager reads history. Verified production relay/API/database state, Telegram contract `11/11`, web typecheck/lint/build, and focused Playwright live-refresh coverage `4/4`.
 - [x] Added a POST-only inbound Telegram webhook relay on the FR gateway and registered production bots through `TELEGRAM_WEBHOOK_BASE_URL`. Migrated the active bot without dropping updates: Telegram pending updates drained `7 -> 0`, all seven real events reached LeadVirt with HTTP `201` and `PROCESSED`, the real Inbox conversation and messages were created, no webhook/API/worker failures occurred, outbound replies are `SENT`, and gateway logs contain no Telegram paths.
 - [x] Routed Telegram Bot API provisioning and delivery through the restricted FR external API gateway using `TELEGRAM_BOT_API_BASE_URL`; disabled Telegram gateway access and non-emergency error logs so bot tokens are not recorded. Verified Nginx syntax, main-VPS invalid-token response from Telegram `401`, external access rejection `403`, real configured bot `getMe` `200`, gateway URL contract `11/11`, managed lifecycle `20/20`, integrations runtime import, and API/worker typechecks.
 - [x] Corrected the integrations production package boundary to publish compiled JavaScript, added a Node runtime import gate to deployment verification, and restored the last healthy release after the first Telegram rollout exposed Node strip-only TypeScript incompatibility. Verified integrations build/runtime import/typecheck/lint, API and worker production builds, exact Docker imports from both services, Telegram contract `10/10`, and managed lifecycle `20/20`.

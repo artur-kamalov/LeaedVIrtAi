@@ -32,6 +32,8 @@ import { listInboxConversations } from "@/lib/api/inbox";
 import { createLeadTask, sendLeadToCrm } from "@/lib/api/leads";
 import { leadFromConversation } from "../apiAdapters";
 
+const LIVE_REFRESH_INTERVAL_MS = 4_000;
+
 /* ─────────────────────────────────────────────
    Helpers
 ───────────────────────────────────────────── */
@@ -50,23 +52,40 @@ function useInboxLeads() {
 
   React.useEffect(() => {
     let active = true;
+    let refreshInFlight = false;
 
-    void listInboxConversations({ limit: 50 })
-      .then((result) => {
-        if (active) {
-          setApiLeads(result.data.map(leadFromConversation));
-          setApiError(false);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setApiLeads([]);
-          setApiError(true);
-        }
-      });
+    async function refresh() {
+      if (refreshInFlight) return;
+      refreshInFlight = true;
+
+      try {
+        const result = await listInboxConversations({ limit: 50 });
+        if (!active) return;
+        setApiLeads(result.data.map(leadFromConversation));
+        setApiError(false);
+      } catch {
+        if (!active) return;
+        setApiLeads((current) => current ?? []);
+        setApiError(true);
+      } finally {
+        refreshInFlight = false;
+      }
+    }
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") void refresh();
+    }
+
+    void refresh();
+    const timer = window.setInterval(refreshWhenVisible, LIVE_REFRESH_INTERVAL_MS);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
 
     return () => {
       active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, []);
 

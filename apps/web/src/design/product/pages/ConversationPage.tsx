@@ -56,6 +56,43 @@ function formatAttachmentSize(sizeBytes?: number | null) {
   return `${Math.round(sizeBytes / 1024)} KB`;
 }
 
+function chatMessagesEqual(current: ChatMessage[], next: ChatMessage[]) {
+  if (current.length !== next.length) return false;
+
+  return current.every((message, index) => {
+    const candidate = next[index];
+    if (!candidate) return false;
+    if (
+      message.id !== candidate.id ||
+      message.from !== candidate.from ||
+      message.text !== candidate.text ||
+      message.time !== candidate.time
+    ) {
+      return false;
+    }
+
+    const attachments = message.attachments ?? [];
+    const candidateAttachments = candidate.attachments ?? [];
+    if (attachments.length !== candidateAttachments.length) return false;
+    return attachments.every((attachment, attachmentIndex) => {
+      const candidateAttachment = candidateAttachments[attachmentIndex];
+      return (
+        candidateAttachment !== undefined &&
+        attachment.id === candidateAttachment.id &&
+        attachment.filename === candidateAttachment.filename &&
+        attachment.mimeType === candidateAttachment.mimeType &&
+        attachment.url === candidateAttachment.url &&
+        attachment.sizeBytes === candidateAttachment.sizeBytes
+      );
+    });
+  });
+}
+
+function isNearConversationBottom(container: HTMLDivElement | null) {
+  if (!container) return true;
+  return container.scrollHeight - container.scrollTop - container.clientHeight <= 80;
+}
+
 /* ── Timeline data ───────────────────────────────────────────── */
 type TimelineItem = {
   icon: typeof User;
@@ -76,6 +113,7 @@ const emojiOptions = ["🙂", "👍", "🔥", "✅", "🙏", "❤️", "📅", "
 
 const demoReplayTypingMs = 900;
 const demoReplayGapMs = 2100;
+const LIVE_REFRESH_INTERVAL_MS = 4_000;
 const ATTACHMENT_MAX_BYTES = 60 * 1024;
 const acceptedAttachmentTypes = ["image/png", "image/jpeg", "application/pdf", "text/plain"];
 
@@ -475,6 +513,9 @@ export function ConversationPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const demoReplayTimersRef = useRef<number[]>([]);
+  const mutationEpochRef = useRef(0);
+  const mutationsInFlightRef = useRef(0);
+  const shouldAutoScrollRef = useRef(true);
   const lead = apiConversation ? leadFromConversation(apiConversation) : null;
   const apiLeadId = apiConversation?.lead?.id ?? null;
   const timelineItems = timelineFromEvents(apiConversation?.events);
@@ -490,6 +531,16 @@ export function ConversationPage() {
   const customerInitial = lead?.name.trim().charAt(0).toUpperCase() || "К";
   const isDemoConversation = demo && conversationId.startsWith("demo-conv-");
   const hasDemoReplay = isDemoConversation && demoReplayMessages.length > 0;
+
+  function beginServerMutation() {
+    mutationsInFlightRef.current += 1;
+    mutationEpochRef.current += 1;
+    return mutationEpochRef.current;
+  }
+
+  function endServerMutation() {
+    mutationsInFlightRef.current = Math.max(0, mutationsInFlightRef.current - 1);
+  }
 
   function clearDemoReplayTimers() {
     demoReplayTimersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -517,9 +568,10 @@ export function ConversationPage() {
 
   useEffect(() => {
     const container = messagesScrollRef.current;
-    if (!container) return;
-    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-  }, [messages, demoTypingFrom]);
+    if (!container || (!demo && !shouldAutoScrollRef.current)) return;
+    container.scrollTop = container.scrollHeight;
+    shouldAutoScrollRef.current = false;
+  }, [demo, messages, demoTypingFrom]);
 
   useEffect(() => {
     return () => {
@@ -557,9 +609,11 @@ export function ConversationPage() {
 
   useEffect(() => {
     let active = true;
+    let refreshInFlight = false;
 
     setApiConversation(null);
     setMessages([]);
+    shouldAutoScrollRef.current = true;
     setPendingAttachments([]);
 
     if (!conversationId) {
@@ -569,10 +623,21 @@ export function ConversationPage() {
       };
     }
 
-    setIsLoadingConversation(true);
-    void getConversation(conversationId)
-      .then((conversation) => {
-        if (!active) return;
+    async function loadConversation(initial: boolean) {
+      if (refreshInFlight || mutationsInFlightRef.current > 0) return;
+      refreshInFlight = true;
+      const requestEpoch = mutationEpochRef.current;
+      if (initial) setIsLoadingConversation(true);
+
+      try {
+        const conversation = await getConversation(conversationId);
+        if (
+          !active ||
+          requestEpoch !== mutationEpochRef.current ||
+          mutationsInFlightRef.current > 0
+        ) {
+          return;
+        }
         setApiConversation(conversation);
         const nextMessages = messagesFromConversation(conversation);
         if (demo && conversationId.startsWith("demo-conv-")) {
@@ -585,20 +650,38 @@ export function ConversationPage() {
           setDemoReplayMessages([]);
           setDemoTypingFrom(null);
           setDemoReplayState("idle");
-          setMessages(nextMessages);
+          setMessages((current) => {
+            if (chatMessagesEqual(current, nextMessages)) return current;
+            shouldAutoScrollRef.current = isNearConversationBottom(messagesScrollRef.current);
+            return nextMessages;
+          });
         }
-      })
-      .catch(() => {
+      } catch {
         if (!active) return;
-        setApiConversation(null);
-        setMessages([]);
-      })
-      .finally(() => {
-        if (active) setIsLoadingConversation(false);
-      });
+        if (initial) {
+          setApiConversation(null);
+          setMessages([]);
+        }
+      } finally {
+        refreshInFlight = false;
+        if (active && initial) setIsLoadingConversation(false);
+      }
+    }
+
+    function refreshWhenVisible() {
+      if (!demo && document.visibilityState === "visible") void loadConversation(false);
+    }
+
+    void loadConversation(true);
+    const timer = window.setInterval(refreshWhenVisible, LIVE_REFRESH_INTERVAL_MS);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
 
     return () => {
       active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [conversationId, demo]);
 
@@ -662,6 +745,7 @@ export function ConversationPage() {
     if ((!text && pendingAttachments.length === 0) || isSending) return;
     pauseDemoReplayForInteraction();
     const attachments = pendingAttachments;
+    const mutationEpoch = apiConversation ? beginServerMutation() : null;
     const newMsg: ChatMessage = {
       id: `m${Date.now()}`,
       from: "manager",
@@ -675,6 +759,7 @@ export function ConversationPage() {
         sizeBytes: attachment.sizeBytes,
       })),
     };
+    shouldAutoScrollRef.current = true;
     setMessages((prev) => [...prev, newMsg]);
     setInputValue("");
     setPendingAttachments([]);
@@ -690,15 +775,20 @@ export function ConversationPage() {
         sizeBytes: attachment.sizeBytes,
       }));
       const updated = await sendConversationMessage(apiConversation.id, text, attachmentPayload);
-      setApiConversation(updated);
-      const nextMessages = messagesFromConversation(updated);
-      setMessages(nextMessages.length > 0 ? nextMessages : [newMsg]);
+      if (mutationEpoch === mutationEpochRef.current) {
+        setApiConversation(updated);
+        const nextMessages = messagesFromConversation(updated);
+        shouldAutoScrollRef.current = true;
+        setMessages(nextMessages.length > 0 ? nextMessages : [newMsg]);
+      }
       toast.success("Сообщение отправлено");
     } catch (caught) {
+      setMessages((current) => current.filter((message) => message.id !== newMsg.id));
       setInputValue(text);
       setPendingAttachments(attachments);
       toast.error(caught instanceof Error ? caught.message : "Не удалось отправить сообщение");
     } finally {
+      endServerMutation();
       setIsSending(false);
     }
   }
@@ -750,22 +840,33 @@ export function ConversationPage() {
     }
   }
 
-  function applyApiLead(updatedLead: ApiLead) {
+  function applyApiLead(updatedLead: ApiLead, mutationEpoch: number) {
+    if (mutationEpoch !== mutationEpochRef.current) return;
     setApiConversation((current) => (current ? { ...current, lead: updatedLead } : current));
   }
 
-  async function refreshConversation() {
+  async function refreshConversation(mutationEpoch: number) {
     if (!apiConversation) return;
     const updated = await getConversation(apiConversation.id);
+    if (mutationEpoch !== mutationEpochRef.current) return;
     setApiConversation(updated);
     const nextMessages = messagesFromConversation(updated);
-    setMessages(nextMessages);
+    setMessages((current) => {
+      if (chatMessagesEqual(current, nextMessages)) return current;
+      shouldAutoScrollRef.current = isNearConversationBottom(messagesScrollRef.current);
+      return nextMessages;
+    });
   }
 
-  function applyConversationUpdate(updated: ConversationDetail) {
+  function applyConversationUpdate(updated: ConversationDetail, mutationEpoch: number) {
+    if (mutationEpoch !== mutationEpochRef.current) return;
     setApiConversation(updated);
     const nextMessages = messagesFromConversation(updated);
-    setMessages(nextMessages);
+    setMessages((current) => {
+      if (chatMessagesEqual(current, nextMessages)) return current;
+      shouldAutoScrollRef.current = isNearConversationBottom(messagesScrollRef.current);
+      return nextMessages;
+    });
   }
 
   async function changeConversationStatus(status: ConversationStatus) {
@@ -783,27 +884,29 @@ export function ConversationPage() {
     }
 
     setPendingConversationAction(action);
+    const mutationEpoch = beginServerMutation();
     try {
       if (action === "handoff") {
         const updated = await handoffConversation(apiConversation.id);
-        applyConversationUpdate(updated);
+        applyConversationUpdate(updated, mutationEpoch);
         toast.success("Диалог передан менеджеру");
       }
 
       if (action === "close") {
         const updated = await changeConversationStatus("CLOSED");
-        if (updated) applyConversationUpdate(updated);
+        if (updated) applyConversationUpdate(updated, mutationEpoch);
         toast.success("Диалог закрыт");
       }
 
       if (action === "open") {
         const updated = await changeConversationStatus("OPEN");
-        if (updated) applyConversationUpdate(updated);
+        if (updated) applyConversationUpdate(updated, mutationEpoch);
         toast.success("Диалог открыт");
       }
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : "Действие с диалогом не выполнено");
     } finally {
+      endServerMutation();
       setPendingConversationAction(null);
     }
   }
@@ -816,10 +919,11 @@ export function ConversationPage() {
     }
 
     setPendingLeadAction(action);
+    const mutationEpoch = beginServerMutation();
     try {
       if (action === "crm") {
         const updated = await sendLeadToCrm(apiLeadId);
-        applyApiLead(updated);
+        applyApiLead(updated, mutationEpoch);
         toast.success("Лид отправлен в CRM");
       }
 
@@ -834,18 +938,19 @@ export function ConversationPage() {
           lead.service || "Запись",
           new Date(Date.now() + 24 * 60 * 60_000).toISOString()
         );
-        await refreshConversation();
+        await refreshConversation(mutationEpoch);
         toast.success("Запись создана");
       }
 
       if (action === "qualified") {
         const updated = await updateLead(apiLeadId, { status: "QUALIFIED" });
-        applyApiLead(updated);
+        applyApiLead(updated, mutationEpoch);
         toast.success("Лид квалифицирован");
       }
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : "Действие не выполнено");
     } finally {
+      endServerMutation();
       setPendingLeadAction(null);
     }
   }
@@ -986,7 +1091,11 @@ export function ConversationPage() {
             </AnimatePresence>
 
             {/* Messages area */}
-            <div ref={messagesScrollRef} className="flex-1 overflow-y-auto px-5 py-4">
+            <div
+              ref={messagesScrollRef}
+              data-testid="conversation-messages-scroll"
+              className="flex-1 overflow-y-auto px-5 py-4"
+            >
               <div className="flex flex-col gap-3">
                 {isLoadingConversation && (
                   <div className="self-center rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-400">
