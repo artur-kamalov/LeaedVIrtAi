@@ -5,6 +5,7 @@ import { prisma } from "@leadvirt/db";
 import {
   KnowledgeRetriever,
   loadKnowledgeOperationalCapabilityProjectionV1,
+  neutralAiBusinessIdentity,
   type KnowledgeRuntimeConfig,
 } from "@leadvirt/knowledge";
 import { automaticReplyChannelFingerprint, createAiReplyQueueEvent } from "@leadvirt/runtime-queue";
@@ -471,8 +472,8 @@ async function main() {
     assert(initialRetryAttempt.disposition === "active", "Retry test run was not allocated.");
     assert(
       initialRetryAttempt.input.inputText === retryInbound.text &&
-        initialRetryAttempt.input.businessName === tenant.name &&
-        initialRetryAttempt.input.businessType === tenant.businessType &&
+        initialRetryAttempt.input.businessName === neutralAiBusinessIdentity.businessName &&
+        initialRetryAttempt.input.businessType === neutralAiBusinessIdentity.businessType &&
         initialRetryAttempt.input.leadId === lead.id &&
         initialRetryAttempt.input.leadStatus === lead.status &&
         initialRetryAttempt.input.receivedAt.getTime() === retryInbound.createdAt.getTime(),
