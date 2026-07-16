@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import { HttpException } from "@nestjs/common";
 import { createRuntimeQueueEvent } from "@leadvirt/runtime-queue";
 import type { RequestContext } from "../../apps/api/src/common/request-context.js";
@@ -37,7 +38,7 @@ function sourceConfig() {
     env: { APP_ENV: "local" },
     knowledgeWebsiteImportEnabled: true,
     knowledgeWebsiteEgressReady: true,
-    knowledgeObjectStorePath: "C:\\leadvirt-review-decision-smoke",
+    knowledgeObjectStorePath: resolve(".leadvirt/knowledge-review-decision-smoke"),
     knowledgeArtifactEncryptionKey: randomBytes(32).toString("base64"),
     knowledgeArtifactEncryptionKeyId: "review-decision-smoke",
     knowledgeAcceptanceWebsiteFixtureEnabled: false,

@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-16: Resolve Cross-Platform Smoke Paths On The Host
+
+Decision: Smoke fixtures that require absolute filesystem paths derive them with the host `node:path` implementation instead of embedding a Windows or POSIX root.
+
+Context: The review-decision fixture used `C:\\leadvirt-review-decision-smoke`. It passed local Windows admission, but Linux correctly treated it as relative and rejected source synchronization as unconfigured before `CORRECT_SOURCE` could run.
+
+Consequences:
+
+- Local and Linux CI exercise the same source-action behavior.
+- Production absolute-path validation remains unchanged and fail closed.
+- Fixture portability no longer depends on the developer operating system.
+
 ## 2026-07-16: Test Live Idempotency Claims Separately From Stored Replays
 
 Decision: The Knowledge v2 idempotency smoke deterministically verifies a retryable conflict while an identical claim is `IN_PROGRESS`, then verifies the stored replay only after the winning request completes.
