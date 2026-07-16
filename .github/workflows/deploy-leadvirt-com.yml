@@ -449,7 +449,28 @@ jobs:
           printf '%s\n' "$RELEASE_SHA" > "$release_dir/.leadvirt-release-sha"
           printf '%s\n' "$release_id" > "$release_dir/.leadvirt-image-tag"
 
-          node "$release_dir/artifacts/scripts/knowledge-v2-staging-ready.mjs" "$DEPLOY_ENV_FILE"
+          validator_script="$release_dir/artifacts/scripts/knowledge-v2-staging-ready.mjs"
+          if [ ! -f "$validator_script" ] || [ -L "$validator_script" ] || [ ! -r "$validator_script" ]; then
+            echo "Knowledge readiness validator is not a readable regular file." >&2
+            exit 1
+          fi
+          if [ ! -f "$DEPLOY_ENV_FILE" ] || [ -L "$DEPLOY_ENV_FILE" ] || [ ! -r "$DEPLOY_ENV_FILE" ]; then
+            echo "Deployment env is not a readable regular file." >&2
+            exit 1
+          fi
+          docker run --rm \
+            --network none \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --pids-limit 64 \
+            --memory 128m \
+            --cpus 0.5 \
+            --user "$(id -u):$(id -g)" \
+            --mount "type=bind,src=$validator_script,dst=/validator.mjs,readonly" \
+            --mount "type=bind,src=$DEPLOY_ENV_FILE,dst=/run/secrets/leadvirt.env,readonly" \
+            node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d \
+            node /validator.mjs /run/secrets/leadvirt.env
           sudo env DEPLOY_ROOT="$DEPLOY_ROOT" \
             bash "$release_dir/artifacts/scripts/deployment-journal.sh" install-service
           installed_deployment_journal="$DEPLOY_ROOT/.deployment-journal.sh"

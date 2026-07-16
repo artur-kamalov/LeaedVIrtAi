@@ -1,5 +1,18 @@
 # Decision Log
 
+## 2026-07-16: Isolate The Deployment Environment Validator
+
+Decision: The production staging-env validator runs before journal installation in a digest-pinned Node 24.18.0 container, not in the VPS host runtime. The one-shot container uses the deploy UID, no network, a read-only root, no capabilities or privilege escalation, bounded resources, and read-only binds for only the validator file and production env file.
+
+Context: Verification passed, but the first real deployment failed before validation because the VPS intentionally had no host `node` executable. The validator is a standalone standard-library script and does not require the application image, Compose network, release tree, or secrets directory.
+
+Consequences:
+
+- Deploy behavior no longer depends on a host Node installation or host PATH.
+- Production secrets are readable only through one file mount and are not copied into the image, passed through `--env-file`, or attached to a networked container.
+- Invalid files or configuration still fail before journal creation, builds, migrations, drain, or promotion.
+- VPS provisioning should cache and verify the pinned image so registry availability is not part of the release critical path.
+
 ## 2026-07-16: Keep Secret Queries Outside Processor Admission
 
 Decision: Knowledge diagnostic queries use `SENSITIVE` processor admission and its personal-data minimization. `SECRET` remains categorically denied before query embedding, reranking, Qdrant access, or any external processor call. Acceptance policies grant the deterministic local provider only the matching `SENSITIVE` ceiling.

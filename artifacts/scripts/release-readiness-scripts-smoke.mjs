@@ -347,6 +347,47 @@ try {
     "Expected the matching Chromium binary before live Inbox acceptance",
   );
 
+  assert(
+    deployWorkflow.includes(
+      'validator_script="$release_dir/artifacts/scripts/knowledge-v2-staging-ready.mjs"',
+    ) &&
+      deployWorkflow.includes(
+        '[ ! -f "$validator_script" ] || [ -L "$validator_script" ] || [ ! -r "$validator_script" ]',
+      ) &&
+      deployWorkflow.includes(
+        '[ ! -f "$DEPLOY_ENV_FILE" ] || [ -L "$DEPLOY_ENV_FILE" ] || [ ! -r "$DEPLOY_ENV_FILE" ]',
+      ) &&
+      deployWorkflow.includes("docker run --rm \\") &&
+      deployWorkflow.includes("--network none \\") &&
+      deployWorkflow.includes("--read-only \\") &&
+      deployWorkflow.includes("--cap-drop ALL \\") &&
+      deployWorkflow.includes("--security-opt no-new-privileges \\") &&
+      deployWorkflow.includes("--pids-limit 64 \\") &&
+      deployWorkflow.includes("--memory 128m \\") &&
+      deployWorkflow.includes("--cpus 0.5 \\") &&
+      deployWorkflow.includes('--user "$(id -u):$(id -g)" \\') &&
+      deployWorkflow.includes("src=$validator_script,dst=/validator.mjs,readonly") &&
+      deployWorkflow.includes("src=$DEPLOY_ENV_FILE,dst=/run/secrets/leadvirt.env,readonly") &&
+      deployWorkflow.includes(
+        "node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d \\",
+      ) &&
+      deployWorkflow.includes("node /validator.mjs /run/secrets/leadvirt.env") &&
+      !deployWorkflow.includes(
+        'node "$release_dir/artifacts/scripts/knowledge-v2-staging-ready.mjs"',
+      ),
+    "Expected staging readiness to use an isolated Node 24 container without a VPS host runtime.",
+  );
+  assertOrdered(
+    deployWorkflow,
+    [
+      'printf \'%s\\n\' "$release_id" > "$release_dir/.leadvirt-image-tag"',
+      "docker run --rm \\",
+      "node /validator.mjs /run/secrets/leadvirt.env",
+      'bash "$release_dir/artifacts/scripts/deployment-journal.sh" install-service',
+    ],
+    "Expected isolated staging readiness before deployment service installation",
+  );
+
   const deployExecutionMarker = 'active_root="$(readlink -f "$current_link" 2>/dev/null || true)"';
   const deployExecutionIndex = deployWorkflow.indexOf(deployExecutionMarker);
   assert(deployExecutionIndex >= 0, "Expected the remote deployment execution block.");
