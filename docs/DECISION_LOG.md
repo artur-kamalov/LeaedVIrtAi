@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-16: Test Live Idempotency Claims Separately From Stored Replays
+
+Decision: The Knowledge v2 idempotency smoke deterministically verifies a retryable conflict while an identical claim is `IN_PROGRESS`, then verifies the stored replay only after the winning request completes.
+
+Context: Claim creation and mutation run in separate advisory-lock transactions. A naked concurrent `Promise.all` could therefore produce either a valid live-claim `409` or a completed replay depending on scheduler order, making Linux CI disagree with faster local runs.
+
+Consequences:
+
+- Production keeps returning `409 KNOWLEDGE_CONFLICT_IDEMPOTENCY_IN_PROGRESS` with `retryable: true` for a live identical claim.
+- Completed identical requests still replay the stored response without repeating mutation effects.
+- The required Phase 0 gate no longer depends on operating-system scheduling.
+
 ## 2026-07-16: Keep Phase 0 QA On Serving-Eligible Structured Fixtures
 
 Decision: Required Phase 0 checks use only supported Structured V2 publication, capability, query-hash, and snapshot-authorization contracts. The obsolete legacy graph smoke is removed from the release gate, and the grounded publication suite runs once through its canonical command.

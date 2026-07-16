@@ -1,10 +1,28 @@
 import { HttpException } from "@nestjs/common";
+import type { Prisma } from "@leadvirt/db";
 import { PrismaService } from "../../apps/api/src/modules/database/prisma.service.js";
 import { canonicalKnowledgeV2Hash } from "../../apps/api/src/modules/knowledge/knowledge-v2-http.js";
 import { KnowledgeV2IdempotencyService } from "../../apps/api/src/modules/knowledge/knowledge-v2-idempotency.service.js";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+
+async function settleWithin<T>(promise: Promise<T>, timeoutMs: number) {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise.then(
+        (value) => ({ kind: "response" as const, value }),
+        (error: unknown) => ({ kind: "error" as const, error }),
+      ),
+      new Promise<{ kind: "timeout" }>((resolve) => {
+        timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function main() {
@@ -18,34 +36,73 @@ async function main() {
 
   try {
     let effects = 0;
-    const execute = () =>
-      service.execute(
-        {
+    const initialInput = {
+      tenantId: tenant.id,
+      endpoint: "POST /knowledge/v2/facts",
+      key: `fact:${stamp}`,
+      request: { factKey: "business/name", value: "LeadVirt" },
+    };
+    const mutation = async (tx: Prisma.TransactionClient) => {
+      effects += 1;
+      await tx.auditLog.create({
+        data: {
           tenantId: tenant.id,
-          endpoint: "POST /knowledge/v2/facts",
-          key: `fact:${stamp}`,
-          request: { factKey: "business/name", value: "LeadVirt" },
+          action: "knowledge.v2.idempotency.smoke",
+          entityType: "smoke",
+          entityId: stamp,
         },
-        async (tx) => {
-          effects += 1;
-          await tx.auditLog.create({
-            data: {
-              tenantId: tenant.id,
-              action: "knowledge.v2.idempotency.smoke",
-              entityType: "smoke",
-              entityId: stamp,
-            },
-          });
-          return { httpStatus: 201, responseBody: { id: `fact-${stamp}` } };
-        },
-      );
-
-    const [first, replay] = await Promise.all([execute(), execute()]);
-    assert(effects === 1, "Concurrent replay executed the mutation more than once.");
-    assert(
-      [first.idempotencyReplayed, replay.idempotencyReplayed].filter(Boolean).length === 1,
-      "Concurrent replay flags are incorrect.",
+      });
+      return { httpStatus: 201, responseBody: { id: `fact-${stamp}` } };
+    };
+    const execute = () => service.execute(initialInput, mutation);
+    let signalInitialPreparation!: () => void;
+    let releaseInitialPreparation!: () => void;
+    const initialPreparationStarted = new Promise<void>((resolve) => {
+      signalInitialPreparation = resolve;
+    });
+    const initialPreparationRelease = new Promise<void>((resolve) => {
+      releaseInitialPreparation = resolve;
+    });
+    const firstExecution = service.executePrepared(
+      initialInput,
+      async () => {
+        signalInitialPreparation();
+        await initialPreparationRelease;
+      },
+      mutation,
     );
+    await initialPreparationStarted;
+    const concurrentAttempt = execute();
+    let concurrentOutcome: Awaited<ReturnType<typeof settleWithin>>;
+    try {
+      concurrentOutcome = await settleWithin(concurrentAttempt, 5_000);
+    } finally {
+      releaseInitialPreparation();
+    }
+    const first = await firstExecution;
+    if (concurrentOutcome.kind === "timeout") await concurrentAttempt.catch(() => undefined);
+    const concurrentPayload =
+      concurrentOutcome.kind === "error" && concurrentOutcome.error instanceof HttpException
+        ? concurrentOutcome.error.getResponse()
+        : null;
+    assert(
+      concurrentOutcome.kind === "error" &&
+        concurrentOutcome.error instanceof HttpException &&
+        concurrentOutcome.error.getStatus() === 409 &&
+        typeof concurrentPayload === "object" &&
+        concurrentPayload !== null &&
+        "code" in concurrentPayload &&
+        concurrentPayload.code === "KNOWLEDGE_CONFLICT_IDEMPOTENCY_IN_PROGRESS" &&
+        "retryable" in concurrentPayload &&
+        concurrentPayload.retryable === true,
+      "A duplicate request did not receive the retryable live-claim conflict.",
+    );
+    assert(!first.idempotencyReplayed, "The first execution was reported as a replay.");
+    assert(effects === 1, "The live-claim conflict executed the mutation.");
+
+    const replay = await execute();
+    assert(effects === 1, "Stored replay executed the mutation more than once.");
+    assert(replay.idempotencyReplayed, "Stored replay was not identified.");
     assert(first.responseBody.id === replay.responseBody.id, "Replay response changed.");
 
     let changedRequestRejected = false;
@@ -240,6 +297,7 @@ async function main() {
       JSON.stringify({
         ok: true,
         concurrentMutationCount: effects,
+        liveClaimRejected: true,
         changedRequestRejected,
         terminalErrorReplayed: terminalEffects === 1,
         failedMutationRolledBack: true,
