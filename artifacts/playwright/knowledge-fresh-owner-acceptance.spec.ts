@@ -13,6 +13,7 @@ import type {
   KnowledgeV2DocumentPage,
   KnowledgeV2DiagnosticSearchView,
   KnowledgeV2FactView,
+  KnowledgeV2GuidanceRuleView,
   KnowledgeV2MutationResult,
   KnowledgeV2PublicationDetail,
   KnowledgeV2PublicationValidationView,
@@ -225,14 +226,14 @@ test("fresh owner imports, evaluates, publishes, and retrieves real website evid
             provider: "openai-compatible",
             deployment: embeddingDeployment,
             region,
-            allowedClassifications: ["PUBLIC", "INTERNAL", "SECRET"],
+            allowedClassifications: ["PUBLIC", "INTERNAL", "SENSITIVE"],
           },
           reranker: {
             provider: rerankerProvider,
             model: rerankerModel,
             version: rerankerVersion,
             region,
-            allowedClassifications: ["PUBLIC", "INTERNAL"],
+            allowedClassifications: ["PUBLIC", "INTERNAL", "SENSITIVE"],
           },
         },
         modelProcessorPolicy: {
@@ -361,10 +362,83 @@ test("fresh owner imports, evaluates, publishes, and retrieves real website evid
     ).resource;
     expect(testCase.critical).toBe(true);
 
+    const blockedReadiness = await data<KnowledgeV2ReadinessView>(
+      await request.get(`${apiBase}/knowledge/v2/readiness`),
+    );
+    expect(blockedReadiness.draft.itemCounts.documentRevisions).toBe(1);
+    expect(
+      blockedReadiness.draft.blockers.some(
+        (blocker) => blocker.code === "KNOWLEDGE_PERMISSION_TENANT_DEFAULT_SCOPE_UNAVAILABLE",
+      ),
+    ).toBe(true);
+    const blockedValidation = (
+      await data<KnowledgeV2MutationResult<KnowledgeV2PublicationValidationView>>(
+        await request.post(`${apiBase}/knowledge/v2/publications/validate`, {
+          headers: { "Idempotency-Key": key("validate-blocked") },
+          data: {
+            targetKey: blockedReadiness.targetKey,
+            candidateId: blockedReadiness.draft.candidateId,
+            candidateVersion: blockedReadiness.draft.candidateVersion,
+          },
+        }),
+        201,
+      )
+    ).resource;
+    expect(blockedValidation.status).toBe("FAILED");
+    expect(
+      blockedValidation.blockers.some(
+        (blocker) => blocker.code === "KNOWLEDGE_PERMISSION_TENANT_DEFAULT_SCOPE_UNAVAILABLE",
+      ),
+    ).toBe(true);
+    expect(await prisma.knowledgeIndexSnapshot.count({ where: { tenantId } })).toBe(0);
+
+    const scopedSettings = await request.patch(`${apiBase}/knowledge/v2/settings`, {
+      headers: {
+        "Idempotency-Key": key("default-scope"),
+        "If-Match": updatedSettings.headers().etag,
+      },
+      data: { defaultScope: { audiences: ["PUBLIC"], locales: ["en"] } },
+    });
+    expect(scopedSettings.ok(), await scopedSettings.text()).toBe(true);
+
+    const guidanceResponse = await request.post(`${apiBase}/knowledge/v2/guidance`, {
+      headers: { "Idempotency-Key": key("guidance") },
+      data: {
+        title: "Unresolved question escalation",
+        type: "ESCALATION",
+        condition: {
+          kind: "PREDICATE",
+          field: "INTENT",
+          operator: "EQUALS",
+          value: "human_handoff",
+        },
+        instruction: "Escalate explicit requests for a human specialist.",
+        priority: 100,
+        tieBreakKey: "support.unresolved-handoff",
+        riskLevel: "LOW",
+      },
+    });
+    const guidance = (
+      await data<KnowledgeV2MutationResult<KnowledgeV2GuidanceRuleView>>(guidanceResponse, 201)
+    ).resource;
+    const approvedGuidance = await request.post(
+      `${apiBase}/knowledge/v2/guidance/${encodeURIComponent(guidance.id)}/approve`,
+      {
+        headers: {
+          "Idempotency-Key": key("approve-guidance"),
+          "If-Match": guidanceResponse.headers().etag,
+        },
+        data: { note: "Approved for the fresh-owner publication." },
+      },
+    );
+    expect(approvedGuidance.ok(), await approvedGuidance.text()).toBe(true);
+
     const readiness = await data<KnowledgeV2ReadinessView>(
       await request.get(`${apiBase}/knowledge/v2/readiness`),
     );
     expect(readiness.draft.itemCounts.documentRevisions).toBe(1);
+    expect(readiness.draft.itemCounts.guidanceRuleVersions).toBe(1);
+    expect(readiness.draft.blockers).toEqual([]);
     const validation = (
       await data<KnowledgeV2MutationResult<KnowledgeV2PublicationValidationView>>(
         await request.post(`${apiBase}/knowledge/v2/publications/validate`, {
@@ -441,7 +515,7 @@ test("fresh owner imports, evaluates, publishes, and retrieves real website evid
         channelType: "DEMO",
         audience: "INTERNAL",
         classifications: ["PUBLIC", "INTERNAL", "SENSITIVE"],
-        queryClassification: "SECRET",
+        queryClassification: "SENSITIVE",
       },
       target: {
         corpusKind: "STRUCTURED_V2",

@@ -385,11 +385,11 @@ async function testRoleAuthorization() {
         "INTERNAL",
         "SENSITIVE",
       ]);
-      assert.equal(runtime.retrieveInputs[0]!.authorization.queryClassification, "SECRET");
+      assert.equal(runtime.retrieveInputs[0]!.authorization.queryClassification, "SENSITIVE");
     } else {
       assert.equal(runtime.retrieveInputs[0]!.authorization.audience, "PUBLIC");
       assert.deepEqual(runtime.retrieveInputs[0]!.authorization.classifications, ["PUBLIC"]);
-      assert.equal(runtime.retrieveInputs[0]!.authorization.queryClassification, "SECRET");
+      assert.equal(runtime.retrieveInputs[0]!.authorization.queryClassification, "SENSITIVE");
     }
     assertSafeProjection(result);
   }

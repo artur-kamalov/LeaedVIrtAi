@@ -386,12 +386,10 @@ function record(value: Prisma.JsonValue | null | undefined): Record<string, Pris
 }
 
 function runtimePolicyVersions(
-  settings:
-    | {
-        retrievalProcessorPolicy: Prisma.JsonValue | null;
-        modelProcessorPolicy: Prisma.JsonValue | null;
-      }
-    | null,
+  settings: {
+    retrievalProcessorPolicy: Prisma.JsonValue | null;
+    modelProcessorPolicy: Prisma.JsonValue | null;
+  } | null,
 ) {
   const retrieval = record(settings?.retrievalProcessorPolicy);
   const model = record(settings?.modelProcessorPolicy);
@@ -1605,7 +1603,9 @@ export class KnowledgeV2PublicationService {
         const documentItems = projection.items.filter(
           (item) => item.itemType === "DOCUMENT_REVISION",
         );
-        if (documentItems.length > 0) {
+        const blockers = [...projection.blockers, ...capabilityEvaluation.blockers];
+        const warnings = [...projection.warnings, ...capabilityEvaluation.warnings];
+        if (documentItems.length > 0 && (preparedSnapshotId !== null || blockers.length === 0)) {
           const snapshot = preparedSnapshotId
             ? await tx.knowledgeIndexSnapshot.findFirst({
                 where: {
@@ -1621,8 +1621,6 @@ export class KnowledgeV2PublicationService {
           if (!snapshot) throw this.snapshotReconciliationError();
           this.snapshotAuthorizationManifest(context.tenantId, snapshot, documentItems);
         }
-        const blockers = [...projection.blockers, ...capabilityEvaluation.blockers];
-        const warnings = [...projection.warnings, ...capabilityEvaluation.warnings];
         const validationData = {
           targetKey,
           corpusKind: "STRUCTURED_V2" as const,

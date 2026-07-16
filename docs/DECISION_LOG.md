@@ -1,5 +1,29 @@
 # Decision Log
 
+## 2026-07-16: Keep Secret Queries Outside Processor Admission
+
+Decision: Knowledge diagnostic queries use `SENSITIVE` processor admission and its personal-data minimization. `SECRET` remains categorically denied before query embedding, reranking, Qdrant access, or any external processor call. Acceptance policies grant the deterministic local provider only the matching `SENSITIVE` ceiling.
+
+Context: The diagnostic endpoint labeled every query `SECRET`, while processor-query admission intentionally rejects that classification. Mocked diagnostic tests hid the contradiction, so the real fresh-owner retrieval could never run regardless of tenant reranker policy.
+
+Consequences:
+
+- Diagnostic retrieval can exercise the real structured runtime while retaining minimization for personal identifiers.
+- Secret-bearing queries remain fail-closed and cannot be enabled by widening a tenant policy or environment ceiling.
+- Diagnostic contract tests assert `SENSITIVE`, while the dedicated processor-admission smoke continues to assert that `SECRET` is denied.
+
+## 2026-07-16: Persist Publication Blockers Before Requiring Index Evidence
+
+Decision: Publication validation records a blocked draft as `FAILED` without requiring an index snapshot when projection blockers prevented preparation. A document-bearing validation still requires an exact READY snapshot whenever preparation occurred or the transaction observes no blockers.
+
+Context: Fresh-owner validation correctly skipped index preparation for a missing tenant default scope, but the transaction then unconditionally required a snapshot and converted the actionable blocker into a misleading reconciliation `503`.
+
+Consequences:
+
+- Clients receive exact readiness blockers as a successful validation resource instead of a false dependency outage.
+- Blocked drafts do not create unnecessary Qdrant snapshots.
+- The transaction remains fail-closed if blockers disappear after preflight or a prepared snapshot cannot be authorized.
+
 ## 2026-07-16: Contain Horizontal Tabs At Their Scroll Boundary
 
 Decision: Horizontally scrollable tab rows own their overflow inside a width-constrained viewport. The viewport may scroll on the x-axis, but its page wrapper clips propagated x-overflow and the shared `scrollbar-none` class has explicit Firefox and WebKit behavior.

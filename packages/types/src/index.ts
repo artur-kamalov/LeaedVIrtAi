@@ -3121,7 +3121,7 @@ export interface KnowledgeV2DiagnosticSearchView {
     channelType: "DEMO";
     audience: KnowledgeV2Audience;
     classifications: KnowledgeV2SecurityClassification[];
-    queryClassification: "SECRET";
+    queryClassification: "SENSITIVE";
   };
   target: {
     corpusKind: "STRUCTURED_V2";

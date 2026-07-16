@@ -354,7 +354,7 @@ export class KnowledgeService {
       channelType: "DEMO",
       audience: privileged ? "INTERNAL" : "PUBLIC",
       classifications,
-      queryClassification: "SECRET",
+      queryClassification: "SENSITIVE",
     };
   }
 
@@ -459,7 +459,7 @@ export class KnowledgeService {
         channelType: "DEMO",
         audience: authorization.audience,
         classifications: [...authorization.classifications],
-        queryClassification: "SECRET",
+        queryClassification: "SENSITIVE",
       },
       target: {
         corpusKind: "STRUCTURED_V2",
