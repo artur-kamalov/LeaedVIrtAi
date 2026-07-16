@@ -881,12 +881,13 @@ jobs:
             echo "Unexpected production Telegram webhook relay." >&2
             exit 1
           fi
+          telegram_relay_probe_payload='{"update_id":1,"message":{"message_id":1,"date":1,"chat":{"id":1,"type":"private"},"text":"deployment probe"}}'
           relay_status="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' \
             -X POST \
             -H 'Content-Type: application/json' \
             -H 'X-Telegram-Bot-Api-Secret-Token: deployment-probe' \
-            --data '{"update_id":1}' \
-            "$telegram_webhook_base/lvtg_deployment_probe/webhook")"
+            --data "$telegram_relay_probe_payload" \
+            "$telegram_webhook_base/lvtg.deployment_probe/webhook")"
           if [ "$relay_status" != "404" ]; then
             echo "Telegram webhook relay probe returned HTTP $relay_status, expected 404." >&2
             exit 1

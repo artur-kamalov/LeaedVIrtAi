@@ -386,10 +386,28 @@ async function main() {
     "Deployment does not verify the live Telegram webhook relay.",
   );
   assert(
-    deployWorkflow.includes("$telegram_webhook_base/lvtg_deployment_probe/webhook"),
-    "Deployment does not probe the external Telegram webhook relay.",
+    deployWorkflow.includes("$telegram_webhook_base/lvtg.deployment_probe/webhook"),
+    "Deployment does not probe the external Telegram webhook relay with a non-creatable key.",
   );
-  console.log("Telegram managed connection contract: 39/39 checks passed");
+  assert(
+    deployWorkflow.includes(
+      `telegram_relay_probe_payload='${JSON.stringify({
+        update_id: 1,
+        message: {
+          message_id: 1,
+          date: 1,
+          chat: { id: 1, type: "private" },
+          text: "deployment probe",
+        },
+      })}'`,
+    ),
+    "Deployment Telegram webhook relay probe is not a valid message update.",
+  );
+  assert(
+    deployWorkflow.includes('--data "$telegram_relay_probe_payload"'),
+    "Deployment does not send the validated Telegram relay probe payload.",
+  );
+  console.log("Telegram managed connection contract: 41/41 checks passed");
 }
 
 void main();
