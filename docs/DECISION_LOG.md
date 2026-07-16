@@ -1,5 +1,18 @@
 # Decision Log
 
+## 2026-07-16: Pin Production ClamAV To A Verified Digest
+
+Decision: Production uses the patch-compatible full `clamav/clamav:1.4.5` runtime image pinned to its verified OCI index digest and explicitly targets `linux/amd64`. Scanner provenance reports `clamav-1.4.5`.
+
+Context: Docker Hub no longer exposes the configured `1.4.2` tag. Verify passed, but deployment failed before candidate preflight while Compose tried to start stateful dependencies. The production host is `linux/amd64`, and the exact 1.4.5 digest is available and preserves port 3310 plus `/var/lib/clamav` volume compatibility. No ClamAV Compose container exists on the host, so the next `--no-recreate` start will create the pinned image instead of retaining an older daemon.
+
+Consequences:
+
+- Releases no longer depend on resolution of the removed tag or on a mutable ClamAV tag.
+- The existing persistent signature volume and full runtime startup behavior remain unchanged across the patch update.
+- Release readiness locks the exact digest; changing ClamAV requires an explicit manifest verification and test update.
+- Remaining stateful images still need digest pins and provisioning-time pulls.
+
 ## 2026-07-16: Isolate The Deployment Environment Validator
 
 Decision: The production staging-env validator runs before journal installation in a digest-pinned Node 24.18.0 container, not in the VPS host runtime. The one-shot container uses the deploy UID, no network, a read-only root, no capabilities or privilege escalation, bounded resources, and read-only binds for only the validator file and production env file.

@@ -338,6 +338,13 @@ try {
     "Expected only API, worker, and migration containers to receive the production secrets env file.",
   );
 
+  assert(
+    stagingCompose.includes(
+      "  clamav:\n    image: clamav/clamav:1.4.5@sha256:e7ead98e7e07231b151bce988e0cfb0a3b46e6e7046d9dd44fd838c0df724a03\n    platform: linux/amd64\n",
+    ),
+    "Expected the available ClamAV 1.4.5 runtime image to be pinned by OCI digest.",
+  );
+
   assertOrdered(
     deployWorkflow,
     [
