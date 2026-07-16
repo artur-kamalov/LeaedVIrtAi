@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "eslint .",
+    "qa:ai-business-identity": "tsx src/ai-business-identity.smoke.ts",
     "qa:capability-autonomy": "tsx src/capability-autonomy-v1.smoke.ts",
     "qa:capability-intent": "tsx src/capability-intent-v1.smoke.ts",
     "qa:capability-runtime-evidence": "tsx src/capability-runtime-evidence-v1.smoke.ts",

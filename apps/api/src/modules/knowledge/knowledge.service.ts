@@ -709,8 +709,11 @@ export class KnowledgeService {
       faq,
       policies,
       escalationRules,
+      timezone,
+      services,
+      weeklySchedule,
     } = onboardingKnowledgeInput(data);
-    const baseStructuredData = { source: "onboarding", businessType, scenario };
+    const baseStructuredData = { source: "onboarding", businessType, scenario, timezone };
 
     return [
       {
@@ -731,14 +734,23 @@ export class KnowledgeService {
         sourceKey: "onboarding:catalog",
         title: "Catalog and prices",
         content: servicesCatalog,
-        structuredData: { ...baseStructuredData, servicesCatalog },
+        structuredData: {
+          ...baseStructuredData,
+          servicesCatalog,
+          services: services as unknown as Prisma.InputJsonArray,
+        },
       },
       {
         type: "AVAILABILITY",
         sourceKey: "onboarding:availability",
         title: "Working hours and free windows",
         content: this.lines([hours ? `Working hours: ${hours}` : "", availability]),
-        structuredData: { ...baseStructuredData, hours, availability },
+        structuredData: {
+          ...baseStructuredData,
+          hours,
+          availability,
+          weeklySchedule: weeklySchedule as unknown as Prisma.InputJsonArray,
+        },
       },
       {
         type: "FAQ",

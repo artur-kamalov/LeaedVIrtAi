@@ -1,17 +1,17 @@
-import { IsOptional, IsString, IsUrl, Matches, MaxLength } from "class-validator";
+import { IsOptional, IsString, IsUrl, Matches, MaxLength, ValidateIf } from "class-validator";
 
 export class UpdateAccountSettingsDto {
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @MaxLength(160)
   businessName?: string;
 
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @MaxLength(80)
   timezone?: string;
 
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @MaxLength(160)
   businessType?: string;

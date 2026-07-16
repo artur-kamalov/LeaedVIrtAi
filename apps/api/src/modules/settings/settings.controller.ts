@@ -3,6 +3,7 @@
   Controller,
   Delete,
   Get,
+  Headers,
   Inject,
   Param,
   Patch,
@@ -25,6 +26,8 @@ import { UpdateNotificationsDto } from "./dto/update-notifications.dto.js";
 import { UpdateTeamMemberDto } from "./dto/update-team-member.dto.js";
 import { SettingsService } from "./settings.service.js";
 
+type HeaderValue = string | string[] | undefined;
+
 @UseGuards(WorkspaceAuthGuard, RolesGuard)
 @Controller("settings")
 export class SettingsController {
@@ -35,7 +38,8 @@ export class SettingsController {
 
   @Get("account")
   async account(@CurrentContext() context: RequestContext) {
-    return { data: await this.settingsService.account(context) };
+    const data = await this.settingsService.account(context);
+    return { data };
   }
 
   @Patch("account")
@@ -43,8 +47,10 @@ export class SettingsController {
   async updateAccount(
     @CurrentContext() context: RequestContext,
     @Body() dto: UpdateAccountSettingsDto,
+    @Headers("if-match") ifMatch: HeaderValue,
   ) {
-    return { data: await this.settingsService.updateAccount(context, dto) };
+    const data = await this.settingsService.updateAccount(context, dto, ifMatch);
+    return { data };
   }
 
   @Patch("preferences/locale")

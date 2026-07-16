@@ -32,9 +32,14 @@ type GuidanceRecord = Prisma.KnowledgeV2GuidanceRuleGetPayload<{
 }>;
 type GuidanceVersion = GuidanceRecord["versions"][number];
 type Evidence = FactVersion["evidence"][number];
+type OnboardingKnowledgeStringKey = {
+  [Key in keyof OnboardingKnowledgeInput]: OnboardingKnowledgeInput[Key] extends string
+    ? Key
+    : never;
+}[keyof OnboardingKnowledgeInput];
 
 interface FactSpec {
-  semanticKey: keyof OnboardingKnowledgeInput;
+  semanticKey: OnboardingKnowledgeStringKey;
   factKey: string;
   entityType: "BUSINESS_PROFILE" | "CATALOG";
   audience: "PUBLIC" | "INTERNAL";
@@ -44,7 +49,7 @@ interface FactSpec {
 }
 
 interface GuidanceSpec {
-  semanticKey: keyof OnboardingKnowledgeInput;
+  semanticKey: OnboardingKnowledgeStringKey;
   ruleKey: string;
   title: string;
   ruleType: "RESPONSE" | "ESCALATION";

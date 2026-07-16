@@ -6,6 +6,10 @@ import type {
   BillingInvoice,
   BillingPaymentMethod,
   BillingPaymentMethodUpdateRequest,
+  BusinessProfileData,
+  BusinessProfileScheduleDay,
+  BusinessProfileServiceItem,
+  BusinessProfileView,
   Channel,
   ChannelStatus,
   ChannelType,
@@ -54,6 +58,18 @@ type NotificationsSettings = {
   daily: boolean;
   tg_summary: boolean;
 };
+
+export class DemoApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string,
+  ) {
+    super(message);
+    this.name = "DemoApiError";
+  }
+}
+
 type SecuritySettings = {
   authMode: string;
   tenantScoped: boolean;
@@ -77,6 +93,12 @@ type SecuritySettings = {
 };
 type DemoState = {
   tenant: CurrentTenant;
+  account: {
+    logoDataUrl: string | null;
+    phone: string | null;
+    website: string | null;
+  };
+  businessProfileRequests: Record<string, { signature: string; response: BusinessProfileView }>;
   owner: {
     id: string;
     email: string;
@@ -98,6 +120,9 @@ type DemoState = {
   paymentMethod: BillingPaymentMethod;
   paymentRequestedAt: string | null;
   onboarding: {
+    businessProfileVersion: number;
+    businessProfileEtag: string;
+    businessProfileUpdatedAt: string;
     currentStep: string;
     completedSteps: string[];
     data: Record<string, unknown>;
@@ -123,6 +148,53 @@ function clone<T>(value: T): T {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function deepMergeRecords(
+  current: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    const previous = merged[key];
+    merged[key] = isRecord(previous) && isRecord(value) ? deepMergeRecords(previous, value) : value;
+  }
+  return merged;
+}
+
+const demoProfileDays = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] as const;
+
+function demoProfileServices(value: unknown): BusinessProfileServiceItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string") return [];
+    return [
+      {
+        id: item.id,
+        name: item.name,
+        description: typeof item.description === "string" ? item.description : "",
+        price: typeof item.price === "string" ? item.price : "",
+        duration: typeof item.duration === "string" ? item.duration : "",
+      },
+    ];
+  });
+}
+
+function demoProfileSchedule(value: unknown): BusinessProfileScheduleDay[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.day !== "string") return [];
+    const day = demoProfileDays.find((candidate) => candidate === item.day);
+    if (!day || typeof item.enabled !== "boolean") return [];
+    return [
+      {
+        day,
+        enabled: item.enabled,
+        opensAt: typeof item.opensAt === "string" ? item.opensAt : "",
+        closesAt: typeof item.closesAt === "string" ? item.closesAt : "",
+      },
+    ];
+  });
 }
 
 function stringValue(value: unknown, fallback: string) {
@@ -573,6 +645,12 @@ function buildInitialState(): DemoState {
       timezone: "Europe/Moscow",
       role: "OWNER",
     },
+    account: {
+      logoDataUrl: null,
+      phone: "+7 999 123-45-67",
+      website: "https://studio-leto.example",
+    },
+    businessProfileRequests: {},
     owner: {
       id: ownerId,
       email: "owner@studio-leto.ru",
@@ -660,6 +738,9 @@ function buildInitialState(): DemoState {
     },
     paymentRequestedAt: null,
     onboarding: {
+      businessProfileVersion: 1,
+      businessProfileEtag: '"demo-business-profile-1"',
+      businessProfileUpdatedAt: iso(3600),
       currentStep: "launch",
       completedSteps: ["business", "channels", "scenario", "company", "crm", "launch"],
       data: {
@@ -668,6 +749,31 @@ function buildInitialState(): DemoState {
         scenario: "booking",
         crm: "amocrm",
         companyInfo: {
+          services: [
+            {
+              id: "demo-service-haircut",
+              name: "Стрижка",
+              description: "Стрижка с консультацией и укладкой.",
+              price: "2800 ₽",
+              duration: "60 мин",
+            },
+            {
+              id: "demo-service-coloring",
+              name: "Окрашивание",
+              description: "Подбор оттенка, окрашивание и уход.",
+              price: "от 12000 ₽",
+              duration: "180 мин",
+            },
+          ],
+          weeklySchedule: [
+            { day: "MON", enabled: true, opensAt: "10:00", closesAt: "21:00" },
+            { day: "TUE", enabled: true, opensAt: "10:00", closesAt: "21:00" },
+            { day: "WED", enabled: true, opensAt: "10:00", closesAt: "21:00" },
+            { day: "THU", enabled: true, opensAt: "10:00", closesAt: "21:00" },
+            { day: "FRI", enabled: true, opensAt: "10:00", closesAt: "21:00" },
+            { day: "SAT", enabled: true, opensAt: "10:00", closesAt: "21:00" },
+            { day: "SUN", enabled: true, opensAt: "10:00", closesAt: "20:00" },
+          ],
           name: "Студия Лето",
           description: "Салон красоты в центре города: окрашивание, стрижки, укладки и уход.",
           hours: "Ежедневно 10:00-21:00",
@@ -905,6 +1011,143 @@ function jsonBody(init: RequestInit) {
   } catch {
     return {};
   }
+}
+
+function hasOwn(value: Record<string, unknown>, key: string) {
+  return Boolean(Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function requestHeader(init: RequestInit, name: string) {
+  return new Headers(init.headers).get(name);
+}
+
+function assertDemoIfMatch(init: RequestInit, currentEtag: string) {
+  const ifMatch = requestHeader(init, "If-Match");
+  if (!ifMatch) {
+    throw new DemoApiError("An If-Match header is required.", 428, "PRECONDITION_REQUIRED");
+  }
+  if (ifMatch !== currentEtag) {
+    throw new DemoApiError(
+      "The business profile has changed. Reload the latest version.",
+      412,
+      "REVISION_CONFLICT",
+    );
+  }
+}
+
+function companyInfoFromData(data: Record<string, unknown>) {
+  return isRecord(data.companyInfo) ? data.companyInfo : {};
+}
+
+function demoBusinessProfileData(
+  s: DemoState,
+  data: Record<string, unknown> = s.onboarding.data,
+): BusinessProfileData {
+  const companyInfo = companyInfoFromData(data);
+  return {
+    businessType: typeof data.businessType === "string" ? data.businessType : s.tenant.businessType,
+    name: typeof companyInfo.name === "string" ? companyInfo.name : s.tenant.name,
+    description: typeof companyInfo.description === "string" ? companyInfo.description : "",
+    avgCheck: typeof companyInfo.avgCheck === "string" ? companyInfo.avgCheck : "",
+    servicesCatalog:
+      typeof companyInfo.servicesCatalog === "string" ? companyInfo.servicesCatalog : "",
+    services: demoProfileServices(companyInfo.services),
+    hours: typeof companyInfo.hours === "string" ? companyInfo.hours : "",
+    weeklySchedule: demoProfileSchedule(companyInfo.weeklySchedule),
+    availability: typeof companyInfo.availability === "string" ? companyInfo.availability : "",
+    faq: typeof companyInfo.faq === "string" ? companyInfo.faq : "",
+    policies: typeof companyInfo.policies === "string" ? companyInfo.policies : "",
+    escalationRules:
+      typeof companyInfo.escalationRules === "string" ? companyInfo.escalationRules : "",
+    timezone: typeof data.timezone === "string" ? data.timezone : s.tenant.timezone,
+  };
+}
+
+function demoBusinessProfileView(s: DemoState): BusinessProfileView {
+  return {
+    profile: demoBusinessProfileData(s),
+    version: s.onboarding.businessProfileVersion,
+    etag: s.onboarding.businessProfileEtag,
+    updatedAt: s.onboarding.businessProfileUpdatedAt,
+  };
+}
+
+function patchDemoBusinessProfile(
+  current: BusinessProfileData,
+  patch: Record<string, unknown>,
+): BusinessProfileData {
+  return {
+    businessType:
+      typeof patch.businessType === "string" ? patch.businessType.trim() : current.businessType,
+    name: typeof patch.name === "string" ? patch.name.trim() : current.name,
+    description:
+      typeof patch.description === "string" ? patch.description.trim() : current.description,
+    avgCheck: typeof patch.avgCheck === "string" ? patch.avgCheck.trim() : current.avgCheck,
+    servicesCatalog:
+      typeof patch.servicesCatalog === "string"
+        ? patch.servicesCatalog.trim()
+        : current.servicesCatalog,
+    services: hasOwn(patch, "services") ? demoProfileServices(patch.services) : current.services,
+    hours: typeof patch.hours === "string" ? patch.hours.trim() : current.hours,
+    weeklySchedule: hasOwn(patch, "weeklySchedule")
+      ? demoProfileSchedule(patch.weeklySchedule)
+      : current.weeklySchedule,
+    availability:
+      typeof patch.availability === "string" ? patch.availability.trim() : current.availability,
+    faq: typeof patch.faq === "string" ? patch.faq.trim() : current.faq,
+    policies: typeof patch.policies === "string" ? patch.policies.trim() : current.policies,
+    escalationRules:
+      typeof patch.escalationRules === "string"
+        ? patch.escalationRules.trim()
+        : current.escalationRules,
+    timezone: typeof patch.timezone === "string" ? patch.timezone.trim() : current.timezone,
+  };
+}
+
+function writeDemoBusinessProfile(s: DemoState, profile: BusinessProfileData) {
+  s.tenant.name = profile.name;
+  s.tenant.businessType = profile.businessType;
+  s.tenant.timezone = profile.timezone;
+  s.onboarding.data = deepMergeRecords(s.onboarding.data, {
+    businessType: profile.businessType,
+    timezone: profile.timezone,
+    companyInfo: {
+      name: profile.name,
+      description: profile.description,
+      avgCheck: profile.avgCheck,
+      servicesCatalog: profile.servicesCatalog,
+      services: profile.services,
+      hours: profile.hours,
+      weeklySchedule: profile.weeklySchedule,
+      availability: profile.availability,
+      faq: profile.faq,
+      policies: profile.policies,
+      escalationRules: profile.escalationRules,
+    },
+  });
+}
+
+function demoSettingsAccount(s: DemoState) {
+  const profile = demoBusinessProfileData(s);
+  return {
+    tenant: s.tenant,
+    owner: s.owner,
+    businessName: s.tenant.name,
+    timezone: s.tenant.timezone,
+    logoDataUrl: s.account.logoDataUrl,
+    description: profile.description || null,
+    phone: s.account.phone,
+    website: s.account.website,
+    businessProfileVersion: s.onboarding.businessProfileVersion,
+    businessProfileEtag: s.onboarding.businessProfileEtag,
+    businessProfileUpdatedAt: s.onboarding.businessProfileUpdatedAt,
+  };
+}
+
+function touchDemoBusinessProfile(s: DemoState) {
+  s.onboarding.businessProfileVersion += 1;
+  s.onboarding.businessProfileEtag = `"demo-business-profile-${s.onboarding.businessProfileVersion}"`;
+  s.onboarding.businessProfileUpdatedAt = new Date().toISOString();
 }
 
 function leadById(s: DemoState, leadId: string) {
@@ -1603,23 +1846,76 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
     return envelope(clone(channel)) as T;
   }
 
+  if (method === "GET" && pathname === "/business-profile") {
+    return envelope(clone(demoBusinessProfileView(s))) as T;
+  }
+  if (method === "PATCH" && pathname === "/business-profile") {
+    const profilePatch = isRecord(body.profile) ? body.profile : {};
+    const idempotencyKey = requestHeader(init, "Idempotency-Key");
+    if (!idempotencyKey) {
+      throw new DemoApiError(
+        "An Idempotency-Key header is required.",
+        400,
+        "IDEMPOTENCY_KEY_REQUIRED",
+      );
+    }
+    const signature = JSON.stringify({
+      ifMatch: requestHeader(init, "If-Match"),
+      profile: profilePatch,
+    });
+    const replay = s.businessProfileRequests[idempotencyKey];
+    if (replay) {
+      if (replay.signature !== signature) {
+        throw new DemoApiError(
+          "The idempotency key was already used for another request.",
+          409,
+          "IDEMPOTENCY_KEY_REUSED",
+        );
+      }
+      return envelope(clone(replay.response)) as T;
+    }
+
+    const current = demoBusinessProfileView(s);
+    assertDemoIfMatch(init, current.etag);
+    const nextProfile = patchDemoBusinessProfile(current.profile, profilePatch);
+    if (JSON.stringify(nextProfile) !== JSON.stringify(current.profile)) {
+      writeDemoBusinessProfile(s, nextProfile);
+      touchDemoBusinessProfile(s);
+    }
+    const response = clone(demoBusinessProfileView(s));
+    s.businessProfileRequests[idempotencyKey] = { signature, response };
+    return envelope(clone(response)) as T;
+  }
+
   if (method === "GET" && pathname === "/settings/account")
-    return envelope({
-      tenant: s.tenant,
-      owner: s.owner,
-      businessName: s.tenant.name,
-      timezone: s.tenant.timezone,
-    }) as T;
+    return envelope(clone(demoSettingsAccount(s))) as T;
   if (method === "PATCH" && pathname === "/settings/account") {
-    if (typeof body.businessName === "string") s.tenant.name = body.businessName;
-    if (typeof body.businessType === "string") s.tenant.businessType = body.businessType;
-    if (typeof body.timezone === "string") s.tenant.timezone = body.timezone;
-    return envelope({
-      tenant: s.tenant,
-      owner: s.owner,
-      businessName: s.tenant.name,
-      timezone: s.tenant.timezone,
-    }) as T;
+    const profilePatch: Record<string, unknown> = {};
+    if (typeof body.businessName === "string") profilePatch.name = body.businessName;
+    if (typeof body.businessType === "string") profilePatch.businessType = body.businessType;
+    if (typeof body.timezone === "string") profilePatch.timezone = body.timezone;
+    if (hasOwn(body, "description")) {
+      profilePatch.description = typeof body.description === "string" ? body.description : "";
+    }
+    if (Object.keys(profilePatch).length > 0) {
+      const currentProfile = demoBusinessProfileData(s);
+      assertDemoIfMatch(init, s.onboarding.businessProfileEtag);
+      const nextProfile = patchDemoBusinessProfile(currentProfile, profilePatch);
+      writeDemoBusinessProfile(s, nextProfile);
+      if (JSON.stringify(nextProfile) !== JSON.stringify(currentProfile)) {
+        touchDemoBusinessProfile(s);
+      }
+    }
+    if (hasOwn(body, "logoDataUrl")) {
+      s.account.logoDataUrl = typeof body.logoDataUrl === "string" ? body.logoDataUrl : null;
+    }
+    if (hasOwn(body, "phone")) {
+      s.account.phone = typeof body.phone === "string" ? body.phone : null;
+    }
+    if (hasOwn(body, "website")) {
+      s.account.website = typeof body.website === "string" ? body.website : null;
+    }
+    return envelope(clone(demoSettingsAccount(s))) as T;
   }
   if (method === "PATCH" && pathname === "/settings/preferences/locale") {
     s.owner.locale = typeof body.locale === "string" ? body.locale : s.owner.locale;
@@ -1807,7 +2103,24 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
     return envelope(clone(s.onboarding)) as T;
   if (method === "PATCH" && pathname === "/onboarding/state") {
     const nextData = isRecord(body.data) ? body.data : {};
-    s.onboarding = { ...s.onboarding, ...body, data: { ...s.onboarding.data, ...nextData } };
+    const currentProfile = demoBusinessProfileData(s);
+    const mergedData = deepMergeRecords(s.onboarding.data, nextData);
+    const nextProfile = demoBusinessProfileData(s, mergedData);
+    const profileChanged = JSON.stringify(nextProfile) !== JSON.stringify(currentProfile);
+    if (profileChanged) assertDemoIfMatch(init, s.onboarding.businessProfileEtag);
+
+    s.onboarding.data = mergedData;
+    if (typeof body.currentStep === "string") {
+      s.onboarding.currentStep = body.currentStep;
+    }
+    if (
+      hasOwn(nextData, "businessType") ||
+      hasOwn(nextData, "timezone") ||
+      hasOwn(nextData, "companyInfo")
+    ) {
+      writeDemoBusinessProfile(s, nextProfile);
+    }
+    if (profileChanged) touchDemoBusinessProfile(s);
     return envelope(clone(s.onboarding)) as T;
   }
   if (method === "POST" && pathname === "/onboarding/complete-step") {

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Inject, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { AI_PROVIDER_TOKEN, type AiMessage, type AiProvider } from "@leadvirt/ai";
 import { Prisma } from "@leadvirt/db";
+import { resolveAiBusinessIdentity } from "@leadvirt/knowledge";
 import {
   decryptIntegrationCredentials,
   WebhookAdapter,
@@ -608,6 +609,13 @@ export class WebhookService {
         outbound: { externalMessageId: "", status: "skipped" as const },
       };
     }
+    const identity = await resolveAiBusinessIdentity(this.prisma, {
+      tenantId: channel.tenantId,
+      legacyIdentity: () => ({
+        businessName: channel.tenant.name,
+        businessType: channel.tenant.businessType,
+      }),
+    });
 
     const [extraction, aiReply, recommendation] = await Promise.all([
       this.aiProvider.extractLeadFields({
@@ -617,8 +625,8 @@ export class WebhookService {
       }),
       this.aiProvider.generateReply({
         tenantId: channel.tenantId,
-        businessName: channel.tenant.name,
-        ...(channel.tenant.businessType ? { businessType: channel.tenant.businessType } : {}),
+        businessName: identity.businessName,
+        ...(identity.businessType ? { businessType: identity.businessType } : {}),
         conversationId: conversation.id,
         messages,
       }),

@@ -46,16 +46,23 @@ export function getAccountSettings() {
   return apiData<SettingsAccount>("/settings/account");
 }
 
-export function updateAccountSettings(body: {
-  businessName?: string;
-  timezone?: string;
-  businessType?: string;
-  logoDataUrl?: string | null;
-  description?: string | null;
-  phone?: string | null;
-  website?: string | null;
-}) {
-  return apiData<SettingsAccount>("/settings/account", { method: "PATCH", ...jsonBody(body) });
+export function updateAccountSettings(
+  body: {
+    businessName?: string;
+    timezone?: string;
+    businessType?: string;
+    logoDataUrl?: string | null;
+    description?: string | null;
+    phone?: string | null;
+    website?: string | null;
+  },
+  options: { ifMatch?: string } = {},
+) {
+  return apiData<SettingsAccount>("/settings/account", {
+    method: "PATCH",
+    ...(options.ifMatch ? { headers: { "If-Match": options.ifMatch } } : {}),
+    ...jsonBody(body),
+  });
 }
 
 export function updateLocalePreference(locale: "en" | "es" | "fr" | "de" | "pt" | "ru") {

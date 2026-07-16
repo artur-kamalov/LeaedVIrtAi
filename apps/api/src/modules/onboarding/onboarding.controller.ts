@@ -1,26 +1,46 @@
-﻿import { Body, Controller, Get, Inject, Patch, Post, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Inject,
+  Patch,
+  Post,
+  UseGuards,
+  UsePipes,
+} from "@nestjs/common";
 import { CurrentContext } from "../../common/decorators/current-context.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
 import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { RequestContext } from "../../common/request-context.js";
 import { WorkspaceAuthGuard } from "../auth/workspace-auth.guard.js";
+import { knowledgeV2ValidationPipe } from "../knowledge/knowledge-v2-validation.pipe.js";
 import { CompleteOnboardingStepDto, UpdateOnboardingDto } from "./dto/update-onboarding.dto.js";
 import { OnboardingService } from "./onboarding.service.js";
 
+type HeaderValue = string | string[] | undefined;
+
 @UseGuards(WorkspaceAuthGuard, RolesGuard)
+@UsePipes(knowledgeV2ValidationPipe)
 @Controller("onboarding")
 export class OnboardingController {
   constructor(@Inject(OnboardingService) private readonly onboardingService: OnboardingService) {}
 
   @Get("state")
   async state(@CurrentContext() context: RequestContext) {
-    return { data: await this.onboardingService.state(context) };
+    const data = await this.onboardingService.state(context);
+    return { data };
   }
 
   @Patch("state")
   @Roles("OWNER", "ADMIN", "MANAGER")
-  async update(@CurrentContext() context: RequestContext, @Body() dto: UpdateOnboardingDto) {
-    return { data: await this.onboardingService.update(context, dto) };
+  async update(
+    @CurrentContext() context: RequestContext,
+    @Body() dto: UpdateOnboardingDto,
+    @Headers("if-match") ifMatch: HeaderValue,
+  ) {
+    const data = await this.onboardingService.update(context, dto, ifMatch);
+    return { data };
   }
 
   @Post("complete-step")
@@ -29,6 +49,7 @@ export class OnboardingController {
     @CurrentContext() context: RequestContext,
     @Body() dto: CompleteOnboardingStepDto,
   ) {
-    return { data: await this.onboardingService.completeStep(context, dto) };
+    const data = await this.onboardingService.completeStep(context, dto);
+    return { data };
   }
 }

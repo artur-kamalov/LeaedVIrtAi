@@ -433,9 +433,10 @@ export function ProductLayout({
 
       <nav className="min-w-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-3">
         {navItems
-          .filter((item) => mode === "app" || item.id !== "knowledge")
           .filter((item) => item.id !== "audit" || demo || permissions.canViewAiAudit)
-          .filter((item) => item.id !== "knowledge" || permissions.canViewKnowledgeWorkspace)
+          .filter(
+            (item) => item.id !== "knowledge" || demo || permissions.canViewKnowledgeWorkspace,
+          )
           .map((item) => (
             <NavLink
               key={item.id}

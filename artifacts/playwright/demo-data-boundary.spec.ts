@@ -36,6 +36,7 @@ test("interactive demo routes use local browser data only", async ({ page }) => 
     "/demo/leads",
     "/demo/automations",
     "/demo/analytics",
+    "/demo/knowledge",
     "/demo/audit",
     "/demo/integrations",
     "/demo/settings",
@@ -46,6 +47,14 @@ test("interactive demo routes use local browser data only", async ({ page }) => 
     await expect(page).toHaveURL(`${webBase}${route}`, { timeout: 45_000 });
     await expect(page.locator("main")).not.toBeEmpty({ timeout: 20_000 });
   }
+
+  const businessProfileLink = page.getByTestId("settings-business-profile-link");
+  await expect(businessProfileLink).toHaveAttribute("href", "/demo/knowledge?view=business");
+  await businessProfileLink.click();
+  await expect(page).toHaveURL(`${webBase}/demo/knowledge?view=business`);
+  await expect(page.getByTestId("business-profile-editor")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("business-profile-name")).not.toHaveValue("");
+  await expect(page.getByTestId("business-profile-name")).not.toBeEditable();
 
   await page.goto(`${webBase}/demo/inbox/demo-conv-anna`, { waitUntil: "domcontentloaded" });
   await expect(page.getByTestId("conversation-messages-scroll")).toBeVisible({ timeout: 30_000 });

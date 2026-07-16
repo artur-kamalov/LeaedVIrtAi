@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import type {
+  BusinessProfileView,
   KnowledgeV2CreateFactRequest,
   KnowledgeV2CreateGuidanceRuleRequest,
   KnowledgeV2FactView,
@@ -136,6 +137,29 @@ function initialSettings(): KnowledgeV2SettingsView {
   };
 }
 
+function businessProfile(): BusinessProfileView {
+  return {
+    profile: {
+      businessType: "services",
+      name: "Knowledge editor fixture",
+      description: "A deterministic business profile for advanced Knowledge editor tests.",
+      avgCheck: "",
+      servicesCatalog: "",
+      services: [],
+      hours: "",
+      weeklySchedule: [],
+      availability: "",
+      faq: "",
+      policies: "",
+      escalationRules: "",
+      timezone: "UTC",
+    },
+    version: 1,
+    etag: '"business-profile-editor-1"',
+    updatedAt: "2026-07-12T09:00:00.000Z",
+  };
+}
+
 function factFromCreate(body: KnowledgeV2CreateFactRequest): KnowledgeV2FactView {
   return {
     id: "fact-price",
@@ -258,6 +282,11 @@ async function installEditorMocks(page: Page, role: KnowledgeRole = "OWNER") {
     settingsUpdates: [],
     settingsGets: 0,
   };
+
+  await page.route("**/api/business-profile", async (route) => {
+    const profile = businessProfile();
+    await json(route, { data: profile }, 200, { etag: profile.etag });
+  });
 
   await page.route("**/api/knowledge/v2/**", async (route) => {
     const request = route.request();
@@ -544,6 +573,12 @@ async function choose(page: Page, name: string, option: string) {
   await page.getByRole("option", { name: option, exact: true }).click();
 }
 
+async function openAdvancedEditors(page: Page) {
+  const advanced = page.getByTestId("knowledge-business-advanced");
+  await advanced.locator("summary").click();
+  await expect(advanced).toHaveAttribute("open", "");
+}
+
 test("Business facts preserve manual provenance through create, verify, conflict reload, and scoped price edit", async ({
   page,
 }) => {
@@ -552,6 +587,7 @@ test("Business facts preserve manual provenance through create, verify, conflict
   const state = await installEditorMocks(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app/knowledge?view=business`, { waitUntil: "domcontentloaded" });
+  await openAdvancedEditors(page);
   await expect(page.getByTestId("business-facts-editor")).toBeVisible({ timeout: 15_000 });
 
   await page.getByRole("button", { name: "Add fact" }).first().click();
@@ -747,6 +783,7 @@ test("Owner language settings retry a transient failure, save conditionally, the
   const state = await installEditorMocks(page, "OWNER");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app/knowledge?view=business`, { waitUntil: "domcontentloaded" });
+  await openAdvancedEditors(page);
   const panel = page.getByTestId("knowledge-language-settings");
   await expect(panel).toBeVisible();
 
@@ -803,6 +840,7 @@ test("Manager sees language settings without mutation controls", async ({ page }
   const state = await installEditorMocks(page, "MANAGER");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app/knowledge?view=business`, { waitUntil: "domcontentloaded" });
+  await openAdvancedEditors(page);
   const panel = page.getByTestId("knowledge-language-settings");
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await expect(panel.getByText("English", { exact: true }).first()).toBeVisible();

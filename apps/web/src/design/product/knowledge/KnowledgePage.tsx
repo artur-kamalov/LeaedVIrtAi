@@ -2,7 +2,7 @@
 
 import React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, LockKeyhole, RefreshCw, TriangleAlert } from "lucide-react";
+import { CheckCircle2, ChevronDown, LockKeyhole, RefreshCw, TriangleAlert } from "lucide-react";
 import type { KnowledgeV2OverviewView } from "@leadvirt/types";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/messages";
@@ -13,6 +13,7 @@ import { cn } from "../../lib/utils";
 import { ProductLayout } from "../ProductLayout";
 import { LoadingOverlay, StatusBadge } from "../ui";
 import { BusinessFactsEditor } from "./BusinessFactsEditor";
+import { BusinessProfileEditor } from "./BusinessProfileEditor";
 import { GuidanceEditor } from "./GuidanceEditor";
 import { KnowledgeOverview } from "./KnowledgeOverview";
 import { KnowledgeReviewQueue } from "./KnowledgeReviewQueue";
@@ -39,7 +40,7 @@ export function KnowledgePage() {
   const pathname = usePathname() || "/app/knowledge";
   const searchParams = useSearchParams();
   const requestedView = searchParams.get("view");
-  const view: KnowledgeViewId = isKnowledgeView(requestedView) ? requestedView : "overview";
+  const view: KnowledgeViewId = isKnowledgeView(requestedView) ? requestedView : "business";
   const welcome = searchParams.get("welcome") === "1";
   const [overview, setOverview] = React.useState<KnowledgeV2OverviewView | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -205,7 +206,7 @@ export function KnowledgePage() {
           role="tabpanel"
           aria-label={t(
             knowledgeViews.find((item) => item.id === view)?.labelKey ??
-              "knowledge.page.tab.overview",
+              "knowledge.page.tab.business",
           )}
         >
           {loading && !overview ? <LoadingOverlay label={t("knowledge.page.loading")} /> : null}
@@ -255,21 +256,42 @@ function KnowledgeView({
   onNavigate: (view: KnowledgeViewId) => void;
   onChanged: () => void;
 }) {
+  const { t } = useI18n();
+
   if (view === "overview") {
     return <KnowledgeOverview overview={overview} onNavigate={onNavigate} onRefresh={onChanged} />;
   }
   if (view === "business") {
     return (
       <div className="space-y-5">
-        <KnowledgeSettingsPanel
-          canEdit={overview.permissions.canManageSettings}
-          onChanged={onChanged}
-        />
-        <BusinessFactsEditor
-          canEdit={overview.permissions.canEdit}
-          canVerifyHighRisk={overview.permissions.canVerifyHighRisk}
-          onChanged={onChanged}
-        />
+        <BusinessProfileEditor canEdit={overview.permissions.canEdit} onChanged={onChanged} />
+        <details
+          className="group min-w-0 overflow-hidden rounded-lg border border-white/10 bg-zinc-950/20"
+          data-testid="knowledge-business-advanced"
+        >
+          <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 marker:hidden sm:px-5">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-zinc-200">
+                {t("businessProfile.advanced.title")}
+              </h2>
+              <p className="mt-1 text-sm text-zinc-600">
+                {t("businessProfile.advanced.description")}
+              </p>
+            </div>
+            <ChevronDown className="h-4 w-4 shrink-0 text-zinc-500 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="min-w-0 space-y-5 border-t border-white/10 p-4 sm:p-5">
+            <KnowledgeSettingsPanel
+              canEdit={overview.permissions.canManageSettings}
+              onChanged={onChanged}
+            />
+            <BusinessFactsEditor
+              canEdit={overview.permissions.canEdit}
+              canVerifyHighRisk={overview.permissions.canVerifyHighRisk}
+              onChanged={onChanged}
+            />
+          </div>
+        </details>
       </div>
     );
   }

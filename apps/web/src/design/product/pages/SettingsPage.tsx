@@ -40,6 +40,7 @@ import {
   ShieldCheck,
   RotateCcw,
   Send,
+  AlertCircle,
 } from "lucide-react";
 import { ProductLayout } from "../ProductLayout";
 import { Card, Avatar, Pill, channels } from "../shared";
@@ -101,7 +102,9 @@ import {
   type WebhookOutboundSettingsPatch,
 } from "@/lib/api/channels";
 import { useI18n } from "@/i18n/I18nProvider";
+import { ApiClientError } from "@/lib/api/client";
 import { useCurrentUser, useProductPermissions } from "../CurrentUser";
+import { useProductMode } from "../ProductMode";
 import { ResourceErrorState } from "../ResourceErrorState";
 
 /* ============================================================
@@ -451,10 +454,13 @@ const LOGO_MAX_BYTES = 60 * 1024;
 
 function ProfileTab() {
   const { t } = useI18n();
+  const { demo } = useProductMode();
   const permissions = useProductPermissions();
   const { account, setAccount } = useSettingsApi();
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [profileConflict, setProfileConflict] = useState(false);
+  const [reloadingProfile, setReloadingProfile] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState("other");
@@ -463,10 +469,16 @@ function ProfileTab() {
   const [phone, setPhone] = useState("");
   const [website, setWebsite] = useState("");
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
+  const [formBusinessProfileEtag, setFormBusinessProfileEtag] = useState<string | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const skipNextAccountHydration = useRef(false);
 
   useEffect(() => {
     if (!account) return;
+    if (skipNextAccountHydration.current) {
+      skipNextAccountHydration.current = false;
+      return;
+    }
     setBusinessName(account.businessName);
     setBusinessType(account.tenant.businessType ?? "other");
     setTimezone(account.timezone);
@@ -474,28 +486,53 @@ function ProfileTab() {
     setPhone(account.phone ?? "");
     setWebsite(account.website ?? "");
     setLogoDataUrl(account.logoDataUrl ?? null);
+    setFormBusinessProfileEtag(account.businessProfileEtag);
   }, [account]);
 
   const handleSave = async () => {
-    if (!permissions.canManageAccount) return;
+    if (!permissions.canManageAccount || !account || !formBusinessProfileEtag || profileConflict) {
+      return;
+    }
     setSaving(true);
     try {
-      const updated = await updateAccountSettings({
-        businessName,
-        businessType,
-        timezone,
-        description: description.trim() || null,
-        phone: phone.trim() || null,
-        website: website.trim() || null,
-      });
+      const updated = await updateAccountSettings(
+        {
+          businessName,
+          businessType,
+          timezone,
+          description: description.trim() || null,
+          phone: phone.trim() || null,
+          website: website.trim() || null,
+        },
+        { ifMatch: formBusinessProfileEtag },
+      );
+      setFormBusinessProfileEtag(updated.businessProfileEtag);
       setAccount(updated);
+      setProfileConflict(false);
       setSaved(true);
       toast.success(t("settings.profile.savedToast"));
       setTimeout(() => setSaved(false), 2000);
     } catch (error) {
-      showLocalizedError(error, t("settings.profile.saveError"));
+      if (error instanceof ApiClientError && error.status === 412) {
+        setProfileConflict(true);
+      } else {
+        showLocalizedError(error, t("settings.profile.saveError"));
+      }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const reloadProfile = async () => {
+    setReloadingProfile(true);
+    try {
+      const latest = await getAccountSettings();
+      setAccount(latest);
+      setProfileConflict(false);
+    } catch (error) {
+      showLocalizedError(error, t("settings.profile.saveError"));
+    } finally {
+      setReloadingProfile(false);
     }
   };
 
@@ -503,12 +540,8 @@ function ProfileTab() {
     if (!permissions.canManageAccount) return;
     setLogoUploading(true);
     try {
-      const updated = await updateAccountSettings({
-        businessName,
-        businessType,
-        timezone,
-        logoDataUrl: nextLogoDataUrl,
-      });
+      const updated = await updateAccountSettings({ logoDataUrl: nextLogoDataUrl });
+      skipNextAccountHydration.current = true;
       setAccount(updated);
       setLogoDataUrl(updated.logoDataUrl ?? null);
       toast.success(
@@ -561,6 +594,61 @@ function ProfileTab() {
         description={t("settings.profile.description")}
       />
 
+      {profileConflict ? (
+        <div
+          role="alert"
+          aria-live="assertive"
+          data-testid="settings-profile-conflict"
+          className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-100 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="flex min-w-0 gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold">{t("businessProfile.conflict.title")}</p>
+              <p className="mt-1 text-sm text-amber-200/80">
+                {t("businessProfile.conflict.description")}
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={reloadingProfile}
+            onClick={() => void reloadProfile()}
+            className="shrink-0 gap-2"
+          >
+            <RotateCcw className={cn("h-4 w-4", reloadingProfile && "animate-spin")} />
+            {t("businessProfile.conflict.reload")}
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="flex min-w-0 flex-col gap-4 border-y border-white/10 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400">
+            <Building2 className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-zinc-200">
+              {t("businessProfile.settingsCta.title")}
+            </p>
+            <p className="mt-1 max-w-2xl text-xs text-zinc-500">
+              {t("businessProfile.settingsCta.description")}
+            </p>
+          </div>
+        </div>
+        <Button asChild size="sm" variant="outline" className="shrink-0">
+          <Link
+            href={demo ? "/demo/knowledge?view=business" : "/app/knowledge?view=business"}
+            data-testid="settings-business-profile-link"
+          >
+            {t("businessProfile.settingsCta.action")}
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Link>
+        </Button>
+      </div>
+
       {/* Logo row */}
       <Card className="p-6">
         <div className="flex items-center gap-5">
@@ -590,7 +678,7 @@ function ProfileTab() {
                 size="sm"
                 variant="outline"
                 data-testid="settings-logo-upload"
-                disabled={logoUploading || !account}
+                disabled={logoUploading || !account || profileConflict}
                 onClick={() => logoInputRef.current?.click()}
               >
                 <Upload className="w-3.5 h-3.5 mr-1.5" />
@@ -601,7 +689,7 @@ function ProfileTab() {
                   size="sm"
                   variant="ghost"
                   data-testid="settings-logo-remove"
-                  disabled={logoUploading}
+                  disabled={logoUploading || profileConflict}
                   onClick={() => void saveLogo(null)}
                 >
                   {t("settings.common.delete")}
@@ -690,7 +778,11 @@ function ProfileTab() {
         </div>
 
         <div className="pt-2 flex justify-end">
-          <Button onClick={() => void handleSave()} disabled={saving} className="gap-2">
+          <Button
+            onClick={() => void handleSave()}
+            disabled={saving || !account || !formBusinessProfileEtag || profileConflict}
+            className="gap-2"
+          >
             <AnimatePresence mode="wait" initial={false}>
               {saved ? (
                 <motion.span

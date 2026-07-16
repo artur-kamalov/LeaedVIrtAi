@@ -1,5 +1,5 @@
 import type { ApiEnvelope, KnowledgeV2FieldError } from "@leadvirt/types";
-import { demoApiRequest, shouldUseDemoApi } from "./demo-runtime";
+import { DemoApiError, demoApiRequest, shouldUseDemoApi } from "./demo-runtime";
 
 const defaultApiUrl = "http://localhost:4001/api";
 
@@ -86,11 +86,18 @@ export async function apiResponse<T>(
   init: RequestInit = {},
 ): Promise<ApiClientResponse<T>> {
   if (shouldUseDemoApi()) {
-    return Promise.resolve({
-      data: demoApiRequest<T>(path, init),
-      status: 200,
-      headers: new Headers(),
-    });
+    try {
+      return Promise.resolve({
+        data: demoApiRequest<T>(path, init),
+        status: 200,
+        headers: new Headers(),
+      });
+    } catch (error) {
+      if (error instanceof DemoApiError) {
+        throw new ApiClientError(error.message, error.status, error.code);
+      }
+      throw error;
+    }
   }
 
   const hasBody = init.body !== undefined && init.body !== null;

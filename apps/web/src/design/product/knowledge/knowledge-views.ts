@@ -26,8 +26,8 @@ export interface KnowledgeViewDefinition {
 }
 
 export const knowledgeViews: KnowledgeViewDefinition[] = [
-  { id: "overview", labelKey: "knowledge.page.tab.overview", icon: BookOpenText },
   { id: "business", labelKey: "knowledge.page.tab.business", icon: Building2 },
+  { id: "overview", labelKey: "knowledge.page.tab.overview", icon: BookOpenText },
   { id: "sources", labelKey: "knowledge.page.tab.sources", icon: Library },
   { id: "guidance", labelKey: "knowledge.page.tab.guidance", icon: ShieldCheck },
   { id: "review", labelKey: "knowledge.page.tab.review", icon: ClipboardCheck },

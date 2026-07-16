@@ -52,7 +52,7 @@ const demoRoutePaths: Record<Route, string> = {
   pipeline: "/demo/leads",
   automation: "/demo/automations",
   analytics: "/demo/analytics",
-  knowledge: "/demo",
+  knowledge: "/demo/knowledge",
   audit: "/demo/audit",
   integrations: "/demo/integrations",
   billing: "/demo/billing",
@@ -106,6 +106,7 @@ function stateForPath(pathname: string): Pick<NavState, "route" | "params"> {
   if (pathname === "/demo/leads") return { route: "pipeline", params: { mode: "demo" } };
   if (pathname === "/demo/automations") return { route: "automation", params: { mode: "demo" } };
   if (pathname === "/demo/analytics") return { route: "analytics", params: { mode: "demo" } };
+  if (pathname === "/demo/knowledge") return { route: "knowledge", params: { mode: "demo" } };
   if (pathname === "/demo/audit") return { route: "audit", params: { mode: "demo" } };
   if (pathname === "/demo/integrations") return { route: "integrations", params: { mode: "demo" } };
   if (pathname === "/demo/billing") return { route: "billing", params: { mode: "demo" } };

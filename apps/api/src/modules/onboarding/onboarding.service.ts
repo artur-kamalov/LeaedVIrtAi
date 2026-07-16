@@ -3,7 +3,7 @@ import type { OnboardingState } from "@leadvirt/types";
 import type { Prisma } from "@leadvirt/db";
 import type { RequestContext } from "../../common/request-context.js";
 import { PrismaService } from "../database/prisma.service.js";
-import { KnowledgeService } from "../knowledge/knowledge.service.js";
+import { BusinessProfileService } from "../business-profile/business-profile.service.js";
 import { lockKnowledgeV2CorpusTransition } from "../knowledge/knowledge-v2-transition-lock.js";
 import type {
   CompleteOnboardingStepDto,
@@ -14,7 +14,7 @@ import type {
 export class OnboardingService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(KnowledgeService) private readonly knowledgeService: KnowledgeService,
+    @Inject(BusinessProfileService) private readonly businessProfile: BusinessProfileService,
   ) {}
 
   async state(context: RequestContext): Promise<OnboardingState> {
@@ -22,43 +22,25 @@ export class OnboardingService {
     return this.mapState(state);
   }
 
-  async update(context: RequestContext, dto: UpdateOnboardingDto): Promise<OnboardingState> {
-    const { state, eventId, reconciliationEventIds } = await this.prisma.$transaction(
-      async (tx) => {
-        await lockKnowledgeV2CorpusTransition(tx, context.tenantId);
-        const current = await this.ensureState(context, tx);
-        const previousData =
-          typeof current.data === "object" && current.data !== null && !Array.isArray(current.data)
-            ? (current.data as Record<string, unknown>)
-            : {};
-        const data = {
-          ...previousData,
-          ...(dto.data ?? {}),
-        };
-        const updated = await tx.onboardingState.update({
-          where: { tenantId: context.tenantId },
-          data: {
-            currentStep: dto.currentStep ?? current.currentStep,
-            data: data as Prisma.InputJsonObject,
-          },
-        });
-        await this.syncTenantProfile(tx, context, data);
-        const sync = await this.knowledgeService.syncOnboardingSourcesInTransaction(
-          tx,
-          context,
-          previousData,
-          data,
-        );
-        await this.log(tx, context, "onboarding.updated", { currentStep: updated.currentStep });
-        return {
-          state: updated,
-          eventId: sync.eventId,
-          reconciliationEventIds: sync.reconciliationEventIds,
-        };
-      },
-    );
-    await this.knowledgeService.dispatchOnboardingSync(eventId, reconciliationEventIds);
-    return this.mapState(state);
+  async update(
+    context: RequestContext,
+    dto: UpdateOnboardingDto,
+    ifMatch?: string | string[],
+  ): Promise<OnboardingState> {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await this.businessProfile.updateOnboardingInTransaction(
+        tx,
+        context,
+        dto,
+        ifMatch,
+      );
+      await this.log(tx, context, "onboarding.updated", {
+        currentStep: updated.state.currentStep,
+      });
+      return updated;
+    });
+    await this.businessProfile.dispatch(result, context.tenantId);
+    return this.mapState(result.state);
   }
 
   async completeStep(
@@ -99,6 +81,12 @@ export class OnboardingService {
 
   private mapState(state: Awaited<ReturnType<typeof this.ensureState>>): OnboardingState {
     return {
+      businessProfileVersion: state.businessProfileVersion,
+      businessProfileEtag: this.businessProfile.profileEtag(
+        state.tenantId,
+        state.businessProfileVersion,
+      ),
+      businessProfileUpdatedAt: state.businessProfileUpdatedAt.toISOString(),
       currentStep: state.currentStep,
       completedSteps: this.completedSteps(state.completedSteps),
       data:
@@ -113,35 +101,6 @@ export class OnboardingService {
     return Array.isArray(value)
       ? value.filter((item): item is string => typeof item === "string")
       : [];
-  }
-
-  private async syncTenantProfile(
-    tx: Prisma.TransactionClient,
-    context: RequestContext,
-    data: Record<string, unknown>,
-  ) {
-    const companyInfo = this.record(data.companyInfo);
-    const name = this.text(companyInfo.name);
-    const businessType = this.text(data.businessType);
-    if (!name && !businessType) return;
-
-    await tx.tenant.update({
-      where: { id: context.tenantId },
-      data: {
-        ...(name ? { name } : {}),
-        ...(businessType ? { businessType } : {}),
-      },
-    });
-  }
-
-  private record(value: unknown): Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {};
-  }
-
-  private text(value: unknown) {
-    return typeof value === "string" ? value.trim() : "";
   }
 
   private async log(

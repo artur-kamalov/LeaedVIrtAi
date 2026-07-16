@@ -1604,14 +1604,16 @@ model ApiKey {
 }
 
 model OnboardingState {
-  id             String    @id @default(cuid())
-  tenantId       String    @unique
-  completedSteps Json?
-  currentStep    String    @default("business")
-  data           Json?
-  completedAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                       String    @id @default(cuid())
+  tenantId                 String    @unique
+  businessProfileVersion   Int       @default(1)
+  businessProfileUpdatedAt DateTime  @default(now())
+  completedSteps           Json?
+  currentStep              String    @default("business")
+  data                     Json?
+  completedAt              DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }

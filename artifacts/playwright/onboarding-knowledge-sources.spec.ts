@@ -9,8 +9,8 @@ test("onboarding automatically publishes tenant knowledge", async ({ request }) 
     data: {
       email: `knowledge.${stamp}@yandex.ru`,
       password: `Knowledge-${stamp}!Aa`,
-      companyName: "Knowledge Test Workspace"
-    }
+      companyName: "Knowledge Test Workspace",
+    },
   });
   expect(signup.ok()).toBeTruthy();
 
@@ -28,12 +28,23 @@ test("onboarding automatically publishes tenant knowledge", async ({ request }) 
         availability: "Free windows: Tuesday 12:00, Wednesday 15:00.",
         faq: "Customers ask about duration, parking, and contraindications.",
         policies: "Do not promise exact final price before consultation.",
-        escalationRules: "Escalate refunds, complaints, and custom discounts."
-      }
-    }
+        escalationRules: "Escalate refunds, complaints, and custom discounts.",
+      },
+    },
   };
-  const update = await request.patch(`${apiBase}/onboarding/state`, { data: onboardingUpdate });
+  const initialState = await request.get(`${apiBase}/onboarding/state`);
+  expect(initialState.ok()).toBeTruthy();
+  const initialStatePayload = (await initialState.json()) as {
+    data: { businessProfileEtag: string };
+  };
+  const update = await request.patch(`${apiBase}/onboarding/state`, {
+    headers: { "If-Match": initialStatePayload.data.businessProfileEtag },
+    data: onboardingUpdate,
+  });
   expect(update.ok()).toBeTruthy();
+  const updatedStatePayload = (await update.json()) as {
+    data: { businessProfileEtag: string };
+  };
 
   const sourcesResponse = await request.get(`${apiBase}/knowledge/sources`);
   expect(sourcesResponse.ok()).toBeTruthy();
@@ -42,16 +53,28 @@ test("onboarding automatically publishes tenant knowledge", async ({ request }) 
   };
 
   const byType = new Map(payload.data.map((source) => [source.type, source]));
-  for (const type of ["BUSINESS_PROFILE", "CATALOG", "AVAILABILITY", "FAQ", "POLICY", "ESCALATION"]) {
+  for (const type of [
+    "BUSINESS_PROFILE",
+    "CATALOG",
+    "AVAILABILITY",
+    "FAQ",
+    "POLICY",
+    "ESCALATION",
+  ]) {
     expect(byType.get(type)?.source).toBe("onboarding");
   }
   expect(byType.get("CATALOG")?.content).toContain("Haircut");
   expect(byType.get("AVAILABILITY")?.content).toContain("Tuesday 12:00");
 
   const initialVersions = new Map(payload.data.map((source) => [source.type, source.version]));
-  const repeatedUpdate = await request.patch(`${apiBase}/onboarding/state`, { data: onboardingUpdate });
+  const repeatedUpdate = await request.patch(`${apiBase}/onboarding/state`, {
+    headers: { "If-Match": updatedStatePayload.data.businessProfileEtag },
+    data: onboardingUpdate,
+  });
   expect(repeatedUpdate.ok()).toBeTruthy();
   const repeatedSources = await request.get(`${apiBase}/knowledge/sources`);
   const repeatedPayload = (await repeatedSources.json()) as typeof payload;
-  expect(new Map(repeatedPayload.data.map((source) => [source.type, source.version]))).toEqual(initialVersions);
+  expect(new Map(repeatedPayload.data.map((source) => [source.type, source.version]))).toEqual(
+    initialVersions,
+  );
 });

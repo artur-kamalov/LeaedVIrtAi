@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { HttpException, HttpStatus } from "@nestjs/common";
 import { Prisma } from "@leadvirt/db";
 import type { RequestContext } from "../../apps/api/src/common/request-context.js";
+import { BusinessProfileService } from "../../apps/api/src/modules/business-profile/business-profile.service.js";
 import { PrismaService } from "../../apps/api/src/modules/database/prisma.service.js";
 import { KnowledgePublicationDispatcherService } from "../../apps/api/src/modules/knowledge/knowledge-publication-dispatcher.service.js";
 import { KnowledgeService } from "../../apps/api/src/modules/knowledge/knowledge.service.js";
@@ -1325,7 +1326,10 @@ async function main() {
         legacyDispatcher.dispatchCalls === 0,
       "A public legacy writer changed state after structured cutover.",
     );
-    const onboardingService = new OnboardingService(prisma, knowledgeService);
+    const onboardingService = new OnboardingService(
+      prisma,
+      new BusinessProfileService(prisma, knowledgeService, {} as KnowledgeV2IdempotencyService),
+    );
     const projectedCompanyInfo = {
       name: projectedBusinessName,
       description: `Structured description ${stamp}`,
@@ -1345,7 +1349,12 @@ async function main() {
         companyInfo: projectedCompanyInfo,
       },
     };
-    await onboardingService.update(owner, projectedPatch);
+    let projectedProfileState = await onboardingService.state(owner);
+    projectedProfileState = await onboardingService.update(
+      owner,
+      projectedPatch,
+      projectedProfileState.businessProfileEtag,
+    );
 
     const [
       projectedState,
@@ -1432,7 +1441,12 @@ async function main() {
     assert(
       projectedTenant.name === projectedBusinessName &&
         projectedTenant.businessType === projectedBusinessType,
-      "Post-cutover tenant compatibility projection did not commit.",
+      `Post-cutover tenant compatibility projection did not commit: ${JSON.stringify({
+        expectedName: projectedBusinessName,
+        actualName: projectedTenant.name,
+        expectedBusinessType: projectedBusinessType,
+        actualBusinessType: projectedTenant.businessType,
+      })}`,
     );
     assert(
       projectedProfileSource.content.includes(projectedBusinessName) &&
@@ -1549,7 +1563,11 @@ async function main() {
           },
         }),
       ]);
-    await onboardingService.update(owner, projectedPatch);
+    projectedProfileState = await onboardingService.update(
+      owner,
+      projectedPatch,
+      projectedProfileState.businessProfileEtag,
+    );
     const [
       settingsAfterReplay,
       versionCountAfterReplay,
@@ -1584,13 +1602,17 @@ async function main() {
     );
 
     const updatedBusinessName = `Projected successor ${stamp}`;
-    await onboardingService.update(owner, {
-      ...projectedPatch,
-      data: {
-        ...projectedPatch.data,
-        companyInfo: { ...projectedCompanyInfo, name: updatedBusinessName },
+    projectedProfileState = await onboardingService.update(
+      owner,
+      {
+        ...projectedPatch,
+        data: {
+          ...projectedPatch.data,
+          companyInfo: { ...projectedCompanyInfo, name: updatedBusinessName },
+        },
       },
-    });
+      projectedProfileState.businessProfileEtag,
+    );
     const updatedNameFact = await prisma.knowledgeV2Fact.findUniqueOrThrow({
       where: { tenantId_factKey: { tenantId: tenant.id, factKey: "business/name" } },
       include: { versions: { orderBy: { versionNumber: "asc" } } },
@@ -1618,16 +1640,20 @@ async function main() {
       `manual-correction-${stamp}`,
       [strongKnowledgeV2Etag("fact", updatedNameFact.id, updatedNameFact.etag)],
     );
-    await onboardingService.update(owner, {
-      ...projectedPatch,
-      data: {
-        ...projectedPatch.data,
-        companyInfo: {
-          ...projectedCompanyInfo,
-          name: `Later onboarding answer ${stamp}`,
+    projectedProfileState = await onboardingService.update(
+      owner,
+      {
+        ...projectedPatch,
+        data: {
+          ...projectedPatch.data,
+          companyInfo: {
+            ...projectedCompanyInfo,
+            name: `Later onboarding answer ${stamp}`,
+          },
         },
       },
-    });
+      projectedProfileState.businessProfileEtag,
+    );
     const [protectedNameFact, protectedNameReview, settingsAfterOwnershipConflict] =
       await Promise.all([
         prisma.knowledgeV2Fact.findUniqueOrThrow({
@@ -1705,16 +1731,27 @@ async function main() {
       failingProjection as never,
       contentReconciliation as never,
     );
-    const failingOnboardingService = new OnboardingService(prisma, failingKnowledgeService);
+    const failingOnboardingService = new OnboardingService(
+      prisma,
+      new BusinessProfileService(
+        prisma,
+        failingKnowledgeService,
+        {} as KnowledgeV2IdempotencyService,
+      ),
+    );
     let projectionRejected = false;
     try {
-      await failingOnboardingService.update(owner, {
-        ...projectedPatch,
-        data: {
-          ...projectedPatch.data,
-          companyInfo: { ...projectedCompanyInfo, name: `Must roll back ${stamp}` },
+      await failingOnboardingService.update(
+        owner,
+        {
+          ...projectedPatch,
+          data: {
+            ...projectedPatch.data,
+            companyInfo: { ...projectedCompanyInfo, name: `Must roll back ${stamp}` },
+          },
         },
-      });
+        projectedProfileState.businessProfileEtag,
+      );
     } catch {
       projectionRejected = true;
     }
@@ -1947,7 +1984,10 @@ async function main() {
       new KnowledgeV2OnboardingProjectionService(),
       transitionContentReconciliation,
     );
-    const transitionOnboarding = new OnboardingService(prisma, transitionKnowledge);
+    const transitionOnboarding = new OnboardingService(
+      prisma,
+      new BusinessProfileService(prisma, transitionKnowledge, {} as KnowledgeV2IdempotencyService),
+    );
     let verificationStartedResolve!: () => void;
     let verificationReleaseResolve!: () => void;
     const verificationStarted = new Promise<void>((resolve) => {
@@ -1980,16 +2020,21 @@ async function main() {
     );
     await verificationStarted;
     try {
-      await transitionOnboarding.update(transitionOwner, {
-        currentStep: "company",
-        data: {
-          businessType: "consulting",
-          companyInfo: {
-            name: "Transition truth",
-            description: `Must be represented ${stamp}`,
+      const transitionProfileState = await transitionOnboarding.state(transitionOwner);
+      await transitionOnboarding.update(
+        transitionOwner,
+        {
+          currentStep: "company",
+          data: {
+            businessType: "consulting",
+            companyInfo: {
+              name: "Transition truth",
+              description: `Must be represented ${stamp}`,
+            },
           },
         },
-      });
+        transitionProfileState.businessProfileEtag,
+      );
     } finally {
       verificationReleaseResolve();
     }

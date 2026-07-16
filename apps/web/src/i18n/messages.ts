@@ -24,6 +24,10 @@ import {
 import { settingsMessages, type SettingsTranslationKey } from "./settings-messages";
 import { integrationMessages, type IntegrationTranslationKey } from "./integration-messages";
 import { resourceMessages, type ResourceTranslationKey } from "./resource-messages";
+import {
+  businessProfileMessages,
+  type BusinessProfileTranslationKey,
+} from "./business-profile-messages";
 
 const ru = {
   "language.label": "Язык",
@@ -226,7 +230,8 @@ const ru = {
   "auth.error.login": "Не удалось войти",
   "auth.sessionChecking": "Проверяем доступ...",
   "auth.sessionCheckFailed": "Не удалось проверить доступ",
-  "auth.sessionCheckFailedDetail": "LeadVirt временно не может связаться с сервером. Сессия сохранена.",
+  "auth.sessionCheckFailedDetail":
+    "LeadVirt временно не может связаться с сервером. Сессия сохранена.",
   "auth.sessionRetry": "Повторить",
   "product.nav.dashboard": "Обзор",
   "product.nav.inbox": "Входящие",
@@ -420,7 +425,8 @@ export type TranslationKey =
   | OperationsSuiteTranslationKey
   | SettingsTranslationKey
   | IntegrationTranslationKey
-  | ResourceTranslationKey;
+  | ResourceTranslationKey
+  | BusinessProfileTranslationKey;
 export type TranslationValues = Record<string, string | number>;
 
 const en: Record<BaseTranslationKey, string> = {
@@ -622,7 +628,8 @@ const en: Record<BaseTranslationKey, string> = {
   "auth.error.login": "Could not log in",
   "auth.sessionChecking": "Checking access...",
   "auth.sessionCheckFailed": "Access could not be checked",
-  "auth.sessionCheckFailedDetail": "LeadVirt cannot reach the server right now. Your session is preserved.",
+  "auth.sessionCheckFailedDetail":
+    "LeadVirt cannot reach the server right now. Your session is preserved.",
   "auth.sessionRetry": "Try again",
   "product.nav.dashboard": "Overview",
   "product.nav.inbox": "Inbox",
@@ -816,6 +823,7 @@ export const messages = {
     ...reviewKnowledgeMessages.en,
     ...testKnowledgeMessages.en,
     ...settingsMessages.en,
+    ...businessProfileMessages.en,
   },
   es: {
     ...es,
@@ -829,6 +837,7 @@ export const messages = {
     ...reviewKnowledgeMessages.es,
     ...testKnowledgeMessages.es,
     ...settingsMessages.es,
+    ...businessProfileMessages.es,
   },
   fr: {
     ...fr,
@@ -842,6 +851,7 @@ export const messages = {
     ...reviewKnowledgeMessages.fr,
     ...testKnowledgeMessages.fr,
     ...settingsMessages.fr,
+    ...businessProfileMessages.fr,
   },
   de: {
     ...de,
@@ -855,6 +865,7 @@ export const messages = {
     ...reviewKnowledgeMessages.de,
     ...testKnowledgeMessages.de,
     ...settingsMessages.de,
+    ...businessProfileMessages.de,
   },
   pt: {
     ...pt,
@@ -868,6 +879,7 @@ export const messages = {
     ...reviewKnowledgeMessages.pt,
     ...testKnowledgeMessages.pt,
     ...settingsMessages.pt,
+    ...businessProfileMessages.pt,
   },
   ru: {
     ...ru,
@@ -881,5 +893,6 @@ export const messages = {
     ...reviewKnowledgeMessages.ru,
     ...testKnowledgeMessages.ru,
     ...settingsMessages.ru,
+    ...businessProfileMessages.ru,
   },
 } as const;

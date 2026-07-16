@@ -37,6 +37,7 @@ import {
   getOnboardingState,
   updateOnboardingState,
 } from "@/lib/api/onboarding";
+import { ApiClientError } from "@/lib/api/client";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/messages";
 
@@ -617,6 +618,7 @@ function StepLaunch({
   crm,
   companyName,
   onLaunch,
+  disabled,
 }: {
   businessType: string | null;
   selectedChannels: ChannelId[];
@@ -624,6 +626,7 @@ function StepLaunch({
   crm: string | null;
   companyName: string;
   onLaunch: () => void;
+  disabled: boolean;
 }) {
   const { t } = useI18n();
   const business = businessTypes.find((item) => item.id === businessType);
@@ -687,7 +690,12 @@ function StepLaunch({
 
       {/* Launch button (desktop) */}
       <div className="hidden sm:flex justify-center">
-        <Button size="lg" onClick={onLaunch} className="gap-2 shadow-xl shadow-emerald-500/20">
+        <Button
+          size="lg"
+          onClick={onLaunch}
+          disabled={disabled}
+          className="gap-2 shadow-xl shadow-emerald-500/20"
+        >
           {t("onboarding.launch")}
           <ChevronRight className="w-5 h-5" />
         </Button>
@@ -708,9 +716,11 @@ export function OnboardingPage() {
   const [dir, setDir] = useState(1); // slide direction
   const [saving, setSaving] = useState(false);
   const [persistenceError, setPersistenceError] = useState(false);
+  const [persistenceConflict, setPersistenceConflict] = useState(false);
   const [loadStatus, setLoadStatus] = useState<"loading" | "success" | "error">("loading");
   const [loadRevision, setLoadRevision] = useState(0);
   const hasLocalChangesRef = useRef(false);
+  const businessProfileEtagRef = useRef<string | null>(null);
 
   // Step state
   const [businessType, setBusinessType] = useState<string | null>(null);
@@ -736,6 +746,7 @@ export function OnboardingPage() {
     void getOnboardingState()
       .then((state) => {
         if (!active) return;
+        businessProfileEtagRef.current = state.businessProfileEtag;
         if (!hasLocalChangesRef.current) {
           const data = isRecord(state.data) ? state.data : {};
           setBusinessType(stringFromData(data, "businessType"));
@@ -745,6 +756,7 @@ export function OnboardingPage() {
           setCrm(stringFromData(data, "crm"));
           setStep(stepIndexFromId(state.currentStep));
         }
+        setPersistenceConflict(false);
         setLoadStatus("success");
       })
       .catch(() => {
@@ -791,31 +803,69 @@ export function OnboardingPage() {
     setCrm(value);
   };
 
-  const onboardingData = () => ({
-    businessType,
-    selectedChannels,
-    scenario,
-    companyInfo,
-    crm,
-  });
+  const onboardingDataForStep = (stepId: (typeof stepIds)[number]): Record<string, unknown> => {
+    switch (stepId) {
+      case "business":
+        return { businessType };
+      case "channels":
+        return { selectedChannels };
+      case "scenario":
+        return { scenario };
+      case "company":
+        return { companyInfo };
+      case "crm":
+        return { crm };
+      case "launch":
+        return {};
+    }
+  };
+
+  const rememberBusinessProfileEtag = (etag: string) => {
+    businessProfileEtagRef.current = etag;
+  };
 
   const persistProgress = async (
     completedStepId: (typeof stepIds)[number],
     nextStepId: (typeof stepIds)[number],
   ) => {
     setPersistenceError(false);
+    setPersistenceConflict(false);
 
     try {
-      await updateOnboardingState({ currentStep: completedStepId, data: onboardingData() });
+      const stepData = onboardingDataForStep(completedStepId);
+      const profileAffectingStep = completedStepId === "business" || completedStepId === "company";
+      const updated = await updateOnboardingState(
+        {
+          currentStep: completedStepId,
+          ...(Object.keys(stepData).length > 0 ? { data: stepData } : {}),
+        },
+        profileAffectingStep ? { ifMatch: businessProfileEtagRef.current ?? undefined } : undefined,
+      );
+      if (profileAffectingStep) rememberBusinessProfileEtag(updated.businessProfileEtag);
+
       await completeOnboardingStep(completedStepId);
+
       if (nextStepId !== completedStepId) {
-        await updateOnboardingState({ currentStep: nextStepId, data: onboardingData() });
+        await updateOnboardingState({ currentStep: nextStepId });
       }
+      hasLocalChangesRef.current = false;
       return true;
-    } catch {
-      setPersistenceError(true);
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 412) {
+        setPersistenceConflict(true);
+      } else {
+        setPersistenceError(true);
+      }
       return false;
     }
+  };
+
+  const reloadAfterConflict = () => {
+    businessProfileEtagRef.current = null;
+    hasLocalChangesRef.current = false;
+    setPersistenceConflict(false);
+    setPersistenceError(false);
+    setLoadRevision((current) => current + 1);
   };
 
   const isStepValid = () => {
@@ -829,7 +879,7 @@ export function OnboardingPage() {
   };
 
   const handleNext = async () => {
-    if (!isStepValid() || saving) return;
+    if (!isStepValid() || saving || persistenceConflict) return;
 
     if (step < TOTAL_STEPS - 1) {
       const nextStep = step + 1;
@@ -845,11 +895,11 @@ export function OnboardingPage() {
   };
 
   const handleBack = () => {
-    if (step > 0 && !saving) navigate(step - 1);
+    if (step > 0 && !saving && !persistenceConflict) navigate(step - 1);
   };
 
   const handleLaunch = async () => {
-    if (saving) return;
+    if (saving || persistenceConflict) return;
     setSaving(true);
     const persisted = await persistProgress("launch", "launch");
     setSaving(false);
@@ -882,6 +932,7 @@ export function OnboardingPage() {
             crm={crm}
             companyName={companyInfo.name}
             onLaunch={() => void handleLaunch()}
+            disabled={saving || persistenceConflict}
           />
         );
       default:
@@ -974,12 +1025,43 @@ export function OnboardingPage() {
                 </div>
               )}
 
+              {persistenceConflict && (
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  data-testid="onboarding-persistence-conflict"
+                  className="mt-4 flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-100 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex gap-3">
+                    <AlertCircle
+                      className="mt-0.5 h-5 w-5 shrink-0 text-amber-400"
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <p className="text-sm font-semibold">{t("businessProfile.conflict.title")}</p>
+                      <p className="mt-1 text-sm text-amber-200/80">
+                        {t("businessProfile.conflict.description")}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={reloadAfterConflict}
+                    className="shrink-0"
+                  >
+                    {t("businessProfile.conflict.reload")}
+                  </Button>
+                </div>
+              )}
+
               {!isLastStep && (
                 <div className="hidden sm:flex items-center justify-between mt-6">
                   <Button
                     variant="ghost"
                     onClick={handleBack}
-                    disabled={step === 0 || saving}
+                    disabled={step === 0 || saving || persistenceConflict}
                     className="gap-1.5"
                   >
                     <ChevronLeft className="w-4 h-4" />
@@ -988,7 +1070,7 @@ export function OnboardingPage() {
                   <Button
                     variant="primary"
                     onClick={() => void handleNext()}
-                    disabled={!isStepValid() || saving}
+                    disabled={!isStepValid() || saving || persistenceConflict}
                     className="gap-1.5"
                   >
                     {t("onboarding.next")}
@@ -1008,7 +1090,7 @@ export function OnboardingPage() {
             <Button
               size="lg"
               onClick={() => void handleLaunch()}
-              disabled={saving}
+              disabled={saving || persistenceConflict}
               className="w-full gap-2 shadow-xl shadow-emerald-500/20"
             >
               {t("onboarding.launch")}
@@ -1019,7 +1101,7 @@ export function OnboardingPage() {
               <Button
                 variant="outline"
                 onClick={handleBack}
-                disabled={step === 0 || saving}
+                disabled={step === 0 || saving || persistenceConflict}
                 className="h-12 w-12 shrink-0 p-0 flex items-center justify-center"
               >
                 <ChevronLeft className="w-5 h-5" />
@@ -1028,7 +1110,7 @@ export function OnboardingPage() {
                 variant="primary"
                 size="lg"
                 onClick={() => void handleNext()}
-                disabled={!isStepValid() || saving}
+                disabled={!isStepValid() || saving || persistenceConflict}
                 className="flex-1 gap-1.5"
               >
                 {t("onboarding.next")}

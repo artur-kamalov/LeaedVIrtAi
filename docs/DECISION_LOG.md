@@ -1,5 +1,47 @@
 # Decision Log
 
+## 2026-07-16: Keep AI Identity Behind The Active Publication
+
+Decision: Business Profile writes may update workspace metadata immediately, but Structured V2 AI generation resolves business name and type only from the active `workspace-v2` publication. If the active publication has no identity facts, AI receives a neutral identity. Legacy V1 retains its existing Tenant-based behavior. Profile synchronization commits before dispatch; a failed immediate dispatch is logged and left to the existing durable outbox drain instead of returning a false failed-save response.
+
+Context: The editable Tenant identity is also used by the product shell, while Structured V2 facts remain drafts until review and publication. Reading live Tenant fields in AI generation bypassed that boundary. Immediate outbox dispatch can also fail after the database transaction has committed, making Settings and onboarding appear to fail even though retrying with the old ETag cannot be correct.
+
+Consequences:
+
+- Conversations, webhook, widget, and worker AI paths share one publication-backed identity resolver.
+- Draft name/type changes cannot reach customer AI responses before publication.
+- Committed profile writes return their committed state; pending outbox events remain observable and retryable.
+- Settings and onboarding carry the profile concurrency token in their response body rather than misusing it as the ETag for the complete composite representation.
+- Existing fallback-only profiles reconcile on the next profile/scenario write; a separate one-time rollout backfill is tracked for tenants that must reconcile without user action.
+
+## 2026-07-16: Keep Business Profile UI Mutations Scoped
+
+Decision: The Business Profile editor submits a field-level partial patch against its normalized baseline. A weekly schedule is sent as a normalized seven-day snapshot only when the user changes the schedule. Settings and onboarding keep a profile ETag bound to the exact hydrated form and advance it only after that form's profile save or a full reload. Logo-only Settings writes update shared account state without rehydrating unrelated local form fields. Demo exposes the profile through its own read-only `/demo/knowledge` route.
+
+Context: Expanding sparse schedules for display made an unrelated edit persist every missing day as explicitly closed and changed AI hours evidence. A logo response could replace unsaved input or carry a newer ETag over stale fields; onboarding completion and navigation responses had the same token-laundering risk. The demo Settings link also left the local demo for protected `/app`.
+
+Consequences:
+
+- Absent and partial schedules retain their stored meaning until the user intentionally edits schedule controls.
+- Idempotency signatures cover the exact partial profile patch sent to the API.
+- Logo upload/removal preserves the current unsaved Settings draft.
+- Logo, workflow, completion, and navigation responses cannot authorize a stale profile overwrite; a concurrent profile edit returns `412` until explicit reload.
+- Demo navigation and Settings remain inside the local demo runtime and expose the populated profile without edit permissions.
+
+## 2026-07-16: Make Business Profile The Canonical Editable Aggregate
+
+Decision: Business identity and operating details are edited through one canonical Business Profile aggregate stored with onboarding data and a dedicated revision/ETag. The Business Profile API, Settings account fields, and profile-affecting onboarding steps use the same transaction and optimistic-concurrency boundary. Structured services and weekly schedules are canonical; legacy Knowledge text is a deterministic compatibility projection. Structured V2 projections remain drafts and still require explicit review, test, and publication.
+
+Context: Business details were split across onboarding, Settings, legacy Knowledge sources, and advanced fact editors. A successful onboarding flow could therefore leave the Knowledge Sources screen looking empty, and independent edits could silently overwrite one another or publish data without the normal governance flow.
+
+Consequences:
+
+- `GET/PATCH /business-profile` exposes the authoritative profile with a strong ETag; patches require `If-Match` and an idempotency key.
+- Settings and the business/company onboarding steps reuse that revision. Logo-only and navigation-only updates remain narrow writes and do not mutate the profile revision.
+- A `412` preserves the local draft until the user explicitly reloads the authoritative profile; retryable failures reuse the same mutation identity.
+- Knowledge opens the customer-oriented profile editor first. Existing fact and language controls remain available as advanced tools.
+- Updating the profile advances draft Knowledge state but never bypasses review, testing, approval, or publication.
+
 ## 2026-07-16: Make Remote Deployment Completion Explicit
 
 Decision: The remote wrapper consumes the complete heredoc before executing it from an argument, passes a run token positionally, clears any inherited export attribute before assigning it, and accepts the SSH step only after observing the matching release-SHA/token completion marker. Compose wrappers and child deployment scripts also detach fd 0 from `/dev/null`.

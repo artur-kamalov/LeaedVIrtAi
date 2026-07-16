@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { prisma, Prisma, type AiReplyRun, type LeadStatus } from "@leadvirt/db";
 import { aiReplyRunIdentity, automaticReplyAdmissionState } from "@leadvirt/runtime-queue";
-import { classifyKnowledgeCapabilityIntentV1 } from "@leadvirt/knowledge";
+import {
+  classifyKnowledgeCapabilityIntentV1,
+  resolveAiBusinessIdentity,
+} from "@leadvirt/knowledge";
 import type { AiReplyJobData } from "@leadvirt/types";
 
 const activeRunStatuses = [
@@ -249,10 +252,16 @@ async function loadRuntimeInput(
   conversation: LockedConversation,
   inbound: LockedInboundMessage,
 ): Promise<AiReplyRuntimeInput> {
-  const [tenant, lead] = await Promise.all([
-    tx.tenant.findUniqueOrThrow({
-      where: { id: conversation.tenantId },
-      select: { name: true, businessType: true },
+  const [identity, lead] = await Promise.all([
+    resolveAiBusinessIdentity(tx, {
+      tenantId: conversation.tenantId,
+      legacyIdentity: async () => {
+        const tenant = await tx.tenant.findUniqueOrThrow({
+          where: { id: conversation.tenantId },
+          select: { name: true, businessType: true },
+        });
+        return { businessName: tenant.name, businessType: tenant.businessType };
+      },
     }),
     conversation.leadId
       ? tx.lead.findFirst({
@@ -264,8 +273,8 @@ async function loadRuntimeInput(
   return {
     inputText: inbound.text ?? "",
     receivedAt: inbound.createdAt,
-    businessName: tenant.name,
-    businessType: tenant.businessType,
+    businessName: identity.businessName,
+    businessType: identity.businessType,
     leadId: conversation.leadId,
     leadStatus: lead?.status ?? null,
   };

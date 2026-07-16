@@ -3,6 +3,7 @@ import { loadEnvFile } from "@leadvirt/config";
 import { hashKnowledgeValue } from "@leadvirt/knowledge";
 import { prisma, type Prisma } from "@leadvirt/db";
 import type { RequestContext } from "../../apps/api/src/common/request-context.js";
+import { BusinessProfileService } from "../../apps/api/src/modules/business-profile/business-profile.service.js";
 import { KnowledgeV2OnboardingProjectionService } from "../../apps/api/src/modules/knowledge/knowledge-v2-onboarding-projection.service.js";
 import { KnowledgeService } from "../../apps/api/src/modules/knowledge/knowledge.service.js";
 import { OnboardingService } from "../../apps/api/src/modules/onboarding/onboarding.service.js";
@@ -13,8 +14,15 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function record(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 class TestDispatcher {
   readonly dispatched: string[] = [];
+  failNext = false;
 
   async createEvent(
     tx: Prisma.TransactionClient,
@@ -57,6 +65,10 @@ class TestDispatcher {
     const event = await prisma.knowledgeOutbox.findUnique({ where: { id: eventId } });
     assert(event?.status === "PENDING", "Dispatch ran before its transaction committed.");
     this.dispatched.push(eventId);
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error("simulated post-commit dispatch failure");
+    }
     return { accepted: true };
   }
 }
@@ -125,18 +137,67 @@ async function main() {
       new KnowledgeV2OnboardingProjectionService(),
       contentReconciliation as never,
     );
-    const onboarding = new OnboardingService(prisma as never, knowledge);
+    const businessProfile = new BusinessProfileService(prisma as never, knowledge, {} as never);
+    const onboarding = new OnboardingService(prisma as never, businessProfile);
 
-    await Promise.all([
-      onboarding.update(context, {
-        currentStep: "channels",
-        data: { businessType: "beauty" },
-      }),
-      onboarding.update(context, {
-        currentStep: "company",
-        data: { companyInfo: { name: "Atomic Business" } },
+    const initialState = await onboarding.state(context);
+    const workflowUpdated = await onboarding.update(context, {
+      currentStep: "channels",
+      data: { selectedChannels: ["telegram"], crm: "none" },
+    });
+    const [workflowState, workflowSourceCount, workflowOutboxCount] = await Promise.all([
+      prisma.onboardingState.findUniqueOrThrow({ where: { tenantId } }),
+      prisma.businessKnowledgeSource.count({ where: { tenantId, deletedAt: null } }),
+      prisma.knowledgeOutbox.count({ where: { tenantId } }),
+    ]);
+    const workflowData = workflowState.data as Record<string, unknown>;
+    assert(workflowUpdated.businessProfileVersion === 1, "Workflow changed profile revision.");
+    assert(
+      workflowSourceCount === 0 && workflowOutboxCount === 0,
+      "Workflow-only onboarding synchronized profile knowledge.",
+    );
+    assert(
+      !Object.prototype.hasOwnProperty.call(workflowData, "companyInfo") &&
+        !Object.prototype.hasOwnProperty.call(workflowData, "timezone"),
+      "Workflow-only onboarding materialized the profile.",
+    );
+
+    const scenarioUpdated = await onboarding.update(context, {
+      currentStep: "scenario",
+      data: { scenario: "lead-qualification" },
+    });
+    const [scenarioState, scenarioSource] = await Promise.all([
+      prisma.onboardingState.findUniqueOrThrow({ where: { tenantId } }),
+      prisma.businessKnowledgeSource.findUniqueOrThrow({
+        where: { tenantId_sourceKey: { tenantId, sourceKey: "onboarding:business_profile" } },
       }),
     ]);
+    const scenarioData = scenarioState.data as Record<string, unknown>;
+    assert(scenarioUpdated.businessProfileVersion === 1, "Scenario changed profile revision.");
+    assert(
+      record(scenarioData.companyInfo).name === "Original name" && scenarioData.timezone === "UTC",
+      "Scenario sync did not materialize the fallback profile.",
+    );
+    assert(
+      scenarioSource.content.includes("Original name"),
+      "Scenario sync projected a sparse profile without fallback identity.",
+    );
+    const businessUpdated = await onboarding.update(
+      context,
+      {
+        currentStep: "channels",
+        data: { businessType: "beauty" },
+      },
+      scenarioUpdated.businessProfileEtag,
+    );
+    const companyUpdated = await onboarding.update(
+      context,
+      {
+        currentStep: "company",
+        data: { companyInfo: { name: "Atomic Business" } },
+      },
+      businessUpdated.businessProfileEtag,
+    );
 
     const [
       state,
@@ -160,12 +221,17 @@ async function main() {
       }),
     ]);
     const data = state.data as Record<string, unknown>;
-    assert(data.businessType === "beauty", "A concurrent onboarding patch was lost.");
+    assert(data.businessType === "beauty", "An onboarding patch was lost.");
     assert(
       (data.companyInfo as Record<string, unknown>)?.name === "Atomic Business",
       "The serialized onboarding merge lost company information.",
     );
     assert(updatedTenant.name === "Atomic Business", "Tenant identity did not commit atomically.");
+    assert(
+      state.businessProfileVersion === 3 &&
+        companyUpdated.businessProfileVersion === state.businessProfileVersion,
+      "Profile revisions did not advance exactly once per canonical change.",
+    );
     assert(
       updatedTenant.businessType === "beauty",
       "Tenant business type did not commit atomically.",
@@ -181,7 +247,7 @@ async function main() {
     );
     assert(auditCount >= 4, "Atomic onboarding and knowledge audits are missing.");
     assert(outboxCount >= 2, "Atomic onboarding publication outbox events are missing.");
-    assert(dispatcher.dispatched.length === 2, "Committed onboarding events were not dispatched.");
+    assert(dispatcher.dispatched.length === 3, "Committed onboarding events were not dispatched.");
     assert(structuredFactCount === 0, "Legacy onboarding unexpectedly created structured facts.");
     assert(
       structuredGuidanceCount === 0,
@@ -212,9 +278,13 @@ async function main() {
 
     rejected = false;
     try {
-      await onboarding.update(invalidContext, {
-        data: { companyInfo: { name: "Must Roll Back" } },
-      });
+      await onboarding.update(
+        invalidContext,
+        {
+          data: { companyInfo: { name: "Must Roll Back" } },
+        },
+        companyUpdated.businessProfileEtag,
+      );
     } catch {
       rejected = true;
     }
@@ -228,10 +298,29 @@ async function main() {
     assert(tenantAfterRollback.name === "Atomic Business", "Tenant identity escaped rollback.");
     assert(!sourceAfterRollback.content.includes("Must Roll Back"), "Knowledge escaped rollback.");
 
+    dispatcher.failNext = true;
+    const committedDespiteDispatchFailure = await onboarding.update(
+      context,
+      { data: { companyInfo: { description: "Committed before dispatch." } } },
+      companyUpdated.businessProfileEtag,
+    );
+    const failedDispatchEventId = dispatcher.dispatched.at(-1);
+    const failedDispatchEvent = failedDispatchEventId
+      ? await prisma.knowledgeOutbox.findUnique({ where: { id: failedDispatchEventId } })
+      : null;
+    assert(
+      committedDespiteDispatchFailure.businessProfileVersion === 4,
+      "A post-commit dispatch failure turned a committed save into a failed response.",
+    );
+    assert(
+      failedDispatchEvent?.status === "PENDING",
+      "The durable outbox event was not left pending for retry.",
+    );
+
     console.log(
       JSON.stringify({
         ok: true,
-        assertions: 19,
+        assertions: 28,
         sources: sources.length,
         audits: auditCount,
         outboxEvents: outboxCount,

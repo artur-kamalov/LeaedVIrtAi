@@ -24,6 +24,7 @@ import { WidgetModule } from "./modules/widget/widget.module.js";
 import { TelegramModule } from "./modules/telegram/telegram.module.js";
 import { WebhookModule } from "./modules/webhook/webhook.module.js";
 import { OperatorOperationsModule } from "./modules/operator-operations/operator-operations.module.js";
+import { BusinessProfileModule } from "./modules/business-profile/business-profile.module.js";
 
 @Module({
   imports: [
@@ -45,13 +46,14 @@ import { OperatorOperationsModule } from "./modules/operator-operations/operator
     BillingModule,
     AnalyticsModule,
     DashboardModule,
+    BusinessProfileModule,
     SettingsModule,
     KnowledgeModule,
     OnboardingModule,
     WidgetModule,
     TelegramModule,
     WebhookModule,
-    OperatorOperationsModule
-  ]
+    OperatorOperationsModule,
+  ],
 })
 export class AppModule {}

@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import type {
+  BusinessProfileView,
   KnowledgeV2BatchEvaluationRunView,
   KnowledgeV2CapabilityView,
   KnowledgeV2JobView,
@@ -365,6 +366,29 @@ function initialSettings(): KnowledgeV2SettingsView {
   };
 }
 
+function businessProfile(): BusinessProfileView {
+  return {
+    profile: {
+      businessType: "services",
+      name: "Knowledge workspace fixture",
+      description: "A deterministic profile for Knowledge workspace navigation tests.",
+      avgCheck: "EUR 80",
+      servicesCatalog: "Consultations and ongoing service packages.",
+      services: [],
+      hours: "Weekdays",
+      weeklySchedule: [],
+      availability: "By appointment",
+      faq: "",
+      policies: "",
+      escalationRules: "",
+      timezone: "Europe/Paris",
+    },
+    version: 1,
+    etag: '"business-profile-workspace-1"',
+    updatedAt: "2026-07-12T09:00:00.000Z",
+  };
+}
+
 function validationResult(state: KnowledgeMockState): KnowledgeV2PublicationValidationView {
   return {
     id: `validation-${state.candidateVersion}`,
@@ -516,6 +540,11 @@ async function installKnowledgeMocks(page: Page, forbidden = false, canManageSet
     },
     capabilityBodies: [],
   };
+
+  await page.route("**/api/business-profile", async (route) => {
+    const profile = businessProfile();
+    await fulfillJson(route, { data: profile }, 200, { etag: profile.etag });
+  });
 
   await page.route("**/api/knowledge/v2/**", async (route) => {
     const request = route.request();
@@ -834,11 +863,17 @@ async function expectNoRawKnowledgeKeys(page: Page) {
   await expect.poll(() => page.locator("body").innerText()).not.toMatch(/knowledge\.[a-z]/i);
 }
 
+async function openAdvancedBusinessSettings(page: Page) {
+  const advanced = page.getByTestId("knowledge-business-advanced");
+  await advanced.locator("summary").click();
+  await expect(advanced).toHaveAttribute("open", "");
+}
+
 test("Knowledge defaults to English and switches to Russian without raw keys", async ({ page }) => {
   await authenticate(page);
   await installKnowledgeMocks(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`${webBase}/app/knowledge`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${webBase}/app/knowledge?view=overview`, { waitUntil: "domcontentloaded" });
 
   const switcher = page.locator('[data-testid="language-switcher"]:visible').first();
   await expect(switcher).toHaveAttribute("data-locale", "en");
@@ -854,6 +889,7 @@ test("Knowledge defaults to English and switches to Russian without raw keys", a
   await expect(page.getByText("Опубликованные знания активны")).toBeVisible();
 
   await page.getByTestId("knowledge-tab-business").click();
+  await openAdvancedBusinessSettings(page);
   await expect(page.getByText("Языки клиентов")).toBeVisible();
   await expect(page.getByText("Фактов о компании пока нет")).toBeVisible();
 
@@ -876,7 +912,7 @@ test("capability controls keep published state separate and update the draft wit
   await authenticate(page);
   const state = await installKnowledgeMocks(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`${webBase}/app/knowledge`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${webBase}/app/knowledge?view=overview`, { waitUntil: "domcontentloaded" });
 
   const serving = page.getByTestId("knowledge-serving-capabilities");
   const draft = page.getByTestId("knowledge-draft-capabilities");
@@ -925,6 +961,7 @@ test("Knowledge default audience preserves hidden scope and is read-only without
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto(`${webBase}/app/knowledge`, { waitUntil: "domcontentloaded" });
   await page.getByTestId("knowledge-tab-business").click();
+  await openAdvancedBusinessSettings(page);
 
   const settingsPanel = page.getByTestId("knowledge-language-settings");
   const defaultAudience = page.getByTestId("knowledge-default-audience");
@@ -956,6 +993,7 @@ test("Knowledge default audience preserves hidden scope and is read-only without
     const readOnlyState = await installKnowledgeMocks(readOnlyPage, false, false);
     await readOnlyPage.goto(`${webBase}/app/knowledge`, { waitUntil: "domcontentloaded" });
     await readOnlyPage.getByTestId("knowledge-tab-business").click();
+    await openAdvancedBusinessSettings(readOnlyPage);
     const readOnlyAudience = readOnlyPage.getByTestId("knowledge-default-audience");
     await expect(readOnlyAudience.getByRole("radio", { name: "Everyone" })).toBeDisabled();
     await expect(
@@ -982,6 +1020,10 @@ test("app Knowledge navigation preserves all views and shows honest availability
   await sidebarLink.click();
   await expect(page).toHaveURL(`${webBase}/app/knowledge`, { timeout: 45_000 });
   await expect(page.getByTestId("knowledge-page")).toBeVisible({ timeout: 30_000 });
+
+  await expect(page.getByTestId("knowledge-tab-business")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("business-profile-editor")).toBeVisible();
+  await page.getByTestId("knowledge-tab-overview").click();
 
   await expect(page.getByText("Serving customers: Ready")).toBeVisible();
   await expect(page.getByText("Draft workspace: Changes pending")).toBeVisible();

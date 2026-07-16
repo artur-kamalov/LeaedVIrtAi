@@ -16,6 +16,7 @@ import type { MembershipRole, Prisma } from "@leadvirt/db";
 import type { RequestContext } from "../../common/request-context.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { AuthService } from "../auth/auth.service.js";
+import { BusinessProfileService } from "../business-profile/business-profile.service.js";
 import type { InviteTeamMemberDto } from "./dto/invite-team-member.dto.js";
 import type { UpdateAccountSettingsDto } from "./dto/update-account-settings.dto.js";
 import type { UpdateNotificationsDto } from "./dto/update-notifications.dto.js";
@@ -38,22 +39,6 @@ function settingsRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
-function profileFromSettings(value: unknown) {
-  const settings = settingsRecord(value);
-  const profile = settingsRecord(settings.profile);
-  return {
-    logoDataUrl: typeof profile.logoDataUrl === "string" ? profile.logoDataUrl : null,
-    description: typeof profile.description === "string" ? profile.description : null,
-    phone: typeof profile.phone === "string" ? profile.phone : null,
-    website: typeof profile.website === "string" ? profile.website : null,
-  };
-}
-
-function normalizedProfileText(value: string | null | undefined) {
-  const normalized = value?.trim();
-  return normalized ? normalized : null;
-}
-
 export const apiKeysNotAvailableErrorCode =
   "API_KEYS_NOT_AVAILABLE" satisfies ApiKeyAvailabilityErrorCode;
 
@@ -72,112 +57,19 @@ export class SettingsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AuthService) private readonly authService: AuthService,
+    @Inject(BusinessProfileService) private readonly businessProfile: BusinessProfileService,
   ) {}
 
   async account(context: RequestContext): Promise<SettingsAccount> {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: context.tenantId },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        status: true,
-        businessType: true,
-        timezone: true,
-        settings: true,
-      },
-    });
-    if (!tenant) throw new NotFoundException("Workspace was not found.");
-    const { settings, ...tenantDto } = tenant;
-    const profile = profileFromSettings(settings);
-    return {
-      tenant: tenantDto,
-      owner: context.user,
-      businessName: tenant.name,
-      timezone: tenant.timezone,
-      ...profile,
-    };
+    return this.businessProfile.getSettingsAccount(context);
   }
 
   async updateAccount(
     context: RequestContext,
     dto: UpdateAccountSettingsDto,
+    ifMatch?: string | string[],
   ): Promise<SettingsAccount> {
-    return this.prisma.$transaction(async (tx) => {
-      await this.lockTenant(tx, context.tenantId);
-      const currentTenant = await tx.tenant.findUniqueOrThrow({
-        where: { id: context.tenantId },
-        select: { settings: true },
-      });
-      const currentSettings = settingsRecord(currentTenant.settings);
-      const data: Prisma.TenantUpdateInput = {
-        ...(dto.businessName !== undefined ? { name: dto.businessName } : {}),
-        ...(dto.timezone !== undefined ? { timezone: dto.timezone } : {}),
-        ...(dto.businessType !== undefined ? { businessType: dto.businessType } : {}),
-      };
-      const profileFields = ["logoDataUrl", "description", "phone", "website"] as const;
-      if (profileFields.some((field) => Object.prototype.hasOwnProperty.call(dto, field))) {
-        const profile = settingsRecord(currentSettings.profile);
-        data.settings = {
-          ...currentSettings,
-          profile: {
-            ...profile,
-            ...(Object.prototype.hasOwnProperty.call(dto, "logoDataUrl")
-              ? { logoDataUrl: dto.logoDataUrl ?? null }
-              : {}),
-            ...(Object.prototype.hasOwnProperty.call(dto, "description")
-              ? { description: normalizedProfileText(dto.description) }
-              : {}),
-            ...(Object.prototype.hasOwnProperty.call(dto, "phone")
-              ? { phone: normalizedProfileText(dto.phone) }
-              : {}),
-            ...(Object.prototype.hasOwnProperty.call(dto, "website")
-              ? { website: normalizedProfileText(dto.website) }
-              : {}),
-          },
-        };
-      }
-
-      const tenant = await tx.tenant.update({
-        where: { id: context.tenantId },
-        data,
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          status: true,
-          businessType: true,
-          timezone: true,
-          settings: true,
-        },
-      });
-      const { settings, ...tenantDto } = tenant;
-      const profile = profileFromSettings(settings);
-      await tx.auditLog.create({
-        data: {
-          tenantId: context.tenantId,
-          actorUserId: context.userId,
-          action: "settings.account_updated",
-          entityType: "tenant",
-          entityId: context.tenantId,
-          payload: {
-            ...(dto.businessName !== undefined ? { businessName: dto.businessName } : {}),
-            ...(dto.timezone !== undefined ? { timezone: dto.timezone } : {}),
-            ...(dto.businessType !== undefined ? { businessType: dto.businessType } : {}),
-            profileFields: profileFields.filter((field) =>
-              Object.prototype.hasOwnProperty.call(dto, field),
-            ),
-          },
-        },
-      });
-      return {
-        tenant: tenantDto,
-        owner: context.user,
-        businessName: tenant.name,
-        timezone: tenant.timezone,
-        ...profile,
-      };
-    });
+    return this.businessProfile.updateSettingsAccount(context, dto, ifMatch);
   }
 
   async updateLocalePreference(

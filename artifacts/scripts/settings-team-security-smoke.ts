@@ -13,6 +13,7 @@ import { prisma, type MembershipRole, type Tenant, type User } from "@leadvirt/d
 import type { RequestContext } from "../../apps/api/src/common/request-context.js";
 import { RolesGuard } from "../../apps/api/src/common/guards/roles.guard.js";
 import { AuthService } from "../../apps/api/src/modules/auth/auth.service.js";
+import type { BusinessProfileService } from "../../apps/api/src/modules/business-profile/business-profile.service.js";
 import type { EmailOtpChallengeService } from "../../apps/api/src/modules/auth/email-otp-challenge.service.js";
 import {
   EmailOtpDeliveryService,
@@ -127,7 +128,11 @@ async function main() {
     resetEnvironmentKeys.map((key) => [key, process.env[key]] as const),
   );
   process.env.AUTH_CREDENTIALS_ENABLED = "true";
-  const settings = new SettingsService(prisma as unknown as PrismaService, {} as AuthService);
+  const settings = new SettingsService(
+    prisma as unknown as PrismaService,
+    {} as AuthService,
+    {} as BusinessProfileService,
+  );
   const smtpMessages: Array<Record<string, unknown>> = [];
   let smtpShouldFail = false;
   let smtpDeliveryStarted: (() => void) | null = null;

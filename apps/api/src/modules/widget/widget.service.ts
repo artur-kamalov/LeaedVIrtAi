@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { AI_PROVIDER_TOKEN, type AiMessage, type AiProvider } from "@leadvirt/ai";
 import { Prisma } from "@leadvirt/db";
+import { resolveAiBusinessIdentity } from "@leadvirt/knowledge";
 import type {
   AiReplyEnqueueRequest,
   WidgetConfig,
@@ -518,7 +519,6 @@ export class WidgetService {
     text: string,
     receivedAt: Date,
   ): Promise<WidgetAiState> {
-    const config = this.mapConfig(channel);
     const jobData = this.aiReplyRequest(channel, conversation, triggerMessageId, text);
     let syncAdmission: Awaited<ReturnType<AiReplyQueueService["admit"]>> | null = null;
     const messages: AiMessage[] = [
@@ -568,6 +568,13 @@ export class WidgetService {
         intent: "automatic_replies_inactive",
       };
     }
+    const identity = await resolveAiBusinessIdentity(this.prisma, {
+      tenantId: channel.tenantId,
+      legacyIdentity: () => ({
+        businessName: this.mapConfig(channel).businessName,
+        businessType: channel.tenant.businessType,
+      }),
+    });
 
     const [extraction, aiReply, recommendation] = await Promise.all([
       this.aiProvider.extractLeadFields({
@@ -577,8 +584,8 @@ export class WidgetService {
       }),
       this.aiProvider.generateReply({
         tenantId: channel.tenantId,
-        businessName: config.businessName,
-        ...(channel.tenant.businessType ? { businessType: channel.tenant.businessType } : {}),
+        businessName: identity.businessName,
+        ...(identity.businessType ? { businessType: identity.businessType } : {}),
         conversationId: conversation.id,
         messages,
       }),

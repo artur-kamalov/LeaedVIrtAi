@@ -103,6 +103,9 @@ test.describe("six-language localization", () => {
       await route.fulfill({
         json: {
           data: {
+            businessProfileVersion: 1,
+            businessProfileEtag: '"business-profile-localization-1"',
+            businessProfileUpdatedAt: "2026-07-16T12:00:00.000Z",
             currentStep: "business",
             completedSteps: [],
             data: {},

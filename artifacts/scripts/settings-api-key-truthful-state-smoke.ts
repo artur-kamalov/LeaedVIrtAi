@@ -11,6 +11,7 @@ import { prisma, type MembershipRole, type Tenant, type User } from "@leadvirt/d
 import type { RequestContext } from "../../apps/api/src/common/request-context.js";
 import { RolesGuard } from "../../apps/api/src/common/guards/roles.guard.js";
 import type { AuthService } from "../../apps/api/src/modules/auth/auth.service.js";
+import type { BusinessProfileService } from "../../apps/api/src/modules/business-profile/business-profile.service.js";
 import type { PrismaService } from "../../apps/api/src/modules/database/prisma.service.js";
 import { SettingsController } from "../../apps/api/src/modules/settings/settings.controller.js";
 import { SettingsService } from "../../apps/api/src/modules/settings/settings.service.js";
@@ -123,7 +124,11 @@ async function main() {
       },
     },
   ) as PrismaService;
-  const failClosedService = new SettingsService(unavailablePrisma, {} as AuthService);
+  const failClosedService = new SettingsService(
+    unavailablePrisma,
+    {} as AuthService,
+    {} as BusinessProfileService,
+  );
   const failClosedController = new SettingsController(failClosedService, {} as AuthService);
 
   await expectUnavailable(() => failClosedService.createApiKey());
@@ -149,7 +154,11 @@ async function main() {
     );
   }
 
-  const service = new SettingsService(prisma as unknown as PrismaService, {} as AuthService);
+  const service = new SettingsService(
+    prisma as unknown as PrismaService,
+    {} as AuthService,
+    {} as BusinessProfileService,
+  );
   const controller = new SettingsController(service, {} as AuthService);
 
   try {

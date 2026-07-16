@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 
@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
     .addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
 });
 
-function accountSettings(businessName = "API Studio") {
+function accountSettings(businessName = "API Studio", businessProfileVersion = 3) {
   return {
     data: {
       tenant: {
@@ -32,6 +32,9 @@ function accountSettings(businessName = "API Studio") {
       description: "API-backed education workspace",
       phone: "+33 1 84 80 20 26",
       website: "https://api-studio.example",
+      businessProfileVersion,
+      businessProfileEtag: `"business-profile-settings-${businessProfileVersion}"`,
+      businessProfileUpdatedAt: "2026-07-16T12:00:00.000Z",
     },
   };
 }
@@ -65,10 +68,58 @@ function currentTenant(role = "OWNER") {
   };
 }
 
+async function installSettingsProfileDependencies(page: Page) {
+  await page.route("**/api/auth/me", async (route) => {
+    await route.fulfill({ json: authMe(false) });
+  });
+  await page.route("**/api/current-tenant", async (route) => {
+    await route.fulfill({ json: currentTenant() });
+  });
+  await page.route("**/api/settings/team**", async (route) => {
+    await route.fulfill({ json: { data: [] } });
+  });
+  await page.route("**/api/settings/security", async (route) => {
+    await route.fulfill({
+      json: {
+        data: {
+          authMode: "credentials",
+          tenantScoped: true,
+          currentRole: "OWNER",
+          passwordChangeRequired: false,
+          twoFactor: {
+            enabled: false,
+            setupPending: false,
+            confirmedAt: null,
+            recoveryCodesRemaining: 0,
+          },
+          sessions: [],
+        },
+      },
+    });
+  });
+  await page.route("**/api/settings/billing", async (route) => {
+    await route.fulfill({ json: { data: { billingMode: "manual", apiKeys: [] } } });
+  });
+  await page.route("**/api/settings/notifications", async (route) => {
+    await route.fulfill({
+      json: {
+        data: {
+          new_lead: true,
+          no_reply: true,
+          booking: true,
+          daily: false,
+          tg_summary: true,
+        },
+      },
+    });
+  });
+}
+
 test("settings page renders account controls and owner-only inert API-key cleanup", async ({
   page,
 }) => {
   let patchedBusinessName = "";
+  let patchedBusinessProfileIfMatch = "";
   let patchedProfile: {
     description?: string | null;
     phone?: string | null;
@@ -111,6 +162,7 @@ test("settings page renders account controls and owner-only inert API-key cleanu
         website?: string | null;
       };
       patchedBusinessName = body.businessName ?? "";
+      patchedBusinessProfileIfMatch = route.request().headers()["if-match"] ?? "";
       patchedProfile = {
         description: body.description,
         phone: body.phone,
@@ -118,9 +170,9 @@ test("settings page renders account controls and owner-only inert API-key cleanu
       };
       await route.fulfill({
         json: {
-          ...accountSettings(patchedBusinessName),
+          ...accountSettings(patchedBusinessName, 4),
           data: {
-            ...accountSettings(patchedBusinessName).data,
+            ...accountSettings(patchedBusinessName, 4).data,
             ...patchedProfile,
           },
         },
@@ -422,6 +474,10 @@ test("settings page renders account controls and owner-only inert API-key cleanu
   const descriptionInput = page.getByTestId("settings-profile-description");
   const phoneInput = page.getByTestId("settings-profile-phone");
   const websiteInput = page.getByTestId("settings-profile-website");
+  await expect(page.getByTestId("settings-business-profile-link")).toHaveAttribute(
+    "href",
+    "/app/knowledge?view=business",
+  );
   await expect(businessNameInput).toHaveValue("API Studio");
   await expect(descriptionInput).toHaveValue("API-backed education workspace");
   await expect(phoneInput).toHaveValue("+33 1 84 80 20 26");
@@ -434,6 +490,7 @@ test("settings page renders account controls and owner-only inert API-key cleanu
   await websiteInput.fill("https://updated.api-studio.example");
   await page.getByRole("button", { name: /Сохранить изменения/ }).click();
   await expect.poll(() => patchedBusinessName).toBe("API Studio Updated");
+  expect(patchedBusinessProfileIfMatch).toBe('"business-profile-settings-3"');
   await expect
     .poll(() => patchedProfile)
     .toEqual({
@@ -551,6 +608,158 @@ test("settings page renders account controls and owner-only inert API-key cleanu
   await expect(page.getByText("Production API")).toBeHidden();
   await expect(page.getByText("lv_created_secret_once")).toHaveCount(0);
   await expect(page.getByText("Производство")).toBeHidden();
+});
+
+test("settings logo update preserves the form draft and its loaded profile ETag", async ({
+  page,
+}) => {
+  await installSettingsProfileDependencies(page);
+  const patchBodies: Record<string, unknown>[] = [];
+  const patchIfMatches: string[] = [];
+  let savedProfileVersion = 3;
+
+  await page.route("**/api/settings/account", async (route) => {
+    if (route.request().method() !== "PATCH") {
+      await route.fulfill({ json: accountSettings() });
+      return;
+    }
+
+    const patchBody = route.request().postDataJSON() as Record<string, unknown>;
+    patchBodies.push(patchBody);
+    patchIfMatches.push(route.request().headers()["if-match"] ?? "");
+    const logoOnly = Object.keys(patchBody).every((key) => key === "logoDataUrl");
+    if (!logoOnly) savedProfileVersion += 1;
+    const response = accountSettings(
+      typeof patchBody.businessName === "string" ? patchBody.businessName : "API Studio",
+      logoOnly ? 99 : savedProfileVersion,
+    );
+    await route.fulfill({
+      json: {
+        ...response,
+        data: {
+          ...response.data,
+          ...patchBody,
+        },
+      },
+    });
+  });
+
+  await page.goto(`${webBase}/app/settings`, { waitUntil: "networkidle" });
+  const profileEditor = page.getByTestId("settings-profile-editor");
+  const businessNameInput = profileEditor.locator("input:not([type])").first();
+  const descriptionInput = page.getByTestId("settings-profile-description");
+  await expect(profileEditor).toBeVisible();
+  await expect(businessNameInput).toHaveValue("API Studio");
+  await businessNameInput.fill("Unsaved local business name");
+  await descriptionInput.fill("Unsaved local profile description");
+  await page.getByTestId("settings-logo-input").setInputFiles({
+    name: "logo.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  });
+
+  await expect.poll(() => patchBodies.length).toBe(1);
+  expect(Object.keys(patchBodies[0])).toEqual(["logoDataUrl"]);
+  expect(patchBodies[0]).not.toHaveProperty("businessName");
+  expect(patchBodies[0]).not.toHaveProperty("businessType");
+  expect(patchBodies[0]).not.toHaveProperty("timezone");
+  expect(patchBodies[0]).not.toHaveProperty("description");
+  await expect(page.getByTestId("settings-logo-preview")).toBeVisible();
+  await expect(businessNameInput).toHaveValue("Unsaved local business name");
+  await expect(descriptionInput).toHaveValue("Unsaved local profile description");
+
+  const save = profileEditor.getByRole("button").last();
+  await save.click();
+  await expect.poll(() => patchBodies.length).toBe(2);
+  expect(patchIfMatches[1]).toBe('"business-profile-settings-3"');
+  await expect(save).toBeEnabled();
+  await expect(descriptionInput).toHaveValue("Unsaved local profile description");
+
+  await descriptionInput.fill("Second profile save after the logo response");
+  await save.click();
+  await expect.poll(() => patchBodies.length).toBe(3);
+  expect(patchIfMatches[2]).toBe('"business-profile-settings-4"');
+});
+
+test("settings preserves a stale draft until the user reloads the current profile", async ({
+  page,
+}) => {
+  await installSettingsProfileDependencies(page);
+  let conflictReturned = false;
+  let patchAttempts = 0;
+  const patchIfMatches: string[] = [];
+
+  await page.route("**/api/settings/account", async (route) => {
+    if (route.request().method() !== "PATCH") {
+      await route.fulfill({
+        json: conflictReturned
+          ? accountSettings("Server profile", 4)
+          : accountSettings("API Studio", 3),
+      });
+      return;
+    }
+
+    patchAttempts += 1;
+    patchIfMatches.push(route.request().headers()["if-match"] ?? "");
+    const body = route.request().postDataJSON() as {
+      businessName?: string;
+      businessType?: string;
+      timezone?: string;
+      description?: string | null;
+      phone?: string | null;
+      website?: string | null;
+    };
+    if (patchAttempts === 1) {
+      conflictReturned = true;
+      await route.fulfill({
+        status: 412,
+        json: {
+          error: {
+            code: "REVISION_CONFLICT",
+            message: "The business profile changed in another session.",
+            retryable: false,
+          },
+        },
+      });
+      return;
+    }
+
+    await route.fulfill({
+      json: {
+        ...accountSettings(body.businessName ?? "Server profile", 5),
+        data: {
+          ...accountSettings(body.businessName ?? "Server profile", 5).data,
+          ...body,
+        },
+      },
+    });
+  });
+
+  await page.goto(`${webBase}/app/settings`, { waitUntil: "networkidle" });
+  const profile = page.getByTestId("settings-profile-editor");
+  const businessName = profile.locator("input:not([type])").first();
+  const save = profile.getByRole("button").last();
+  await expect(businessName).toHaveValue("API Studio");
+
+  await businessName.fill("Local stale edit");
+  await save.click();
+  await expect.poll(() => patchAttempts).toBe(1);
+  await expect(page.getByTestId("settings-profile-conflict")).toBeVisible();
+  await expect(businessName).toHaveValue("Local stale edit");
+  expect(patchIfMatches[0]).toBe('"business-profile-settings-3"');
+
+  await page.getByTestId("settings-profile-conflict").getByRole("button").click();
+  await expect(page.getByTestId("settings-profile-conflict")).toBeHidden();
+  await expect(businessName).toHaveValue("Server profile");
+
+  await businessName.fill("Resolved after reload");
+  await save.click();
+  await expect.poll(() => patchAttempts).toBe(2);
+  expect(patchIfMatches[1]).toBe('"business-profile-settings-4"');
+  await expect(businessName).toHaveValue("Resolved after reload");
 });
 
 test("settings API keys tab explains unavailability without legacy rows or creation controls", async ({

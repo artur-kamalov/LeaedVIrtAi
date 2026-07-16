@@ -158,6 +158,10 @@ const knowledgeV2SnapshotCutoverIdentityMigrationUrl = new URL(
   "./migrations/20260715140000_knowledge_v2_snapshot_cutover_identity/migration.sql",
   import.meta.url,
 );
+const businessProfileVersionMigrationUrl = new URL(
+  "./migrations/20260716100000_business_profile_version/migration.sql",
+  import.meta.url,
+);
 const migrationRunnerLockPrefix = "leadvirt.custom-migration-runner.v1";
 const migrationRunnerMaxWaitMs = 30_000;
 const migrationRunnerTimeoutMs = 15 * 60_000;
@@ -3806,6 +3810,36 @@ async function knowledgeV2SnapshotCutoverIdentityState(prisma: PrismaClient) {
   return rows[0] ?? { present: false, complete: false };
 }
 
+async function businessProfileVersionState(prisma: PrismaClient) {
+  const rows = await prisma.$queryRaw<Array<{ present_count: bigint; complete_count: bigint }>>`
+    SELECT
+      COUNT(*) FILTER (
+        WHERE column_name IN ('businessProfileVersion', 'businessProfileUpdatedAt')
+      ) AS "present_count",
+      COUNT(*) FILTER (
+        WHERE (
+          column_name = 'businessProfileVersion'
+          AND data_type = 'integer'
+          AND is_nullable = 'NO'
+          AND regexp_replace(COALESCE(column_default, ''), '::integer$', '') = '1'
+        ) OR (
+          column_name = 'businessProfileUpdatedAt'
+          AND data_type = 'timestamp without time zone'
+          AND is_nullable = 'NO'
+          AND column_default = 'CURRENT_TIMESTAMP'
+        )
+      ) AS "complete_count"
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'OnboardingState'
+  `;
+  const state = rows[0];
+  return {
+    present: Boolean(state && state.present_count > 0n),
+    complete: Boolean(state && state.complete_count === 2n),
+  };
+}
+
 function splitSqlStatements(sql: string) {
   const statements: string[] = [];
   let start = 0;
@@ -4546,6 +4580,26 @@ async function runMigrations(databaseUrl: string, testStopAfter: MigrationTestSt
       console.log(
         `Applied knowledge_v2_snapshot_cutover_identity migration (${statementCount} statements).`,
       );
+    }
+
+    const businessProfileVersion = await businessProfileVersionState(prisma);
+    if (businessProfileVersion.complete) {
+      console.log(
+        "Business profile version already exists; skipping business_profile_version migration.",
+      );
+    } else if (businessProfileVersion.present) {
+      throw new Error(
+        "Business profile version is partially installed; refusing to replay its DDL.",
+      );
+    } else {
+      const statementCount = await applySqlFile(prisma, businessProfileVersionMigrationUrl);
+      const installed = await businessProfileVersionState(prisma);
+      if (!installed.complete) {
+        throw new Error(
+          "Business profile version migration completed without its versioning contract.",
+        );
+      }
+      console.log(`Applied business_profile_version migration (${statementCount} statements).`);
     }
   } finally {
     await prisma.$disconnect();

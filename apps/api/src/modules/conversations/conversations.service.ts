@@ -14,6 +14,7 @@ import type {
   PaginatedEnvelope,
 } from "@leadvirt/types";
 import { Prisma } from "@leadvirt/db";
+import { resolveAiBusinessIdentity } from "@leadvirt/knowledge";
 import { positiveInt } from "../../common/pagination.js";
 import type { RequestContext } from "../../common/request-context.js";
 import { RuntimeQueueService } from "../ai/runtime-queue.service.js";
@@ -152,11 +153,18 @@ export class ConversationsService {
 
   async draftAiReply(context: RequestContext, id: string): Promise<AiDraftReply> {
     const conversation = await this.loadConversation(context.tenantId, id);
+    const identity = await resolveAiBusinessIdentity(this.prisma, {
+      tenantId: context.tenantId,
+      legacyIdentity: () => ({
+        businessName: context.tenant.name,
+        businessType: context.tenant.businessType,
+      }),
+    });
     return this.aiProvider.generateReply({
       tenantId: context.tenantId,
-      businessName: context.tenant.name,
+      businessName: identity.businessName,
       conversationId: conversation.id,
-      ...(context.tenant.businessType ? { businessType: context.tenant.businessType } : {}),
+      ...(identity.businessType ? { businessType: identity.businessType } : {}),
       messages: conversation.messages.map((message) => ({
         role: message.senderType === "AI" ? "assistant" : "user",
         content: message.text ?? "",

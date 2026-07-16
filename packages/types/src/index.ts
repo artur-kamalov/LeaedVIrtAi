@@ -936,13 +936,65 @@ export interface SettingsAccount {
   description?: string | null;
   phone?: string | null;
   website?: string | null;
+  businessProfileVersion: number;
+  businessProfileEtag: string;
+  businessProfileUpdatedAt: string;
 }
 
 export interface OnboardingState {
+  businessProfileVersion: number;
+  businessProfileEtag: string;
+  businessProfileUpdatedAt: string;
   currentStep: string;
   completedSteps: string[];
   data: Record<string, unknown>;
   completedAt?: string | null;
+}
+
+export type BusinessProfileDay = "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
+
+export interface BusinessProfileServiceItem {
+  id: string;
+  name: string;
+  description: string;
+  price: string;
+  duration: string;
+}
+
+export interface BusinessProfileScheduleDay {
+  day: BusinessProfileDay;
+  enabled: boolean;
+  opensAt: string;
+  closesAt: string;
+}
+
+export interface BusinessProfileData {
+  businessType: string;
+  name: string;
+  description: string;
+  avgCheck: string;
+  servicesCatalog: string;
+  services: BusinessProfileServiceItem[];
+  hours: string;
+  weeklySchedule: BusinessProfileScheduleDay[];
+  availability: string;
+  faq: string;
+  policies: string;
+  escalationRules: string;
+  timezone: string;
+}
+
+export type BusinessProfilePatch = Partial<BusinessProfileData>;
+
+export interface BusinessProfilePatchRequest {
+  profile: BusinessProfilePatch;
+}
+
+export interface BusinessProfileView {
+  profile: BusinessProfileData;
+  version: number;
+  etag: string;
+  updatedAt: string;
 }
 
 export interface BusinessKnowledgeSource {
