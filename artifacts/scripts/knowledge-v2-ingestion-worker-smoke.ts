@@ -7,8 +7,11 @@ import { loadEnvFile } from "@leadvirt/config";
 import { UnrecoverableError } from "bullmq";
 import { Prisma, prisma } from "@leadvirt/db";
 import {
+  buildKnowledgeV2SnapshotAuthorizationManifest,
   EncryptedFileKnowledgeObjectStore,
+  hashKnowledgeValue,
   KnowledgeObjectStoreError,
+  stableKnowledgeValue,
   type AcquiredWebsiteSourceBody,
 } from "@leadvirt/knowledge";
 import {
@@ -305,36 +308,102 @@ async function main() {
       where: { revisionId: primaryRevision!.id },
       orderBy: { ordinal: "asc" },
     });
-    const indexSnapshot = await prisma.knowledgeIndexSnapshot.create({
+    const snapshotSource = await prisma.knowledgeV2Source.findUniqueOrThrow({
+      where: { id: primarySource.id },
+    });
+    const canonicalHash = (value: unknown) => hashKnowledgeValue(stableKnowledgeValue(value));
+    const publicationItems = [
+      {
+        itemType: "DOCUMENT_REVISION" as const,
+        itemId: primaryRevision!.id,
+        itemVersionHash: primaryRevision!.contentHash,
+        authorizationFingerprint: primaryRevision!.sourcePermissionFingerprint,
+        scope: primaryRevision!.scopeSnapshot,
+      },
+    ];
+    const indexSchema = {
+      schemaVersion: 1,
+      dense: { provider: "smoke", model: "smoke-v1", dimensions: 3 },
+      sparse: { provider: "smoke", model: "sparse-v1" },
+      pipelineVersion: "knowledge-v2-hybrid-v1",
+    };
+    const indexSchemaHash = canonicalHash(indexSchema);
+    const snapshotManifestHash = canonicalHash({
+      version: 1,
+      corpusKind: "STRUCTURED_V2",
+      documents: publicationItems.map((item) => ({
+        revisionId: item.itemId,
+        contentHash: item.itemVersionHash,
+        authorizationFingerprint: item.authorizationFingerprint,
+        scope: item.scope,
+      })),
+      indexSchemaHash,
+    });
+    const snapshotId = randomUUID();
+    const snapshotPoints = indexedChunks.map((chunk) => {
+      const vectorPointId = randomUUID();
+      return {
+        sourceId: primaryRevision!.sourceId,
+        sourceGeneration: snapshotSource.generation,
+        authorizationFingerprint: primaryRevision!.sourcePermissionFingerprint,
+        permissionVersion: chunk.permissionVersion,
+        chunkId: chunk.id,
+        documentId: chunk.documentId,
+        revisionId: chunk.revisionId,
+        contentHash: chunk.contentHash,
+        vectorPointId,
+        pointFingerprint: canonicalHash({ snapshotId, chunkId: chunk.id, vectorPointId }),
+      };
+    });
+    const snapshotPointIds = new Map(
+      snapshotPoints.map((point) => [point.chunkId, point.vectorPointId] as const),
+    );
+    const preparingSnapshot = await prisma.knowledgeIndexSnapshot.create({
       data: {
+        id: snapshotId,
         tenantId: primary.tenant.id,
         corpusKind: "STRUCTURED_V2",
-        status: "READY",
+        status: "PREPARING",
         collectionName: "knowledge-v2-smoke",
         embeddingProvider: "smoke",
         embeddingModel: "smoke-v1",
-        manifestHash: createHash("sha256").update(randomUUID()).digest("hex"),
-        pipelineVersion: "knowledge-v2",
+        manifestHash: snapshotManifestHash,
+        authorizationManifestVersion: 1,
+        indexSchema,
+        indexSchemaHash,
+        pipelineVersion: "knowledge-v2-hybrid-v1",
         expectedPointCount: indexedChunks.length,
-        observedPointCount: indexedChunks.length,
-        verifiedAt: indexedAt,
+        preparationStartedAt: indexedAt,
       },
     });
-    const snapshotPointIds = new Map(
-      indexedChunks.map((chunk) => [chunk.id, randomUUID()] as const),
-    );
     await prisma.knowledgeV2IndexSnapshotItem.createMany({
-      data: indexedChunks.map((chunk) => ({
+      data: snapshotPoints.map((point) => ({
         tenantId: primary.tenant.id,
-        snapshotId: indexSnapshot.id,
-        chunkId: chunk.id,
+        snapshotId: preparingSnapshot.id,
+        chunkId: point.chunkId,
         corpusKind: "STRUCTURED_V2",
-        contentHash: chunk.contentHash,
-        vectorPointId: snapshotPointIds.get(chunk.id)!,
-        pointFingerprint: createHash("sha256")
-          .update(`snapshot-point:${indexSnapshot.id}:${chunk.id}`)
-          .digest("hex"),
+        contentHash: point.contentHash,
+        vectorPointId: point.vectorPointId,
+        pointFingerprint: point.pointFingerprint,
       })),
+    });
+    const snapshotAuthorization = buildKnowledgeV2SnapshotAuthorizationManifest({
+      tenantId: primary.tenant.id,
+      snapshotId: preparingSnapshot.id,
+      snapshotManifestHash,
+      indexSchemaHash,
+      points: snapshotPoints,
+    });
+    const indexSnapshot = await prisma.knowledgeIndexSnapshot.update({
+      where: { id: preparingSnapshot.id },
+      data: {
+        status: "READY",
+        observedPointCount: snapshotPoints.length,
+        verifiedAt: indexedAt,
+        preparationStartedAt: null,
+        authorizationManifest: snapshotAuthorization.manifest as unknown as Prisma.InputJsonValue,
+        authorizationManifestHash: snapshotAuthorization.hash,
+      },
     });
     await prisma.knowledgeV2Document.update({
       where: { id: primaryDocument.id },
@@ -343,12 +412,12 @@ async function main() {
     const activePublication = await prisma.knowledgePublication.create({
       data: {
         tenantId: primary.tenant.id,
-        targetKey: "workspace",
+        targetKey: "workspace-v2",
         corpusKind: "STRUCTURED_V2",
         sequence: 1,
         status: "READY",
         indexSnapshotId: indexSnapshot.id,
-        manifestHash: createHash("sha256").update(randomUUID()).digest("hex"),
+        manifestHash: canonicalHash(publicationItems),
         pipelineVersion: "knowledge-v2",
         retrievalPolicyVersion: "knowledge-v2",
         promptPolicyVersion: "knowledge-v2",
@@ -360,6 +429,7 @@ async function main() {
             itemVersionHash: primaryRevision!.contentHash,
             v2DocumentRevisionId: primaryRevision!.id,
             authorizationFingerprint: primaryRevision!.sourcePermissionFingerprint,
+            scope: primaryRevision!.scopeSnapshot ?? Prisma.JsonNull,
           },
         },
       },
@@ -375,7 +445,7 @@ async function main() {
     await prisma.activeKnowledgePublication.create({
       data: {
         tenantId: primary.tenant.id,
-        targetKey: "workspace",
+        targetKey: "workspace-v2",
         publicationId: activePublication.id,
         sequence: activePublication.sequence,
         updatedByUserId: primary.user.id,
@@ -961,7 +1031,7 @@ async function main() {
       (
         await prisma.activeKnowledgePublication.findUniqueOrThrow({
           where: {
-            tenantId_targetKey: { tenantId: primary.tenant.id, targetKey: "workspace" },
+            tenantId_targetKey: { tenantId: primary.tenant.id, targetKey: "workspace-v2" },
           },
         })
       ).publicationId === activePublication.id,
@@ -1015,7 +1085,7 @@ async function main() {
       (
         await prisma.activeKnowledgePublication.findUniqueOrThrow({
           where: {
-            tenantId_targetKey: { tenantId: primary.tenant.id, targetKey: "workspace" },
+            tenantId_targetKey: { tenantId: primary.tenant.id, targetKey: "workspace-v2" },
           },
         })
       ).publicationId === activePublication.id,

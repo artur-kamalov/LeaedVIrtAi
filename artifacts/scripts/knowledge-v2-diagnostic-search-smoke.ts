@@ -4,6 +4,7 @@ import { HttpException } from "@nestjs/common";
 import type { MembershipRole } from "@leadvirt/db";
 import {
   admitKnowledgeV2ProcessorQuery,
+  createKnowledgeV2QueryHashKeyring,
   projectKnowledgeV2ProcessorQueryAdmissionBinding,
   type KnowledgeEvidenceBundle,
   type KnowledgeRuntimeAuthorizationContext,
@@ -17,9 +18,18 @@ import { KnowledgeService } from "../../apps/api/src/modules/knowledge/knowledge
 const tenantId = "tenant-diagnostic-search";
 const publicationId = "publication-diagnostic-v2";
 const query = "What is the private diagnostic price?";
+const queryHashes = createKnowledgeV2QueryHashKeyring({
+  activeKeyId: "diagnostic-search-query-v1",
+  keys: { "diagnostic-search-query-v1": new Uint8Array(32).fill(100) },
+});
 const processorQueryAdmission = projectKnowledgeV2ProcessorQueryAdmissionBinding(
-  admitKnowledgeV2ProcessorQuery({ query, classification: "SECRET" }),
+  admitKnowledgeV2ProcessorQuery({ tenantId, query, classification: "SECRET" }, queryHashes),
 );
+const queryHashBinding = {
+  hash: processorQueryAdmission.originalQueryHash,
+  keyId: processorQueryAdmission.queryHashKeyId,
+  version: processorQueryAdmission.queryHashVersion,
+};
 
 const secrets = {
   publicationManifestHash: "1".repeat(64),
@@ -30,7 +40,7 @@ const secrets = {
   contentHash: "6".repeat(64),
   permissionFingerprint: "7".repeat(64),
   requirementHash: "8".repeat(64),
-  queryHash: processorQueryAdmission.originalQueryHash,
+  queryHash: queryHashBinding.hash,
   restrictedQueryRef: "restricted://diagnostic-query-secret",
 };
 
@@ -53,7 +63,7 @@ const target = {
 
 const traceDraft = {
   traceKeySeed: "b".repeat(64),
-  queryHash: secrets.queryHash,
+  queryHash: queryHashBinding,
   restrictedQueryRef: secrets.restrictedQueryRef,
   restrictedQueryCreated: true,
   filters: {},
@@ -70,7 +80,7 @@ const traceDraft = {
   candidates: [],
   citations: [],
   latencyMs: 2,
-} as KnowledgeV2TraceDraft;
+} satisfies KnowledgeV2TraceDraft;
 
 const bundle: KnowledgeEvidenceBundle = {
   schemaVersion: 1,
@@ -145,7 +155,7 @@ const bundle: KnowledgeEvidenceBundle = {
   answerPolicy: {
     requirementHash: secrets.requirementHash,
     operationalCategory: "STATIC_KNOWLEDGE",
-    queryHash: secrets.queryHash,
+    queryHash: queryHashBinding,
     processorQueryAdmission,
     requiresLiveEvidence: false,
     staticEvidenceMayAnswer: true,

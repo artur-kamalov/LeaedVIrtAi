@@ -64,7 +64,6 @@
     "qa:ai:qdrant-isolation": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/ai-qdrant-isolation-smoke.ts",
     "qa:knowledge:publication": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/knowledge-publication-smoke.ts",
     "qa:onboarding:atomic": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/onboarding-atomic-smoke.ts",
-    "qa:knowledge:graph": "corepack pnpm --filter @leadvirt/worker exec tsx ../../artifacts/scripts/knowledge-graph-retrieval-smoke.ts",
     "qa:knowledge:qdrant-failure": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/knowledge-qdrant-failure-smoke.ts",
     "qa:knowledge:qdrant-reconciliation": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/knowledge-qdrant-reconciliation-smoke.ts",
     "qa:knowledge:v2:http": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/knowledge-v2-http-smoke.ts",

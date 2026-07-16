@@ -16,8 +16,8 @@ import { KnowledgeV2MigrationService } from "../../apps/api/src/modules/knowledg
 import { KnowledgeV2OnboardingProjectionService } from "../../apps/api/src/modules/knowledge/knowledge-v2-onboarding-projection.service.js";
 import { KnowledgeV2Service } from "../../apps/api/src/modules/knowledge/knowledge-v2.service.js";
 import { OnboardingService } from "../../apps/api/src/modules/onboarding/onboarding.service.js";
-import { beginAiReplyAttempt } from "../../apps/worker/src/ai/ai-reply-reliability.js";
 import {
+  buildKnowledgeV2SnapshotAuthorizationManifest,
   createKnowledgeV2QueryHashKeyring,
   hashKnowledgeValue,
   KnowledgeRuntimeRetriever,
@@ -191,7 +191,7 @@ async function createStructuredPublication(
   }
   const refreshed = await prisma.knowledgeV2DocumentRevision.findMany({
     where: { tenantId, id: { in: revisions.map((revision) => revision.id) } },
-    include: { chunks: true },
+    include: { chunks: true, document: { include: { source: true } } },
     orderBy: { id: "asc" },
   });
   const items = refreshed.map((revision) => ({
@@ -222,42 +222,79 @@ async function createStructuredPublication(
       .sort((left, right) => left.revisionId.localeCompare(right.revisionId)),
     indexSchemaHash,
   });
-  const chunks = refreshed.flatMap((revision) => revision.chunks);
+  const snapshotId = randomUUID();
+  const snapshotPoints = refreshed.flatMap((revision) =>
+    revision.chunks.map((chunk) => {
+      const pointFingerprint = canonicalKnowledgeV2Hash({
+        chunkId: chunk.id,
+        contentHash: chunk.contentHash,
+        vectorPointId: chunk.vectorPointId,
+      });
+      return {
+        sourceId: revision.sourceId,
+        sourceGeneration: revision.document.source.generation,
+        authorizationFingerprint: revision.sourcePermissionFingerprint,
+        permissionVersion: revision.document.source.sourcePermissionVersion,
+        chunkId: chunk.id,
+        documentId: revision.documentId,
+        revisionId: revision.id,
+        contentHash: chunk.contentHash,
+        vectorPointId: chunk.vectorPointId,
+        pointFingerprint,
+      };
+    }),
+  );
+  assert(snapshotPoints.length > 0, "Migration created no structured snapshot points.");
   const settings = await prisma.knowledgeV2Settings.findUnique({
     where: { tenantId },
     select: { draftGeneration: true },
   });
   const snapshot = await prisma.knowledgeIndexSnapshot.create({
     data: {
+      id: snapshotId,
       tenantId,
       corpusKind: "STRUCTURED_V2",
-      status: "READY",
+      status: "PREPARING",
       collectionName: `migration-smoke-${tenantId}`,
       embeddingProvider: "smoke",
       embeddingModel: "dense-v1",
       manifestHash: snapshotManifestHash,
+      authorizationManifestVersion: 1,
       indexSchema,
       indexSchemaHash,
       pipelineVersion: "knowledge-v2-hybrid-v1",
-      expectedPointCount: chunks.length,
-      observedPointCount: chunks.length,
-      verifiedAt: new Date(),
+      expectedPointCount: snapshotPoints.length,
+      preparationStartedAt: new Date(),
     },
   });
   await prisma.knowledgeV2IndexSnapshotItem.createMany({
-    data: chunks.map((chunk) => ({
+    data: snapshotPoints.map((point) => ({
       tenantId,
       snapshotId: snapshot.id,
       corpusKind: "STRUCTURED_V2" as const,
-      chunkId: chunk.id,
-      contentHash: chunk.contentHash,
-      vectorPointId: chunk.vectorPointId,
-      pointFingerprint: canonicalKnowledgeV2Hash({
-        chunkId: chunk.id,
-        contentHash: chunk.contentHash,
-        vectorPointId: chunk.vectorPointId,
-      }),
+      chunkId: point.chunkId,
+      contentHash: point.contentHash,
+      vectorPointId: point.vectorPointId,
+      pointFingerprint: point.pointFingerprint,
     })),
+  });
+  const authorization = buildKnowledgeV2SnapshotAuthorizationManifest({
+    tenantId,
+    snapshotId: snapshot.id,
+    snapshotManifestHash,
+    indexSchemaHash,
+    points: snapshotPoints,
+  });
+  const readySnapshot = await prisma.knowledgeIndexSnapshot.update({
+    where: { id: snapshot.id },
+    data: {
+      status: "READY",
+      observedPointCount: snapshotPoints.length,
+      verifiedAt: new Date(),
+      preparationStartedAt: null,
+      authorizationManifest: authorization.manifest as unknown as Prisma.InputJsonValue,
+      authorizationManifestHash: authorization.hash,
+    },
   });
   let publication = await prisma.knowledgePublication.create({
     data: {
@@ -317,7 +354,7 @@ async function createStructuredPublication(
       updatedByUserId: userId,
     },
   });
-  return { publication, snapshot, pointCount: chunks.length };
+  return { publication, snapshot: readySnapshot, pointCount: snapshotPoints.length };
 }
 
 async function createLegacyRuntimeFixture(prisma: PrismaService, tenantId: string, userId: string) {
@@ -795,33 +832,6 @@ async function main() {
         stateParts: [legacyPublication.id, legacyPublication.sequence],
       }),
     );
-    const lead = await prisma.lead.create({
-      data: { tenantId: tenant.id, source: "smoke", channelType: "WEBSITE", status: "NEW" },
-    });
-    const conversation = await prisma.conversation.create({
-      data: { tenantId: tenant.id, leadId: lead.id, status: "OPEN", aiEnabled: true },
-    });
-    const inbound = await prisma.message.create({
-      data: {
-        tenantId: tenant.id,
-        conversationId: conversation.id,
-        direction: "INBOUND",
-        senderType: "CUSTOMER",
-        text: "Before cutover",
-        status: "RECEIVED",
-      },
-    });
-    const before = await beginAiReplyAttempt({
-      tenantId: tenant.id,
-      conversationId: conversation.id,
-      triggerMessageId: inbound.id,
-      source: "worker-test",
-    });
-    assert(
-      before.disposition === "active" && before.attempt.publicationId === legacyPublication.id,
-      "AI run did not capture the legacy publication before cutover.",
-    );
-
     const structured = await createStructuredPublication(
       prisma,
       tenant.id,
@@ -1751,32 +1761,6 @@ async function main() {
         activeAfterRollback.etag === activeBeforeProjection.etag &&
         dispatchedContentEvents.length === dispatchCountBeforeRollback,
       "Structured projection failure escaped its onboarding transaction.",
-    );
-
-    const secondInbound = await prisma.message.create({
-      data: {
-        tenantId: tenant.id,
-        conversationId: conversation.id,
-        direction: "INBOUND",
-        senderType: "CUSTOMER",
-        text: "After cutover",
-        status: "RECEIVED",
-      },
-    });
-    const after = await beginAiReplyAttempt({
-      tenantId: tenant.id,
-      conversationId: conversation.id,
-      triggerMessageId: secondInbound.id,
-      source: "worker-test",
-    });
-    assert(
-      after.disposition === "active" && after.attempt.publicationId === structured.publication.id,
-      "AI run did not capture the structured publication after cutover.",
-    );
-    assert(
-      (await prisma.aiReplyRun.findUniqueOrThrow({ where: { id: before.attempt.runId } }))
-        .publicationId === legacyPublication.id,
-      "Selector race changed the first graph publication.",
     );
 
     let legacyCalls = 0;

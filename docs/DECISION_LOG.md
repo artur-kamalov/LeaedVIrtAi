@@ -1,5 +1,18 @@
 # Decision Log
 
+## 2026-07-16: Keep Phase 0 QA On Serving-Eligible Structured Fixtures
+
+Decision: Required Phase 0 checks use only supported Structured V2 publication, capability, query-hash, and snapshot-authorization contracts. The obsolete legacy graph smoke is removed from the release gate, and the grounded publication suite runs once through its canonical command.
+
+Context: After the deployment-journal and AI quality fixes, CI exposed fixtures that manually created response hashes, query identities, rollback manifests, and `READY` snapshots using retired contracts. Production correctly rejected those fixtures. Bypassing the checks would hide real serving requirements.
+
+Consequences:
+
+- Production automatic-reply, rollback, and snapshot admission remain fail closed.
+- Manual Structured V2 snapshots must insert exact membership, build the versioned authorization manifest from that membership, and only then transition from `PREPARING` to `READY`.
+- Legacy publish/retrieve behavior remains covered directly, but only serving-eligible Structured V2 fixtures may exercise automatic replies.
+- The grounded evaluation/publication suite remains available through both package aliases for compatibility, but deploy invokes it once.
+
 ## 2026-07-16: Bind The Required AI Gate To Structured Runtime Contracts
 
 Decision: The required `qa:ai:quality` deployment gate composes the AI reply reliability and Structured V2 reply suites. The legacy golden-set harness is removed from the deploy path until it uses the same structured publication, capability, operational binding, channel activation, and durable outbox contracts as production.

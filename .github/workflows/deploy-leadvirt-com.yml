@@ -175,7 +175,6 @@ jobs:
       - name: Verify Phase 0 knowledge and reply reliability
         run: |
           corepack pnpm run qa:knowledge:publication
-          corepack pnpm run qa:knowledge:graph
           corepack pnpm run qa:knowledge:qdrant-failure
           corepack pnpm run qa:knowledge:qdrant-reconciliation
           corepack pnpm run qa:knowledge:v2:http
@@ -194,7 +193,6 @@ jobs:
           corepack pnpm run qa:knowledge:v2:diagnostic-search
           corepack pnpm run qa:knowledge:v2:live-tool-ledger
           corepack pnpm run qa:knowledge:v2:grounded-gate
-          corepack pnpm run qa:knowledge:v2:grounded-test-run
           corepack pnpm run qa:knowledge:v2:evaluation-publication
           corepack pnpm run qa:knowledge:v2:real-provider-contract
           corepack pnpm run qa:knowledge:v2:content-reconciliation

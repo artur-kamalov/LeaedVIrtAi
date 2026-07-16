@@ -98,6 +98,10 @@ async function cleanupTenant(tenantId: string | null, userId: string | null) {
       "KnowledgeV2TestExpectation",
       "KnowledgeV2TestCaseVersion",
       "KnowledgeV2TestCase",
+      "KnowledgePublicationCapability",
+      "KnowledgeV2RequirementEvaluation",
+      "KnowledgeV2RequirementDefinition",
+      "KnowledgeV2Capability",
       "KnowledgeOutbox",
       "KnowledgeJob",
       "KnowledgeV2IdempotencyRecord",
@@ -105,10 +109,16 @@ async function cleanupTenant(tenantId: string | null, userId: string | null) {
       "ActiveKnowledgePublication",
       "KnowledgePublicationItem",
       "KnowledgePublication",
+      "KnowledgeV2IndexSnapshotItem",
+      "KnowledgeIndexSnapshotItem",
+      "KnowledgeIndexSnapshot",
+      "KnowledgeV2GuidanceRuleVersion",
+      "KnowledgeV2GuidanceRule",
       "KnowledgeV2FactVersion",
       "KnowledgeV2Fact",
       "KnowledgeV2Entity",
       "KnowledgeV2Settings",
+      "TenantOperationalAuthorizationState",
       "AuditLog",
       "Membership",
     ];
@@ -137,7 +147,15 @@ async function main() {
       data: { tenantId, userId, role: "ADMIN" },
     });
     await prisma.knowledgeV2Settings.create({
-      data: { tenantId, modelProcessorPolicy: modelPolicy() },
+      data: {
+        tenantId,
+        retrievalProcessorPolicy: {
+          schemaVersion: 1,
+          policyVersion: "grounded-test-retrieval-v1",
+          approved: true,
+        },
+        modelProcessorPolicy: modelPolicy(),
+      },
     });
     const entity = await prisma.knowledgeV2Entity.create({
       data: { tenantId, entityType: "BUSINESS", entityKey: "business/default" },
@@ -189,6 +207,124 @@ async function main() {
       authority: { authority: "MANUAL", verifiedByUserId: userId },
       evidence: [],
     });
+    const businessNameValue = { value: "Grounded Test" } satisfies Prisma.InputJsonObject;
+    const capabilityScope = {
+      audiences: ["INTERNAL"],
+    } satisfies Prisma.InputJsonObject;
+    const capabilityScopeBinding = resolveKnowledgeV2StructuredScope(capabilityScope, null);
+    assert.ok(capabilityScopeBinding);
+    const businessNameFact = await prisma.knowledgeV2Fact.create({
+      data: {
+        tenantId,
+        entityId: entity.id,
+        entityType: "BUSINESS",
+        factKey: "business/name",
+        fieldType: "TEXT",
+        latestVersionNumber: 1,
+      },
+    });
+    const businessNameVersion = await prisma.knowledgeV2FactVersion.create({
+      data: {
+        tenantId,
+        factId: businessNameFact.id,
+        versionNumber: 1,
+        normalizedValue: businessNameValue,
+        displayValue: businessNameValue.value,
+        scope: capabilityScope,
+        riskLevel: "LOW",
+        authority: "MANUAL",
+        lifecycleStatus: "DRAFT",
+        verificationStatus: "VERIFIED",
+        immutableHash: sha256(stableKnowledgeValue(businessNameValue)),
+        verifiedByUserId: userId,
+        verifiedAt: new Date(),
+      },
+    });
+    const businessNameAuthorizationFingerprint = knowledgeV2StructuredAuthorizationFingerprint({
+      itemType: "FACT_VERSION",
+      binding: capabilityScopeBinding,
+      riskLevel: "LOW",
+      authority: { authority: "MANUAL", verifiedByUserId: userId },
+      evidence: [],
+    });
+    const escalationCondition = {
+      kind: "ALL",
+      conditions: [],
+    } satisfies Prisma.InputJsonObject;
+    const escalationInstruction = "Escalate unresolved questions to a human specialist.";
+    const escalationRule = await prisma.knowledgeV2GuidanceRule.create({
+      data: {
+        tenantId,
+        ruleKey: "support/escalation",
+        title: "Human escalation",
+        ruleType: "ESCALATION",
+        latestVersionNumber: 1,
+        createdByUserId: userId,
+        updatedByUserId: userId,
+      },
+    });
+    const escalationVersion = await prisma.knowledgeV2GuidanceRuleVersion.create({
+      data: {
+        tenantId,
+        guidanceRuleId: escalationRule.id,
+        versionNumber: 1,
+        title: escalationRule.title,
+        ruleType: escalationRule.ruleType,
+        conditionAst: escalationCondition,
+        instruction: escalationInstruction,
+        priority: 100,
+        tieBreakKey: "support/escalation",
+        scope: capabilityScope,
+        riskLevel: "LOW",
+        reviewStatus: "APPROVED",
+        immutableHash: sha256(
+          stableKnowledgeValue({
+            conditionAst: escalationCondition,
+            instruction: escalationInstruction,
+            ruleType: escalationRule.ruleType,
+          }),
+        ),
+        createdByUserId: userId,
+        approvedByUserId: userId,
+        approvedAt: new Date(),
+      },
+    });
+    const escalationAuthorizationFingerprint = knowledgeV2StructuredAuthorizationFingerprint({
+      itemType: "GUIDANCE_RULE_VERSION",
+      binding: capabilityScopeBinding,
+      riskLevel: "LOW",
+      authority: { requiredApproverRole: null, approvedByUserId: userId },
+      evidence: [],
+    });
+    const rollbackPublicationItems = [
+      {
+        itemType: "FACT_VERSION" as const,
+        itemId: factVersion.id,
+        itemVersionHash: factVersion.immutableHash,
+        factVersionId: factVersion.id,
+        guidanceRuleVersionId: null,
+        scope: factScope,
+        authorizationFingerprint,
+      },
+      {
+        itemType: "FACT_VERSION" as const,
+        itemId: businessNameVersion.id,
+        itemVersionHash: businessNameVersion.immutableHash,
+        factVersionId: businessNameVersion.id,
+        guidanceRuleVersionId: null,
+        scope: capabilityScopeBinding.scope as unknown as Prisma.InputJsonObject,
+        authorizationFingerprint: businessNameAuthorizationFingerprint,
+      },
+      {
+        itemType: "GUIDANCE_RULE_VERSION" as const,
+        itemId: escalationVersion.id,
+        itemVersionHash: escalationVersion.immutableHash,
+        factVersionId: null,
+        guidanceRuleVersionId: escalationVersion.id,
+        scope: capabilityScopeBinding.scope as unknown as Prisma.InputJsonObject,
+        authorizationFingerprint: escalationAuthorizationFingerprint,
+      },
+    ];
     const publication = await prisma.knowledgePublication.create({
       data: {
         tenantId,
@@ -203,18 +339,13 @@ async function main() {
         readyAt: new Date(),
       },
     });
-    await prisma.knowledgePublicationItem.create({
-      data: {
+    await prisma.knowledgePublicationItem.createMany({
+      data: rollbackPublicationItems.map((item) => ({
         tenantId,
         publicationId: publication.id,
-        corpusKind: "STRUCTURED_V2",
-        itemType: "FACT_VERSION",
-        itemId: factVersion.id,
-        itemVersionHash: factVersion.immutableHash,
-        factVersionId: factVersion.id,
-        scope: factScope,
-        authorizationFingerprint,
-      },
+        corpusKind: "STRUCTURED_V2" as const,
+        ...item,
+      })),
     });
     await prisma.knowledgePublication.update({
       where: { id: publication.id },
@@ -243,18 +374,13 @@ async function main() {
         readyAt: new Date(),
       },
     });
-    await prisma.knowledgePublicationItem.create({
-      data: {
+    await prisma.knowledgePublicationItem.createMany({
+      data: rollbackPublicationItems.map((item) => ({
         tenantId,
         publicationId: rollbackSource.id,
-        corpusKind: "STRUCTURED_V2",
-        itemType: "FACT_VERSION",
-        itemId: factVersion.id,
-        itemVersionHash: factVersion.immutableHash,
-        factVersionId: factVersion.id,
-        scope: factScope,
-        authorizationFingerprint,
-      },
+        corpusKind: "STRUCTURED_V2" as const,
+        ...item,
+      })),
     });
     await prisma.knowledgePublication.update({
       where: { id: rollbackSource.id },

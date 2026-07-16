@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -184,6 +184,8 @@ async function main() {
         ${runStartedAt}, ${runStartedAt}, ${runStartedAt}, ${runStartedAt}
       )
     `);
+    const responseText = "Bounded feedback smoke response";
+    const responseHash = createHash("sha256").update(responseText).digest("hex");
     const result = { id: randomUUID() };
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO "KnowledgeV2EvaluationResult" (
@@ -192,7 +194,7 @@ async function main() {
         "evidenceManifestHash", "createdAt"
       ) VALUES (
         ${result.id}, ${tenant.id}, 'STRUCTURED_V2', ${`result-${stamp}`}, ${run.id}, 0, 'FAILED',
-        'ANSWER', 'HOLD_FOR_APPROVAL', ${`response-${stamp}`}, ${`metrics-${stamp}`},
+        'ANSWER', 'HOLD_FOR_APPROVAL', ${responseHash}, ${`metrics-${stamp}`},
         ${`evidence-${stamp}`}, ${new Date()}
       )
     `);
@@ -206,7 +208,7 @@ async function main() {
         direction: "OUTBOUND",
         senderType: "AI",
         status: "SENT",
-        text: "Bounded feedback smoke response",
+        text: responseText,
       },
     });
     const source = await prisma.knowledgeV2Source.create({
