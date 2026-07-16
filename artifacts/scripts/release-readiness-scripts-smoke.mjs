@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -47,6 +47,158 @@ function assertOrdered(text, markers, message) {
     assert(next > cursor, `${message}: missing or out of order: ${marker}`);
     cursor = next;
   }
+}
+
+function shellFunctionBody(source, name) {
+  const marker = `${name}() {`;
+  const start = source.indexOf(marker);
+  assert(start >= 0, `Expected shell function ${name}.`);
+  const lineStart = source.lastIndexOf("\n", start) + 1;
+  const indent = source.slice(lineStart, start);
+  const end = source.indexOf(`\n${indent}}`, start);
+  assert(end > start, `Expected shell function boundary for ${name}.`);
+  return source.slice(start, end + indent.length + 2);
+}
+
+function workflowRunBlock(source, stepName) {
+  const marker = `      - name: ${stepName}\n        run: |\n`;
+  const start = source.indexOf(marker);
+  assert(start >= 0, `Expected workflow step ${stepName}.`);
+  const contentStart = start + marker.length;
+  const nextStep = source.indexOf("\n      - name:", contentStart);
+  const contentEnd = nextStep >= 0 ? nextStep : source.length;
+  return source
+    .slice(contentStart, contentEnd)
+    .split("\n")
+    .map((line) => (line.startsWith("          ") ? line.slice(10) : line))
+    .join("\n");
+}
+
+function runStdinDrainCase(bash, guarded) {
+  return new Promise((resolveCase, rejectCase) => {
+    const child = spawn(bash, ["-s"], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let tailSent = false;
+    let childError;
+    let stdinError;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, 5_000);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (!tailSent && stdout.includes("COMPOSE_ENTERED")) {
+        tailSent = true;
+        child.stdin.end("printf 'TAIL_SURVIVED\\n'\n");
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.stdin.on("error", (error) => {
+      stdinError = error;
+    });
+    child.once("error", (error) => {
+      childError = error;
+    });
+    child.once("close", (status) => {
+      clearTimeout(timeout);
+      if (timedOut) {
+        rejectCase(new Error("Timed out while exercising the Bash stdin-drain guard."));
+        return;
+      }
+      if (childError || stdinError) {
+        rejectCase(childError || stdinError);
+        return;
+      }
+      resolveCase({ status, stdout, stderr });
+    });
+    child.stdin.write(
+      [
+        "set -euo pipefail",
+        "compose_probe() {",
+        "  printf 'COMPOSE_ENTERED\\n'",
+        "  cat >/dev/null",
+        "}",
+        `compose_probe${guarded ? " </dev/null" : ""}`,
+        "",
+      ].join("\n"),
+    );
+  });
+}
+
+function runBufferedRemoteProgramCase(bash) {
+  const completionToken = "a".repeat(64);
+  const remoteProgram = [
+    "set -euo pipefail",
+    "unset DEPLOY_COMPLETION_TOKEN",
+    'DEPLOY_COMPLETION_TOKEN="$1"',
+    "shift",
+    "cat >/dev/null",
+    `bash -c 'test -z "\${DEPLOY_COMPLETION_TOKEN+x}"'`,
+    `printf 'BUFFERED_TAIL:%s\\n' "$DEPLOY_COMPLETION_TOKEN"`,
+    "",
+  ].join("\n");
+  return {
+    completionToken,
+    result: spawnSync(
+      bash,
+      ["-c", 'remote_program=$(cat); bash -c "$remote_program" -- "$1"', "--", completionToken],
+      {
+        input: remoteProgram,
+        encoding: "utf8",
+        env: { ...process.env, DEPLOY_COMPLETION_TOKEN: "preexisting-export" },
+      },
+    ),
+  };
+}
+
+function runCompletionContractCase(bash, { emitMarker, producerStatus, teeStatus }) {
+  const releaseSha = "b".repeat(40);
+  const completionToken = "c".repeat(64);
+  const script = [
+    "set -euo pipefail",
+    'remote_deploy_log="$(mktemp)"',
+    `trap 'rm -f "$remote_deploy_log"' EXIT`,
+    'emit_marker="$1"',
+    'producer_status="$2"',
+    'tee_status="$3"',
+    'release_sha="$4"',
+    'completion_token="$5"',
+    "producer() {",
+    '  if [ "$emit_marker" = "1" ]; then',
+    `    printf 'DEPLOY_REMOTE_COMPLETE:%s:%s\\n' "$release_sha" "$completion_token"`,
+    "  fi",
+    '  return "$producer_status"',
+    "}",
+    "capture() {",
+    '  command tee "$remote_deploy_log"',
+    '  return "$tee_status"',
+    "}",
+    "producer | capture",
+    'if ! grep -Fx "DEPLOY_REMOTE_COMPLETE:$release_sha:$completion_token" "$remote_deploy_log" >/dev/null; then',
+    "  exit 96",
+    "fi",
+    "",
+  ].join("\n");
+  return spawnSync(
+    bash,
+    [
+      "-c",
+      script,
+      "--",
+      emitMarker ? "1" : "0",
+      String(producerStatus),
+      String(teeStatus),
+      releaseSha,
+      completionToken,
+    ],
+    { encoding: "utf8" },
+  );
 }
 
 function bashPath(path) {
@@ -167,6 +319,118 @@ try {
   assert(
     journalSyntax.status === 0,
     `Deployment journal syntax failed: ${journalSyntax.stderr || journalSyntax.stdout}`,
+  );
+  const deployStepScript = workflowRunBlock(deployWorkflow, "Deploy on VPS");
+  assert(
+    deployStepScript.trimStart().startsWith("set -euo pipefail\n") &&
+      !deployStepScript.includes("set +o pipefail"),
+    "Expected pipefail before the remote deployment output pipeline.",
+  );
+  const deployStepSyntax = spawnSync(bash, ["-n", "-s"], {
+    input: deployStepScript,
+    encoding: "utf8",
+  });
+  assert(
+    deployStepSyntax.status === 0,
+    `Deploy workflow shell syntax failed: ${deployStepSyntax.stderr || deployStepSyntax.stdout}`,
+  );
+  for (const [source, name] of [
+    [deployWorkflow, "release_compose"],
+    [deployWorkflow, "release_compose_paused_worker"],
+    [deploymentJournal, "journal_compose"],
+    [deploymentJournal, "journal_compose_paused_worker"],
+  ]) {
+    assert(
+      shellFunctionBody(source, name).includes('"$@" </dev/null'),
+      `Expected ${name} to detach Compose from the caller's script stdin.`,
+    );
+  }
+  const installedJournalCalls = deployWorkflow.match(
+    /bash "\$installed_deployment_journal"[^\n]*/gu,
+  );
+  assert(
+    installedJournalCalls?.length === 5 &&
+      installedJournalCalls.every((call) => call.includes("</dev/null")),
+    "Expected every installed deployment-journal invocation to detach inherited stdin.",
+  );
+  assert(
+    deployWorkflow.includes(
+      'bash "$release_dir/artifacts/scripts/deployment-journal.sh" install-service </dev/null',
+    ) &&
+      deployWorkflow.includes('sh "$release_dir/deploy/enable-leadvirt-com-https.sh" </dev/null'),
+    "Expected pre-gate deployment helpers to detach inherited stdin.",
+  );
+  assert(
+    deployWorkflow.includes('remote_deploy_log="$(mktemp)"') &&
+      deployWorkflow.includes('remote_completion_token="$(openssl rand -hex 32)"') &&
+      deployWorkflow.includes(
+        `bash -c 'remote_program=\\$(cat); bash -c \\"\\$remote_program\\" -- \\"\\$1\\"' -- '$remote_completion_token'`,
+      ) &&
+      deployWorkflow.includes("unset DEPLOY_COMPLETION_TOKEN") &&
+      deployWorkflow.includes('DEPLOY_COMPLETION_TOKEN="$1"') &&
+      !deployWorkflow.includes("export DEPLOY_COMPLETION_TOKEN") &&
+      !deployWorkflow.includes("DEPLOY_COMPLETION_TOKEN='$remote_completion_token'") &&
+      deployWorkflow.includes(`<<'REMOTE' | tee "$remote_deploy_log"`) &&
+      deployWorkflow.includes(`trap 'rm -f "$remote_deploy_log"' EXIT`) &&
+      deployWorkflow.includes(
+        'if ! grep -Fx "DEPLOY_REMOTE_COMPLETE:$GITHUB_SHA:$remote_completion_token" "$remote_deploy_log" >/dev/null; then',
+      ),
+    "Expected a buffered remote program and non-exported completion token with exact verification.",
+  );
+  assertOrdered(
+    deployStepScript,
+    [
+      `<<'REMOTE' | tee "$remote_deploy_log"`,
+      "unset DEPLOY_COMPLETION_TOKEN",
+      'DEPLOY_COMPLETION_TOKEN="$1"',
+      "shift",
+    ],
+    "Expected the remote program to clear any inherited export attribute before assigning the token",
+  );
+  const bufferedRemoteProgram = runBufferedRemoteProgramCase(bash);
+  assert(
+    bufferedRemoteProgram.result.status === 0 &&
+      bufferedRemoteProgram.result.stdout.includes(
+        `BUFFERED_TAIL:${bufferedRemoteProgram.completionToken}`,
+      ),
+    `Expected buffering to preserve the remote tail and keep the token out of child environments: ${bufferedRemoteProgram.result.stderr}`,
+  );
+  const validCompletion = runCompletionContractCase(bash, {
+    emitMarker: true,
+    producerStatus: 0,
+    teeStatus: 0,
+  });
+  const missingCompletion = runCompletionContractCase(bash, {
+    emitMarker: false,
+    producerStatus: 0,
+    teeStatus: 0,
+  });
+  const failedProducer = runCompletionContractCase(bash, {
+    emitMarker: true,
+    producerStatus: 7,
+    teeStatus: 0,
+  });
+  const failedTee = runCompletionContractCase(bash, {
+    emitMarker: true,
+    producerStatus: 0,
+    teeStatus: 8,
+  });
+  assert(
+    validCompletion.status === 0 &&
+      missingCompletion.status !== 0 &&
+      failedProducer.status !== 0 &&
+      failedTee.status !== 0,
+    "Expected completion verification to reject a missing marker and producer or tee failures.",
+  );
+  const stdinDrainControl = await runStdinDrainCase(bash, false);
+  const stdinDrainGuard = await runStdinDrainCase(bash, true);
+  assert(
+    stdinDrainControl.status === 0 && !stdinDrainControl.stdout.includes("TAIL_SURVIVED"),
+    `Expected the unguarded control to consume the remaining bash -s program: ${stdinDrainControl.stderr}`,
+  );
+  assert(
+    stdinDrainGuard.status === 0 && stdinDrainGuard.stdout.includes("TAIL_SURVIVED"),
+    `Expected the Compose stdin guard to preserve the remaining bash -s program: ${stdinDrainGuard.stderr}`,
   );
 
   if (process.platform !== "win32") {
@@ -451,8 +715,11 @@ try {
       'deployment_phase="complete"',
       "trap - EXIT HUP INT TERM",
       'bash "$installed_deployment_journal" prune 5',
+      'printf \'DEPLOY_REMOTE_COMPLETE:%s:%s\\n\' "$RELEASE_SHA" "$DEPLOY_COMPLETION_TOKEN"',
+      "\n          REMOTE\n",
+      'grep -Fx "DEPLOY_REMOTE_COMPLETE:$GITHUB_SHA:$remote_completion_token" "$remote_deploy_log"',
     ],
-    "Expected three-service preflight before drain and an explicit candidate-only commit",
+    "Expected three-service preflight, candidate-only commit, and runner-confirmed remote completion",
   );
 
   assertOrdered(

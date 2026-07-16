@@ -616,7 +616,7 @@ journal_compose() {
       --project-name "$journal_compose_project" \
       --env-file "$journal_env_file" \
       -f "$journal_release_dir/deploy/docker-compose.staging.yml" \
-      "$@"
+      "$@" </dev/null
 }
 
 journal_compose_paused_worker() {
@@ -627,7 +627,7 @@ journal_compose_paused_worker() {
       --project-name "$journal_compose_project" \
       --env-file "$journal_env_file" \
       -f "$journal_release_dir/deploy/docker-compose.staging.yml" \
-      "$@"
+      "$@" </dev/null
 }
 
 wait_stateful_dependencies() {

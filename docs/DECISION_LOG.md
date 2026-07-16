@@ -1,5 +1,19 @@
 # Decision Log
 
+## 2026-07-16: Make Remote Deployment Completion Explicit
+
+Decision: The remote wrapper consumes the complete heredoc before executing it from an argument, passes a run token positionally, clears any inherited export attribute before assigning it, and accepts the SSH step only after observing the matching release-SHA/token completion marker. Compose wrappers and child deployment scripts also detach fd 0 from `/dev/null`.
+
+Context: The workflow streams a remote Bash program over SSH stdin. `docker compose run -T` disables TTY allocation but remains interactive, so repeated dependency probes consumed the rest of that program while ClamAV initialized. Remote Bash then reached EOF after a successful probe and returned zero before candidate preflight, journal creation, drain, migration, or release activation; GitHub reported a false-successful deploy.
+
+Consequences:
+
+- The inner deployment program starts only after SSH stdin is exhausted, so no child can consume unparsed deployment code. Compose, pre-gate helpers, and every installed-journal call additionally receive `/dev/null`.
+- A zero SSH exit without the final marker fails the GitHub step instead of masquerading as a complete deployment.
+- The token is a run-correlation nonce against accidental truncation, not a trust boundary against code already executing as the deploy user.
+- The marker is emitted only after commit, roll-forward health checks, journal clearing, pruning, and archive cleanup.
+- Release readiness verifies all four Compose wrappers, exercises the stdin-drain regression, and locks marker ordering.
+
 ## 2026-07-16: Pin Production ClamAV To A Verified Digest
 
 Decision: Production uses the patch-compatible full `clamav/clamav:1.4.5` runtime image pinned to its verified OCI index digest and explicitly targets `linux/amd64`. Scanner provenance reports `clamav-1.4.5`.

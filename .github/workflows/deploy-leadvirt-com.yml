@@ -418,9 +418,15 @@ jobs:
       - name: Deploy on VPS
         run: |
           set -euo pipefail
+          remote_deploy_log="$(mktemp)"
+          remote_completion_token="$(openssl rand -hex 32)"
+          trap 'rm -f "$remote_deploy_log"' EXIT
           ssh -i ~/.ssh/leadvirt_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
-            "DEPLOY_ROOT='$DEPLOY_ROOT' DEPLOY_ENV_FILE='$DEPLOY_ENV_FILE' DOMAIN_TARGET_IP='$DEPLOY_TARGET_IP' PRIMARY_DOMAIN='$PRIMARY_DOMAIN' WWW_DOMAIN='$WWW_DOMAIN' PUBLIC_URL='$PUBLIC_URL' RELEASE_SHA='$GITHUB_SHA' EXPECTED_TELEGRAM_BOT_API_BASE_URL='$EXPECTED_TELEGRAM_BOT_API_BASE_URL' EXPECTED_TELEGRAM_WEBHOOK_BASE_URL='$EXPECTED_TELEGRAM_WEBHOOK_BASE_URL' bash -s" <<'REMOTE'
+            "DEPLOY_ROOT='$DEPLOY_ROOT' DEPLOY_ENV_FILE='$DEPLOY_ENV_FILE' DOMAIN_TARGET_IP='$DEPLOY_TARGET_IP' PRIMARY_DOMAIN='$PRIMARY_DOMAIN' WWW_DOMAIN='$WWW_DOMAIN' PUBLIC_URL='$PUBLIC_URL' RELEASE_SHA='$GITHUB_SHA' EXPECTED_TELEGRAM_BOT_API_BASE_URL='$EXPECTED_TELEGRAM_BOT_API_BASE_URL' EXPECTED_TELEGRAM_WEBHOOK_BASE_URL='$EXPECTED_TELEGRAM_WEBHOOK_BASE_URL' bash -c 'remote_program=\$(cat); bash -c \"\$remote_program\" -- \"\$1\"' -- '$remote_completion_token'" <<'REMOTE' | tee "$remote_deploy_log"
           set -euo pipefail
+          unset DEPLOY_COMPLETION_TOKEN
+          DEPLOY_COMPLETION_TOKEN="$1"
+          shift
 
           release_sha_id="${RELEASE_SHA:0:12}"
           archive="/tmp/leadvirt-release-${RELEASE_SHA}.tar.gz"
@@ -436,7 +442,7 @@ jobs:
           deployment_journal_file="$DEPLOY_ROOT/.deployment-journal.v1"
           if [ -f "$installed_deployment_journal" ] && [ ! -L "$installed_deployment_journal" ]; then
             LEADVIRT_DEPLOY_LOCK_HELD=1 DEPLOY_ROOT="$DEPLOY_ROOT" \
-              bash "$installed_deployment_journal" reconcile
+              bash "$installed_deployment_journal" reconcile </dev/null
           elif [ -e "$deployment_journal_file" ] || [ -L "$deployment_journal_file" ]; then
             echo "A deployment journal exists but its reconciler is unavailable." >&2
             exit 1
@@ -472,7 +478,7 @@ jobs:
             node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d \
             node /validator.mjs /run/secrets/leadvirt.env
           sudo env DEPLOY_ROOT="$DEPLOY_ROOT" \
-            bash "$release_dir/artifacts/scripts/deployment-journal.sh" install-service
+            bash "$release_dir/artifacts/scripts/deployment-journal.sh" install-service </dev/null
           installed_deployment_journal="$DEPLOY_ROOT/.deployment-journal.sh"
 
           release_compose_file="$release_dir/deploy/docker-compose.staging.yml"
@@ -720,7 +726,7 @@ jobs:
                 --project-name "$compose_project_name" \
                 --env-file "$DEPLOY_ENV_FILE" \
                 -f "$release_compose_file" \
-                "$@"
+                "$@" </dev/null
           }
 
           release_compose_paused_worker() {
@@ -731,7 +737,7 @@ jobs:
                 --project-name "$compose_project_name" \
                 --env-file "$DEPLOY_ENV_FILE" \
                 -f "$release_compose_file" \
-                "$@"
+                "$@" </dev/null
           }
 
           persist_deployment_journal() {
@@ -757,7 +763,7 @@ jobs:
             JOURNAL_PREVIOUS_WEB_RUNNING="$previous_web_running" \
             JOURNAL_PREVIOUS_NGINX_CONTAINER="${previous_container_by_service[nginx]:-}" \
             JOURNAL_PREVIOUS_NGINX_RUNNING="$previous_nginx_running" \
-              bash "$installed_deployment_journal" write "$journal_phase"
+              bash "$installed_deployment_journal" write "$journal_phase" </dev/null
           }
 
           wait_for_stateful_dependencies() {
@@ -824,7 +830,7 @@ jobs:
 
           rollforward_candidate() {
             LEADVIRT_DEPLOY_LOCK_HELD=1 DEPLOY_ROOT="$DEPLOY_ROOT" \
-              bash "$installed_deployment_journal" reconcile
+              bash "$installed_deployment_journal" reconcile </dev/null
           }
 
           handle_deployment_exit() {
@@ -838,7 +844,7 @@ jobs:
             fi
             set +e
             if LEADVIRT_DEPLOY_LOCK_HELD=1 DEPLOY_ROOT="$DEPLOY_ROOT" \
-              bash "$installed_deployment_journal" reconcile; then
+              bash "$installed_deployment_journal" reconcile </dev/null; then
               echo "DEPLOY_RECOVERY: journal reconciliation succeeded original-status=$original_status" >&2
             else
               recovery_status=$?
@@ -858,7 +864,7 @@ jobs:
           LEADVIRT_CERTBOT_WEBROOT="$certbot_webroot" \
           LEADVIRT_ENV_FILE="$DEPLOY_ENV_FILE" \
           LEADVIRT_SKIP_REBUILD=true \
-            sh "$release_dir/deploy/enable-leadvirt-com-https.sh"
+            sh "$release_dir/deploy/enable-leadvirt-com-https.sh" </dev/null
 
           release_compose config --quiet
           release_compose build migrate
@@ -992,8 +998,14 @@ jobs:
           trap - EXIT HUP INT TERM
 
           if ! LEADVIRT_DEPLOY_LOCK_HELD=1 DEPLOY_ROOT="$DEPLOY_ROOT" \
-            bash "$installed_deployment_journal" prune 5; then
+            bash "$installed_deployment_journal" prune 5 </dev/null; then
             echo "DEPLOY_PRUNE: deferred because references could not be proven." >&2
           fi
           rm -f "$archive"
+          printf 'DEPLOY_REMOTE_COMPLETE:%s:%s\n' "$RELEASE_SHA" "$DEPLOY_COMPLETION_TOKEN"
           REMOTE
+
+          if ! grep -Fx "DEPLOY_REMOTE_COMPLETE:$GITHUB_SHA:$remote_completion_token" "$remote_deploy_log" >/dev/null; then
+            echo "::error::Remote deployment ended without the completion marker"
+            exit 1
+          fi
