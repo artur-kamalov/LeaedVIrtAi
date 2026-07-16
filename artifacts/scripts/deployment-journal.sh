@@ -75,7 +75,7 @@ validate_running_flag() {
 }
 
 validate_direct_release_dir() {
-  candidate="$1"
+  local candidate="$1"
   [ -n "$candidate" ] || return 1
   [ -d "$candidate" ] && [ ! -L "$candidate" ] || return 1
   [ "$(dirname "$candidate")" = "$releases_root" ] || return 1
@@ -83,7 +83,7 @@ validate_direct_release_dir() {
 }
 
 validate_env_file() {
-  candidate="$1"
+  local candidate="$1"
   case "$candidate" in
     /*) ;;
     *) return 1 ;;
@@ -749,7 +749,11 @@ reconcile() {
 }
 
 release_is_referenced() {
-  candidate="$1"
+  local candidate="$1"
+  local current_root symlink_paths symlink_path container_references
+  local working_dir config_files config_path
+  local -a config_paths
+
   current_root="$(readlink -f "$current_link" 2>/dev/null || true)"
   [ "$current_root" != "$candidate" ] || return 0
   if [ -f "$journal_file" ] && [ ! -L "$journal_file" ]; then
@@ -775,7 +779,9 @@ release_is_referenced() {
 }
 
 managed_release() {
-  candidate="$1"
+  local candidate="$1"
+  local marker
+
   validate_direct_release_dir "$candidate" || return 1
   for marker in .leadvirt-release-sha .leadvirt-image-tag .leadvirt-compose-project; do
     [ -f "$candidate/$marker" ] && [ ! -L "$candidate/$marker" ] || return 1
@@ -790,7 +796,9 @@ managed_release() {
 }
 
 image_tag_is_referenced() {
-  tag="$1"
+  local tag="$1"
+  local image_markers marker container_ids container_id container_image
+
   if [ -f "$journal_file" ] && [ ! -L "$journal_file" ]; then
     load_journal
     [ "$journal_release_id" != "$tag" ] || return 0
@@ -812,7 +820,11 @@ image_tag_is_referenced() {
 }
 
 prune() {
-  retention_count="${1:-5}"
+  local retention_count="${1:-5}"
+  local release_listing managed_index candidate
+  local image_listing repository tag
+  local -a releases_by_age
+
   [[ "$retention_count" =~ ^[0-9]+$ ]] || die "Release retention count is invalid."
   acquire_lock
   docker info >/dev/null 2>&1 || die "Docker is unavailable; pruning skipped."
