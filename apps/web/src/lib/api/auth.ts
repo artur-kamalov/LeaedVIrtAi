@@ -2,6 +2,7 @@ import type { User, UserRole } from "@leadvirt/types";
 import { apiData, jsonBody } from "./client";
 
 export interface AuthMe extends User {
+  locale?: "en" | "es" | "fr" | "de" | "pt" | "ru" | null;
   role: UserRole;
   tenantId: string;
   authMode: "credentials" | "email" | "telegram";

@@ -21,6 +21,7 @@ import {
   Clock,
   DollarSign,
   Database,
+  AlertCircle,
 } from "lucide-react";
 import { useNav } from "../nav";
 import { Button } from "../../components/ui/Button";
@@ -28,8 +29,14 @@ import { BrandMark } from "../../components/BrandMark";
 import { LanguageSwitcher } from "../../components/LanguageSwitcher";
 import { BrandWordmark } from "../../components/BrandWordmark";
 import { Card, channels } from "../shared";
+import { Skeleton } from "../ui";
+import { ResourceErrorState } from "../ResourceErrorState";
 import { cn } from "../../lib/utils";
-import { completeOnboardingStep, getOnboardingState, updateOnboardingState } from "@/lib/api/onboarding";
+import {
+  completeOnboardingStep,
+  getOnboardingState,
+  updateOnboardingState,
+} from "@/lib/api/onboarding";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/messages";
 
@@ -65,20 +72,75 @@ const businessTypes = [
 ] satisfies Array<{ id: string; labelKey: TranslationKey; icon: typeof Briefcase }>;
 
 const aiScenarios = [
-  { id: "booking", labelKey: "onboarding.scenario.booking", descriptionKey: "onboarding.scenario.bookingDescription", icon: CalendarCheck },
-  { id: "order", labelKey: "onboarding.scenario.order", descriptionKey: "onboarding.scenario.orderDescription", icon: PackageCheck },
-  { id: "consult", labelKey: "onboarding.scenario.consult", descriptionKey: "onboarding.scenario.consultDescription", icon: MessageSquare },
-  { id: "support", labelKey: "onboarding.scenario.support", descriptionKey: "onboarding.scenario.supportDescription", icon: HeadphonesIcon },
-] satisfies Array<{ id: string; labelKey: TranslationKey; descriptionKey: TranslationKey; icon: typeof CalendarCheck }>;
+  {
+    id: "booking",
+    labelKey: "onboarding.scenario.booking",
+    descriptionKey: "onboarding.scenario.bookingDescription",
+    icon: CalendarCheck,
+  },
+  {
+    id: "order",
+    labelKey: "onboarding.scenario.order",
+    descriptionKey: "onboarding.scenario.orderDescription",
+    icon: PackageCheck,
+  },
+  {
+    id: "consult",
+    labelKey: "onboarding.scenario.consult",
+    descriptionKey: "onboarding.scenario.consultDescription",
+    icon: MessageSquare,
+  },
+  {
+    id: "support",
+    labelKey: "onboarding.scenario.support",
+    descriptionKey: "onboarding.scenario.supportDescription",
+    icon: HeadphonesIcon,
+  },
+] satisfies Array<{
+  id: string;
+  labelKey: TranslationKey;
+  descriptionKey: TranslationKey;
+  icon: typeof CalendarCheck;
+}>;
 
 const crmOptions = [
   { id: "amo", label: "amoCRM", descriptionKey: "onboarding.crm.amoDescription", icon: Database },
-  { id: "bitrix", label: "Bitrix24", descriptionKey: "onboarding.crm.bitrixDescription", icon: Building2 },
-  { id: "retail", label: "RetailCRM", descriptionKey: "onboarding.crm.retailDescription", icon: ShoppingBag },
-  { id: "none", labelKey: "onboarding.crm.none", descriptionKey: "onboarding.crm.noneDescription", icon: Bot },
-] satisfies Array<{ id: string; label?: string; labelKey?: TranslationKey; descriptionKey: TranslationKey; icon: typeof Database }>;
+  {
+    id: "bitrix",
+    label: "Bitrix24",
+    descriptionKey: "onboarding.crm.bitrixDescription",
+    icon: Building2,
+  },
+  {
+    id: "retail",
+    label: "RetailCRM",
+    descriptionKey: "onboarding.crm.retailDescription",
+    icon: ShoppingBag,
+  },
+  {
+    id: "none",
+    labelKey: "onboarding.crm.none",
+    descriptionKey: "onboarding.crm.noneDescription",
+    icon: Bot,
+  },
+] satisfies Array<{
+  id: string;
+  label?: string;
+  labelKey?: TranslationKey;
+  descriptionKey: TranslationKey;
+  icon: typeof Database;
+}>;
 
-const channelIds: ChannelId[] = ["instagram", "whatsapp", "telegram", "website", "webhook", "vk", "email", "call"];
+const channelIds: ChannelId[] = [
+  "instagram",
+  "whatsapp",
+  "telegram",
+  "website",
+  "webhook",
+  "vk",
+  "email",
+  "call",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -143,7 +205,11 @@ function BackgroundGrid() {
 function Logo({ onClick }: { onClick: () => void }) {
   const { t } = useI18n();
   return (
-    <button onClick={onClick} className="flex items-center gap-2.5 group" aria-label={t("brand.name")}>
+    <button
+      onClick={onClick}
+      className="flex items-center gap-2.5 group"
+      aria-label={t("brand.name")}
+    >
       <BrandMark className="h-9 w-9 rounded-xl shadow-lg shadow-emerald-500/20" />
       <BrandWordmark className="hidden text-sm sm:inline-flex" />
     </button>
@@ -192,7 +258,7 @@ function SelectCard({
         selected
           ? "border-emerald-400/60 bg-emerald-500/10 shadow-[0_0_24px_rgba(52,211,153,0.15)]"
           : "border-white/5 bg-zinc-900/50 hover:border-white/10 hover:bg-zinc-900/80",
-        className
+        className,
       )}
     >
       {selected && (
@@ -243,12 +309,22 @@ function StepBusinessType({
                 <div
                   className={cn(
                     "w-9 h-9 rounded-xl flex items-center justify-center",
-                    value === b.id ? "bg-emerald-400/20" : "bg-white/5"
+                    value === b.id ? "bg-emerald-400/20" : "bg-white/5",
                   )}
                 >
-                  <Icon className={cn("w-4.5 h-4.5", value === b.id ? "text-emerald-400" : "text-zinc-400")} />
+                  <Icon
+                    className={cn(
+                      "w-4.5 h-4.5",
+                      value === b.id ? "text-emerald-400" : "text-zinc-400",
+                    )}
+                  />
                 </div>
-                <span className={cn("text-sm font-semibold", value === b.id ? "text-emerald-300" : "text-zinc-200")}>
+                <span
+                  className={cn(
+                    "text-sm font-semibold",
+                    value === b.id ? "text-emerald-300" : "text-zinc-200",
+                  )}
+                >
                   {t(b.labelKey)}
                 </span>
               </div>
@@ -287,10 +363,20 @@ function StepChannels({
           return (
             <SelectCard key={id} selected={sel} onClick={() => toggle(id)}>
               <div className="flex items-center gap-2.5 pr-4">
-                <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0", ch.bg)}>
+                <div
+                  className={cn(
+                    "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
+                    ch.bg,
+                  )}
+                >
                   <Icon className={cn("w-4 h-4", ch.color)} />
                 </div>
-                <span className={cn("text-sm font-semibold", sel ? "text-emerald-300" : "text-zinc-200")}>
+                <span
+                  className={cn(
+                    "text-sm font-semibold",
+                    sel ? "text-emerald-300" : "text-zinc-200",
+                  )}
+                >
                   {ch.labelKey ? t(ch.labelKey) : ch.label}
                 </span>
               </div>
@@ -325,12 +411,23 @@ function StepScenario({
           return (
             <SelectCard key={s.id} selected={sel} onClick={() => onChange(s.id)}>
               <div className="flex flex-col gap-2 pr-4">
-                <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center", sel ? "bg-emerald-400/20" : "bg-white/5")}>
+                <div
+                  className={cn(
+                    "w-9 h-9 rounded-xl flex items-center justify-center",
+                    sel ? "bg-emerald-400/20" : "bg-white/5",
+                  )}
+                >
                   <Icon className={cn("w-4.5 h-4.5", sel ? "text-emerald-400" : "text-zinc-400")} />
                 </div>
                 <div>
-                  <div className={cn("text-sm font-bold", sel ? "text-emerald-300" : "text-zinc-100")}>{t(s.labelKey)}</div>
-                  <div className="text-xs text-zinc-500 mt-0.5 leading-relaxed">{t(s.descriptionKey)}</div>
+                  <div
+                    className={cn("text-sm font-bold", sel ? "text-emerald-300" : "text-zinc-100")}
+                  >
+                    {t(s.labelKey)}
+                  </div>
+                  <div className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
+                    {t(s.descriptionKey)}
+                  </div>
                 </div>
               </div>
             </SelectCard>
@@ -367,7 +464,9 @@ function StepCompanyInfo({
       </div>
       <div className="space-y-4">
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.name")}</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            {t("onboarding.company.name")}
+          </label>
           <input
             {...field("name")}
             placeholder={t("onboarding.company.namePlaceholder")}
@@ -375,18 +474,22 @@ function StepCompanyInfo({
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.about")}</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            {t("onboarding.company.about")}
+          </label>
           <textarea
-            {...(field("description") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+            {...field("description")}
             rows={3}
             placeholder={t("onboarding.company.aboutPlaceholder")}
             className={textareaCls}
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.catalog")}</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            {t("onboarding.company.catalog")}
+          </label>
           <textarea
-            {...(field("servicesCatalog") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+            {...field("servicesCatalog")}
             rows={5}
             placeholder={t("onboarding.company.catalogPlaceholder")}
             className={textareaCls}
@@ -395,7 +498,8 @@ function StepCompanyInfo({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-              <Clock className="w-3 h-3" />{t("onboarding.company.hours")}
+              <Clock className="w-3 h-3" />
+              {t("onboarding.company.hours")}
             </label>
             <input
               {...field("hours")}
@@ -405,7 +509,8 @@ function StepCompanyInfo({
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-              <DollarSign className="w-3 h-3" />{t("onboarding.company.average")}
+              <DollarSign className="w-3 h-3" />
+              {t("onboarding.company.average")}
             </label>
             <input
               {...field("avgCheck")}
@@ -415,36 +520,44 @@ function StepCompanyInfo({
           </div>
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.availability")}</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            {t("onboarding.company.availability")}
+          </label>
           <textarea
-            {...(field("availability") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+            {...field("availability")}
             rows={4}
             placeholder={t("onboarding.company.availabilityPlaceholder")}
             className={textareaCls}
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.faq")}</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            {t("onboarding.company.faq")}
+          </label>
           <textarea
-            {...(field("faq") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+            {...field("faq")}
             rows={4}
             placeholder={t("onboarding.company.faqPlaceholder")}
             className={textareaCls}
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.policies")}</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            {t("onboarding.company.policies")}
+          </label>
           <textarea
-            {...(field("policies") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+            {...field("policies")}
             rows={4}
             placeholder={t("onboarding.company.policiesPlaceholder")}
             className={textareaCls}
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{t("onboarding.company.escalation")}</label>
+          <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            {t("onboarding.company.escalation")}
+          </label>
           <textarea
-            {...(field("escalationRules") as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+            {...field("escalationRules")}
             rows={3}
             placeholder={t("onboarding.company.escalationPlaceholder")}
             className={textareaCls}
@@ -455,13 +568,7 @@ function StepCompanyInfo({
   );
 }
 
-function StepCRM({
-  value,
-  onChange,
-}: {
-  value: string | null;
-  onChange: (v: string) => void;
-}) {
+function StepCRM({ value, onChange }: { value: string | null; onChange: (v: string) => void }) {
   const { t } = useI18n();
   return (
     <div className="space-y-6">
@@ -478,11 +585,20 @@ function StepCRM({
           return (
             <SelectCard key={c.id} selected={sel} onClick={() => onChange(c.id)}>
               <div className="flex flex-col gap-2 pr-4">
-                <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center", sel ? "bg-emerald-400/20" : "bg-white/5")}>
+                <div
+                  className={cn(
+                    "w-9 h-9 rounded-xl flex items-center justify-center",
+                    sel ? "bg-emerald-400/20" : "bg-white/5",
+                  )}
+                >
                   <Icon className={cn("w-4.5 h-4.5", sel ? "text-emerald-400" : "text-zinc-400")} />
                 </div>
                 <div>
-                  <div className={cn("text-sm font-bold", sel ? "text-emerald-300" : "text-zinc-100")}>{c.labelKey ? t(c.labelKey) : c.label}</div>
+                  <div
+                    className={cn("text-sm font-bold", sel ? "text-emerald-300" : "text-zinc-100")}
+                  >
+                    {c.labelKey ? t(c.labelKey) : c.label}
+                  </div>
                   <div className="text-xs text-zinc-500 mt-0.5">{t(c.descriptionKey)}</div>
                 </div>
               </div>
@@ -515,12 +631,21 @@ function StepLaunch({
   const selectedCrm = crmOptions.find((item) => item.id === crm);
   const btLabel = business ? t(business.labelKey) : "—";
   const scenLabel = selectedScenario ? t(selectedScenario.labelKey) : "—";
-  const crmLabel = selectedCrm ? (selectedCrm.labelKey ? t(selectedCrm.labelKey) : selectedCrm.label) : "—";
-  const channelLabels = selectedChannels.map((id) => channels[id].labelKey ? t(channels[id].labelKey) : channels[id].label);
+  const crmLabel = selectedCrm
+    ? selectedCrm.labelKey
+      ? t(selectedCrm.labelKey)
+      : selectedCrm.label
+    : "—";
+  const channelLabels = selectedChannels.map((id) =>
+    channels[id].labelKey ? t(channels[id].labelKey) : channels[id].label,
+  );
 
   const summaryItems = [
     { label: t("onboarding.summary.business"), value: btLabel },
-    { label: t("onboarding.summary.channels"), value: channelLabels.length ? channelLabels.join(", ") : t("onboarding.summary.notSelected") },
+    {
+      label: t("onboarding.summary.channels"),
+      value: channelLabels.length ? channelLabels.join(", ") : t("onboarding.summary.notSelected"),
+    },
     { label: t("onboarding.summary.scenario"), value: scenLabel },
     { label: "CRM", value: crmLabel },
     ...(companyName ? [{ label: t("onboarding.summary.company"), value: companyName }] : []),
@@ -541,15 +666,15 @@ function StepLaunch({
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-50">
             {t("onboarding.ready.title")}
           </h2>
-          <p className="text-zinc-400 mt-2">
-            {t("onboarding.ready.description")}
-          </p>
+          <p className="text-zinc-400 mt-2">{t("onboarding.ready.description")}</p>
         </div>
       </div>
 
       {/* Summary card */}
       <Card className="p-5 text-left">
-        <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">{t("onboarding.ready.summary")}</div>
+        <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+          {t("onboarding.ready.summary")}
+        </div>
         <div className="space-y-2.5">
           {summaryItems.map((item) => (
             <div key={item.label} className="flex items-start justify-between gap-4">
@@ -577,11 +702,14 @@ function StepLaunch({
 
 export function OnboardingPage() {
   const { t } = useI18n();
-  const { go } = useNav();
+  const { go, mode } = useNav();
 
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1); // slide direction
   const [saving, setSaving] = useState(false);
+  const [persistenceError, setPersistenceError] = useState(false);
+  const [loadStatus, setLoadStatus] = useState<"loading" | "success" | "error">("loading");
+  const [loadRevision, setLoadRevision] = useState(0);
   const hasLocalChangesRef = useRef(false);
 
   // Step state
@@ -603,27 +731,31 @@ export function OnboardingPage() {
 
   useEffect(() => {
     let active = true;
+    setLoadStatus("loading");
 
     void getOnboardingState()
       .then((state) => {
         if (!active) return;
-        if (hasLocalChangesRef.current) return;
-        const data = isRecord(state.data) ? state.data : {};
-        setBusinessType(stringFromData(data, "businessType"));
-        setSelectedChannels(channelsFromData(data));
-        setScenario(stringFromData(data, "scenario"));
-        setCompanyInfo(companyInfoFromData(data));
-        setCrm(stringFromData(data, "crm"));
-        setStep(stepIndexFromId(state.currentStep));
+        if (!hasLocalChangesRef.current) {
+          const data = isRecord(state.data) ? state.data : {};
+          setBusinessType(stringFromData(data, "businessType"));
+          setSelectedChannels(channelsFromData(data));
+          setScenario(stringFromData(data, "scenario"));
+          setCompanyInfo(companyInfoFromData(data));
+          setCrm(stringFromData(data, "crm"));
+          setStep(stepIndexFromId(state.currentStep));
+        }
+        setLoadStatus("success");
       })
       .catch(() => {
         if (!active) return;
+        setLoadStatus("error");
       });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadRevision]);
 
   const navigate = (nextStep: number) => {
     setDir(nextStep > step ? 1 : -1);
@@ -667,15 +799,22 @@ export function OnboardingPage() {
     crm,
   });
 
-  const persistProgress = async (completedStepId: (typeof stepIds)[number], nextStepId: (typeof stepIds)[number]) => {
+  const persistProgress = async (
+    completedStepId: (typeof stepIds)[number],
+    nextStepId: (typeof stepIds)[number],
+  ) => {
+    setPersistenceError(false);
+
     try {
       await updateOnboardingState({ currentStep: completedStepId, data: onboardingData() });
       await completeOnboardingStep(completedStepId);
       if (nextStepId !== completedStepId) {
         await updateOnboardingState({ currentStep: nextStepId, data: onboardingData() });
       }
+      return true;
     } catch {
-      // Keep the copied demo flow usable when the API is offline during visual QA.
+      setPersistenceError(true);
+      return false;
     }
   };
 
@@ -683,7 +822,8 @@ export function OnboardingPage() {
     if (step === 0) return !!businessType;
     if (step === 1) return selectedChannels.length > 0;
     if (step === 2) return !!scenario;
-    if (step === 3) return companyInfo.name.trim().length > 0 && companyInfo.description.trim().length > 0;
+    if (step === 3)
+      return companyInfo.name.trim().length > 0 && companyInfo.description.trim().length > 0;
     if (step === 4) return !!crm;
     return true;
   };
@@ -694,8 +834,9 @@ export function OnboardingPage() {
     if (step < TOTAL_STEPS - 1) {
       const nextStep = step + 1;
       setSaving(true);
-      await persistProgress(stepIds[step], stepIds[nextStep]);
+      const persisted = await persistProgress(stepIds[step], stepIds[nextStep]);
       setSaving(false);
+      if (!persisted) return;
       navigate(nextStep);
       return;
     }
@@ -710,9 +851,14 @@ export function OnboardingPage() {
   const handleLaunch = async () => {
     if (saving) return;
     setSaving(true);
-    await persistProgress("launch", "launch");
+    const persisted = await persistProgress("launch", "launch");
     setSaving(false);
-    go("dashboard");
+    if (!persisted) return;
+    if (mode === "demo") {
+      go("dashboard");
+      return;
+    }
+    go("knowledge", { welcome: 1 });
   };
 
   const renderStep = () => {
@@ -752,7 +898,15 @@ export function OnboardingPage() {
       {/* ---- Top bar ---- */}
       <header className="relative z-10 flex items-center justify-between px-4 sm:px-8 py-4 border-b border-white/5 bg-zinc-950/95">
         <Logo onClick={() => go("landing")} />
-        <ProgressBar step={step} />
+        {loadStatus === "success" ? (
+          <ProgressBar step={step} />
+        ) : loadStatus === "loading" ? (
+          <Skeleton className="h-8 w-40 sm:w-64" />
+        ) : (
+          <span className="max-w-[14rem] truncate text-xs text-red-300 sm:text-sm">
+            {t("resource.loadFailed.title")}
+          </span>
+        )}
         <div className="flex items-center gap-2">
           <LanguageSwitcher compact />
           <button
@@ -768,79 +922,122 @@ export function OnboardingPage() {
       {/* ---- Step content ---- */}
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-8 pb-32 sm:pb-12">
         <div className="w-full max-w-2xl">
-          <AnimatePresence mode="wait" custom={dir}>
-            <motion.div
-              data-testid="onboarding-step-panel"
-              key={step}
-              custom={dir}
-              variants={slideVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={transition}
-            >
-              <Card className="p-6 sm:p-8">
-                {renderStep()}
-              </Card>
-            </motion.div>
-          </AnimatePresence>
-
-          {/* ---- Desktop navigation ---- */}
-          {!isLastStep && (
-            <div className="hidden sm:flex items-center justify-between mt-6">
-              <Button
-                variant="ghost"
-                onClick={handleBack}
-                disabled={step === 0 || saving}
-                className="gap-1.5"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                {t("onboarding.back")}
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => void handleNext()}
-                disabled={!isStepValid() || saving}
-                className="gap-1.5"
-              >
-                {t("onboarding.next")}
-                <ChevronRight className="w-4 h-4" />
-              </Button>
+          {loadStatus === "loading" ? (
+            <div className="space-y-4" data-testid="onboarding-state-loading">
+              <Skeleton className="h-80 w-full" />
+              <div className="flex justify-between">
+                <Skeleton className="h-11 w-28" />
+                <Skeleton className="h-11 w-28" />
+              </div>
             </div>
+          ) : loadStatus === "error" ? (
+            <Card className="p-6 sm:p-8">
+              <ResourceErrorState
+                testId="onboarding-state-load-error"
+                onRetry={() => setLoadRevision((current) => current + 1)}
+              />
+            </Card>
+          ) : (
+            <>
+              <AnimatePresence mode="wait" custom={dir}>
+                <motion.div
+                  data-testid="onboarding-step-panel"
+                  key={step}
+                  custom={dir}
+                  variants={slideVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={transition}
+                >
+                  <Card className="p-6 sm:p-8">{renderStep()}</Card>
+                </motion.div>
+              </AnimatePresence>
+
+              {persistenceError && (
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  data-testid="onboarding-persistence-error"
+                  className="mt-4 flex gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-100"
+                >
+                  <AlertCircle
+                    className="mt-0.5 h-5 w-5 shrink-0 text-red-400"
+                    aria-hidden="true"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold">{t("onboarding.saveError.title")}</p>
+                    <p className="mt-1 text-sm text-red-200/80">
+                      {t("onboarding.saveError.description")}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {!isLastStep && (
+                <div className="hidden sm:flex items-center justify-between mt-6">
+                  <Button
+                    variant="ghost"
+                    onClick={handleBack}
+                    disabled={step === 0 || saving}
+                    className="gap-1.5"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    {t("onboarding.back")}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => void handleNext()}
+                    disabled={!isStepValid() || saving}
+                    className="gap-1.5"
+                  >
+                    {t("onboarding.next")}
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </main>
 
       {/* ---- Mobile sticky bottom bar ---- */}
-      <div className="sm:hidden fixed bottom-0 inset-x-0 z-20 border-t border-white/5 bg-zinc-950 px-4 py-3 safe-area-inset-bottom">
-        {isLastStep ? (
-          <Button size="lg" onClick={() => void handleLaunch()} disabled={saving} className="w-full gap-2 shadow-xl shadow-emerald-500/20">
-            {t("onboarding.launch")}
-            <ChevronRight className="w-5 h-5" />
-          </Button>
-        ) : (
-          <div className="flex items-center gap-3">
+      {loadStatus === "success" && (
+        <div className="sm:hidden fixed bottom-0 inset-x-0 z-20 border-t border-white/5 bg-zinc-950 px-4 py-3 safe-area-inset-bottom">
+          {isLastStep ? (
             <Button
-              variant="outline"
-              onClick={handleBack}
-              disabled={step === 0 || saving}
-              className="h-12 w-12 shrink-0 p-0 flex items-center justify-center"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </Button>
-            <Button
-              variant="primary"
               size="lg"
-              onClick={() => void handleNext()}
-              disabled={!isStepValid() || saving}
-              className="flex-1 gap-1.5"
+              onClick={() => void handleLaunch()}
+              disabled={saving}
+              className="w-full gap-2 shadow-xl shadow-emerald-500/20"
             >
-              {t("onboarding.next")}
+              {t("onboarding.launch")}
               <ChevronRight className="w-5 h-5" />
             </Button>
-          </div>
-        )}
-      </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                onClick={handleBack}
+                disabled={step === 0 || saving}
+                className="h-12 w-12 shrink-0 p-0 flex items-center justify-center"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </Button>
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={() => void handleNext()}
+                disabled={!isStepValid() || saving}
+                className="flex-1 gap-1.5"
+              >
+                {t("onboarding.next")}
+                <ChevronRight className="w-5 h-5" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

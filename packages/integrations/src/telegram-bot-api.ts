@@ -10,6 +10,7 @@ export interface TelegramWebhookInfo {
   pending_update_count: number;
   last_error_date?: number;
   last_error_message?: string;
+  allowed_updates?: string[];
 }
 
 interface TelegramMessage {
@@ -23,9 +24,10 @@ interface TelegramResponse<T> {
 }
 
 function telegramBotApiBaseUrl() {
-  return (
-    process.env.TELEGRAM_BOT_API_BASE_URL?.trim() || "https://api.telegram.org"
-  ).replace(/\/+$/, "");
+  return (process.env.TELEGRAM_BOT_API_BASE_URL?.trim() || "https://api.telegram.org").replace(
+    /\/+$/,
+    "",
+  );
 }
 
 export class TelegramBotApiClient {
@@ -57,20 +59,38 @@ export class TelegramBotApiClient {
     return this.call<TelegramWebhookInfo>(botToken, "getWebhookInfo");
   }
 
-  deleteWebhook(botToken: string) {
-    return this.call<boolean>(botToken, "deleteWebhook", { drop_pending_updates: false });
-  }
-
-  sendMessage(input: { botToken: string; chatId: string; text: string }) {
-    return this.call<TelegramMessage>(input.botToken, "sendMessage", {
-      chat_id: input.chatId,
-      text: input.text,
+  deleteWebhook(botToken: string, options: { dropPendingUpdates?: boolean } = {}) {
+    return this.call<boolean>(botToken, "deleteWebhook", {
+      drop_pending_updates: options.dropPendingUpdates ?? false,
     });
   }
 
-  private async call<T>(botToken: string, method: string, payload: Record<string, unknown> = {}) {
+  sendMessage(input: { botToken: string; chatId: string; text: string; signal?: AbortSignal }) {
+    return this.call<TelegramMessage>(
+      input.botToken,
+      "sendMessage",
+      {
+        chat_id: input.chatId,
+        text: input.text,
+      },
+      input.signal,
+    );
+  }
+
+  private async call<T>(
+    botToken: string,
+    method: string,
+    payload: Record<string, unknown> = {},
+    signal?: AbortSignal,
+  ) {
     const token = botToken.trim();
     if (!token) throw new Error("Telegram bot token is required.");
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const relayAbort = () => controller.abort(signal?.reason);
+    if (signal?.aborted) relayAbort();
+    else signal?.addEventListener("abort", relayAbort, { once: true });
 
     let response: Response;
     try {
@@ -78,10 +98,18 @@ export class TelegramBotApiClient {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: controller.signal,
       });
     } catch {
+      if (signal?.aborted) {
+        throw signal.reason instanceof Error
+          ? signal.reason
+          : new Error("Telegram request was cancelled.");
+      }
       throw new Error("Telegram is temporarily unavailable. Please try again.");
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", relayAbort);
     }
 
     let body: TelegramResponse<T>;

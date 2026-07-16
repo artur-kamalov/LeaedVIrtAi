@@ -19,11 +19,26 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 async function assertTimeout() {
+  let abortObserved = false;
   try {
-    await withWorkerJobTimeout(new Promise(() => undefined), 5);
+    await withWorkerJobTimeout(
+      (signal) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              abortObserved = signal.aborted;
+              reject(signal.reason);
+            },
+            { once: true }
+          );
+        }),
+      5
+    );
     throw new Error("Expected worker timeout to reject");
   } catch (error) {
     assert(error instanceof WorkerJobTimeoutError, `Expected WorkerJobTimeoutError, got ${error instanceof Error ? error.name : String(error)}`);
+    assert(abortObserved, "Expected worker timeout to abort the running operation");
   }
 }
 

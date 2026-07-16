@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 
 async function mockAppShell(page: Page, role = "MANAGER") {
-  await page.route("**/api/auth/me", async (route) => {
+  await page.route(/\/api\/auth\/me(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       json: {
         data: {
@@ -14,13 +14,13 @@ async function mockAppShell(page: Page, role = "MANAGER") {
           role,
           tenantId: "tenant-ai-audit",
           authMode: "credentials",
-          passwordChangeRequired: false
-        }
-      }
+          passwordChangeRequired: false,
+        },
+      },
     });
   });
 
-  await page.route("**/api/current-tenant", async (route) => {
+  await page.route(/\/api\/current-tenant(?:\?.*)?$/, async (route) => {
     await route.fulfill({
       json: {
         data: {
@@ -30,9 +30,9 @@ async function mockAppShell(page: Page, role = "MANAGER") {
           status: "TRIALING",
           businessType: "services",
           timezone: "Europe/Moscow",
-          role
-        }
-      }
+          role,
+        },
+      },
     });
   });
 
@@ -44,6 +44,12 @@ async function mockAppShell(page: Page, role = "MANAGER") {
     await route.fulfill({ json: { data: { recentActivity: [] } } });
   });
 }
+
+test.beforeEach(async ({ context }) => {
+  await context.addCookies([
+    { name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" },
+  ]);
+});
 
 test("ai audit page renders API-backed events with redacted payloads", async ({ page }) => {
   await mockAppShell(page);
@@ -61,7 +67,7 @@ test("ai audit page renders API-backed events with redacted payloads", async ({ 
             failed: 0,
             budgetBlocked: 0,
             toolCalls: 2,
-            lastEventAt: "2026-07-06T10:00:00.000Z"
+            lastEventAt: "2026-07-06T10:00:00.000Z",
           },
           items: [
             {
@@ -88,15 +94,15 @@ test("ai audit page renders API-backed events with redacted payloads", async ({ 
                     input: {
                       email: "[redacted-email]",
                       phone: "[redacted-phone]",
-                      secret: "[redacted-secret]"
-                    }
-                  }
+                      secret: "[redacted-secret]",
+                    },
+                  },
                 ],
-                quality: { passed: true }
+                quality: { passed: true },
               },
               toolCalls: [{ type: "lead.note.create" }],
               toolResults: [{ status: "SUCCESS" }],
-              retrievedContext: [{ chunkId: "chunk-1" }]
+              retrievedContext: [{ chunkId: "chunk-1" }],
             },
             {
               id: "audit-1",
@@ -106,12 +112,12 @@ test("ai audit page renders API-backed events with redacted payloads", async ({ 
               status: "AUDIT",
               payload: {
                 webhookSecret: "[redacted-secret]",
-                leadEmail: "[redacted-email]"
-              }
-            }
-          ]
-        }
-      }
+                leadEmail: "[redacted-email]",
+              },
+            },
+          ],
+        },
+      },
     });
   });
 
@@ -124,6 +130,9 @@ test("ai audit page renders API-backed events with redacted payloads", async ({ 
   await expect(page.getByText("ai.langgraph_reply.processed")).toBeVisible();
   await expect(page.getByText("graph: graph-1")).toBeVisible();
   await expect(page.getByText("tools: 2")).toBeVisible();
+  await expect(
+    page.getByTestId("ai-audit-item-audit-audit-1").getByText("-", { exact: true }),
+  ).toHaveCount(3);
 
   await page.getByText("Payload").first().click();
   await expect(page.getByText("[redacted-email]").first()).toBeVisible();
@@ -144,11 +153,57 @@ test("ai audit page shows an access error for forbidden roles", async ({ page })
   await page.route("**/api/ai-audit*", async (route) => {
     await route.fulfill({
       status: 403,
-      json: { message: "Forbidden" }
+      json: { message: "Forbidden" },
     });
   });
 
   await page.goto(`${webBase}/app/audit`, { waitUntil: "networkidle" });
 
-  await expect(page.getByText("AI audit is unavailable for this workspace role or session.")).toBeVisible();
+  await expect(
+    page.getByText("AI audit is unavailable for this workspace role or session."),
+  ).toBeVisible();
+  await expect(page.getByTestId("ai-audit-load-error").getByRole("button")).toHaveCount(0);
+});
+
+test("ai audit keeps metrics hidden until a failed request is retried", async ({ page }) => {
+  await mockAppShell(page);
+  let recover = false;
+
+  await page.route("**/api/ai-audit*", async (route) => {
+    if (!recover) {
+      await route.fulfill({
+        status: 503,
+        json: { error: { code: "SERVICE_UNAVAILABLE", message: "Temporary outage" } },
+      });
+      return;
+    }
+    await route.fulfill({
+      json: {
+        data: {
+          summary: {
+            totalEvents: 0,
+            usageLogs: 0,
+            auditLogs: 0,
+            success: 0,
+            handoff: 0,
+            failed: 0,
+            budgetBlocked: 0,
+            toolCalls: 0,
+            lastEventAt: null,
+          },
+          items: [],
+        },
+      },
+    });
+  });
+
+  await page.goto(`${webBase}/app/audit`);
+
+  const error = page.getByTestId("ai-audit-load-error");
+  await expect(error).toBeVisible();
+  await expect(page.getByText("Tenant-scoped audit")).toHaveCount(0);
+  recover = true;
+  await error.getByRole("button").click();
+  await expect(error).toBeHidden();
+  await expect(page.getByText("Tenant-scoped audit")).toBeVisible();
 });

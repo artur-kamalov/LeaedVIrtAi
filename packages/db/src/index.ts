@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+export * from "./tenant-transaction.js";
 
 const globalForPrisma = globalThis as unknown as {
   leadvirtPrisma?: PrismaClient;
@@ -7,7 +8,7 @@ const globalForPrisma = globalThis as unknown as {
 export const prisma =
   globalForPrisma.leadvirtPrisma ??
   new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["query", "warn", "error"] : ["warn", "error"]
+    log: process.env.NODE_ENV === "development" ? ["query", "warn", "error"] : ["warn", "error"],
   });
 
 if (process.env.NODE_ENV !== "production") {

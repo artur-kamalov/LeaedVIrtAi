@@ -17,7 +17,10 @@ export class TelegramBotApiService {
     return this.client.getWebhookInfo(botToken);
   }
 
-  deleteWebhook(botToken: string) {
-    return this.client.deleteWebhook(botToken);
+  deleteWebhook(
+    botToken: string,
+    options: Parameters<TelegramBotApiClient["deleteWebhook"]>[1] = {},
+  ) {
+    return this.client.deleteWebhook(botToken, options);
   }
 }

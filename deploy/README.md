@@ -18,7 +18,7 @@ Primary deploy path:
 .github/workflows/deploy-leadvirt-com.yml
 ```
 
-It verifies the app, uploads a release package, prepares `.com` DNS/TLS/env, switches `/opt/leadvirt/current`, rebuilds Docker Compose, and checks `https://leadvirt.com/health`.
+It verifies the app, uploads a release package, prepares `.com` DNS/TLS/env, switches `/opt/leadvirt/current`, rebuilds Docker Compose, and checks `https://leadvirt.com/health/ready`.
 
 Setup details are in `docs/GITHUB_ACTIONS_DEPLOY.md`.
 
@@ -32,6 +32,7 @@ docker rm -f deploy-caddy-1 2>/dev/null || true
 docker compose --env-file /opt/leadvirt/secrets/.env -f deploy/docker-compose.staging.yml up -d --build --remove-orphans
 docker compose --env-file /opt/leadvirt/secrets/.env -f deploy/docker-compose.staging.yml ps
 curl -fsS https://leadvirt.com/health
+curl -fsS https://leadvirt.com/health/ready
 ```
 
 After cutover, public env uses `https://leadvirt.com` and `AUTH_COOKIE_SECURE=true`.
@@ -69,7 +70,7 @@ Staging operator credentials are stored on the server at:
 /opt/leadvirt/secrets/operator-login.txt
 ```
 
-Reverse proxy: nginx. `.ai` is canonical, both `www` hosts redirect to the `.ai` apex, and `.ru` keeps legacy API/health compatibility while browser routes redirect.
+Reverse proxy: nginx. `.com` is canonical and `www.leadvirt.com` redirects to the apex.
 
 ## Observability Profile
 

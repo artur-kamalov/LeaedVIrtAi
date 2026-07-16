@@ -19,7 +19,7 @@ type LeadWithOwner = Prisma.LeadGetPayload<{
 export class LeadsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(IntegrationsService) private readonly integrationsService: IntegrationsService
+    @Inject(IntegrationsService) private readonly integrationsService: IntegrationsService,
   ) {}
 
   async list(context: RequestContext, query: ListLeadsDto): Promise<PaginatedEnvelope<Lead>> {
@@ -34,10 +34,10 @@ export class LeadsService {
               { name: { contains: query.search, mode: "insensitive" } },
               { phone: { contains: query.search, mode: "insensitive" } },
               { email: { contains: query.search, mode: "insensitive" } },
-              { interest: { contains: query.search, mode: "insensitive" } }
-            ]
+              { interest: { contains: query.search, mode: "insensitive" } },
+            ],
           }
-        : {})
+        : {}),
     };
     const page = positiveInt(query.page, 1, 100);
     const limit = positiveInt(query.limit, 50, 100);
@@ -48,13 +48,13 @@ export class LeadsService {
         include: { assignedTo: { select: { name: true } } },
         orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
         skip: (page - 1) * limit,
-        take: limit
-      })
+        take: limit,
+      }),
     ]);
 
     return {
       data: leads.map((lead) => this.mapLead(lead)),
-      pagination: { page, limit, total, hasMore: page * limit < total }
+      pagination: { page, limit, total, hasMore: page * limit < total },
     };
   }
 
@@ -65,13 +65,16 @@ export class LeadsService {
         assignedTo: { select: { name: true } },
         events: { orderBy: { createdAt: "desc" }, take: 30 },
         conversations: {
-          include: { channel: true, messages: { orderBy: { createdAt: "desc" }, take: 1 } },
-          orderBy: { lastMessageAt: "desc" }
+          include: {
+            channel: true,
+            messages: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 },
+          },
+          orderBy: { lastMessageAt: "desc" },
         },
         tasks: { orderBy: { createdAt: "desc" } },
         bookings: { orderBy: { startsAt: "desc" } },
-        orders: { orderBy: { createdAt: "desc" } }
-      }
+        orders: { orderBy: { createdAt: "desc" } },
+      },
     });
     if (!lead) {
       throw new NotFoundException("Lead was not found.");
@@ -85,11 +88,11 @@ export class LeadsService {
         status: conversation.status,
         channelType: conversation.channel?.type ?? lead.channelType,
         lastMessage: conversation.messages[0]?.text ?? null,
-        lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null
+        lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
       })),
       tasks: lead.tasks,
       bookings: lead.bookings,
-      orders: lead.orders
+      orders: lead.orders,
     };
   }
 
@@ -113,13 +116,17 @@ export class LeadsService {
     const lead = await this.prisma.lead.update({
       where: { id },
       data,
-      include: { assignedTo: { select: { name: true } } }
+      include: { assignedTo: { select: { name: true } } },
     });
     await this.logLeadAction(context, "lead.updated", id, { status: dto.status ?? lead.status });
     return this.mapLead(lead);
   }
 
-  async createEvent(context: RequestContext, id: string, dto: CreateLeadEventDto): Promise<LeadEvent> {
+  async createEvent(
+    context: RequestContext,
+    id: string,
+    dto: CreateLeadEventDto,
+  ): Promise<LeadEvent> {
     await this.ensureLead(context.tenantId, id);
     const event = await this.prisma.leadEvent.create({
       data: {
@@ -127,8 +134,8 @@ export class LeadsService {
         leadId: id,
         type: dto.type,
         title: dto.title,
-        message: dto.message ?? null
-      }
+        message: dto.message ?? null,
+      },
     });
     await this.logLeadAction(context, "lead.event_created", id, { type: dto.type });
     return this.mapEvent(event);
@@ -144,9 +151,9 @@ export class LeadsService {
       data: {
         status: "SENT_TO_CRM",
         sentToCrmAt: now,
-        customFields
+        customFields,
       },
-      include: { assignedTo: { select: { name: true } } }
+      include: { assignedTo: { select: { name: true } } },
     });
     await this.prisma.leadEvent.create({
       data: {
@@ -160,16 +167,16 @@ export class LeadsService {
           integrationId: sync.integrationId,
           syncLogId: sync.syncLogId,
           externalId: sync.externalId,
-          url: sync.url
-        }
-      }
+          url: sync.url,
+        },
+      },
     });
     await this.logLeadAction(context, "lead.sent_to_crm", id, {
       provider: sync.provider,
       integrationId: sync.integrationId,
       syncLogId: sync.syncLogId,
       externalId: sync.externalId,
-      url: sync.url
+      url: sync.url,
     });
     return this.mapLead(lead);
   }
@@ -184,8 +191,8 @@ export class LeadsService {
         title: dto.title,
         description: dto.description ?? null,
         priority: dto.priority ?? "NORMAL",
-        dueAt: dto.dueAt ? new Date(dto.dueAt) : null
-      }
+        dueAt: dto.dueAt ? new Date(dto.dueAt) : null,
+      },
     });
     await this.logLeadAction(context, "task.created", id, { taskId: task.id });
     return task;
@@ -203,10 +210,13 @@ export class LeadsService {
         endsAt: new Date(startsAt.getTime() + 60 * 60_000),
         status: "DRAFT",
         location: dto.location ?? null,
-        notes: dto.notes ?? null
-      }
+        notes: dto.notes ?? null,
+      },
     });
-    await this.prisma.lead.update({ where: { id }, data: { status: "BOOKED", bookedAt: startsAt } });
+    await this.prisma.lead.update({
+      where: { id },
+      data: { status: "BOOKED", bookedAt: startsAt },
+    });
     await this.logLeadAction(context, "booking.created", id, { bookingId: booking.id });
     return booking;
   }
@@ -215,9 +225,18 @@ export class LeadsService {
     const leads = await this.prisma.lead.findMany({
       where: { tenantId: context.tenantId, deletedAt: null },
       include: { assignedTo: { select: { name: true } } },
-      orderBy: [{ status: "asc" }, { lastMessageAt: "desc" }]
+      orderBy: [{ status: "asc" }, { lastMessageAt: "desc" }],
     });
-    const stages: LeadStatus[] = ["NEW", "IN_PROGRESS", "QUALIFIED", "BOOKED", "ORDERED", "SENT_TO_CRM", "CLOSED", "LOST"];
+    const stages: LeadStatus[] = [
+      "NEW",
+      "IN_PROGRESS",
+      "QUALIFIED",
+      "BOOKED",
+      "ORDERED",
+      "SENT_TO_CRM",
+      "CLOSED",
+      "LOST",
+    ];
     return {
       stages: stages.map((status) => {
         const stageLeads = leads.filter((lead) => lead.status === status);
@@ -225,14 +244,17 @@ export class LeadsService {
           status,
           count: stageLeads.length,
           valueAmount: stageLeads.reduce((sum, lead) => sum + (lead.valueAmount ?? 0), 0),
-          leads: stageLeads.map((lead) => this.mapLead(lead))
+          leads: stageLeads.map((lead) => this.mapLead(lead)),
         };
-      })
+      }),
     };
   }
 
   private async ensureLead(tenantId: string, id: string) {
-    const lead = await this.prisma.lead.findFirst({ where: { id, tenantId, deletedAt: null }, select: { id: true } });
+    const lead = await this.prisma.lead.findFirst({
+      where: { id, tenantId, deletedAt: null },
+      select: { id: true },
+    });
     if (!lead) {
       throw new NotFoundException("Lead was not found.");
     }
@@ -246,12 +268,12 @@ export class LeadsService {
         conversations: {
           include: {
             channel: true,
-            messages: { orderBy: { createdAt: "desc" }, take: 3 }
+            messages: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 3 },
           },
           orderBy: { lastMessageAt: "desc" },
-          take: 3
-        }
-      }
+          take: 3,
+        },
+      },
     });
     if (!lead) {
       throw new NotFoundException("Lead was not found.");
@@ -259,8 +281,14 @@ export class LeadsService {
     return lead;
   }
 
-  private customFieldsWithCrmSync(customFields: Prisma.JsonValue, sync: Awaited<ReturnType<IntegrationsService["syncLeadToCrm"]>>): Prisma.InputJsonObject {
-    const base = typeof customFields === "object" && customFields !== null && !Array.isArray(customFields) ? customFields : {};
+  private customFieldsWithCrmSync(
+    customFields: Prisma.JsonValue,
+    sync: Awaited<ReturnType<IntegrationsService["syncLeadToCrm"]>>,
+  ): Prisma.InputJsonObject {
+    const base =
+      typeof customFields === "object" && customFields !== null && !Array.isArray(customFields)
+        ? customFields
+        : {};
     return {
       ...base,
       crmSync: {
@@ -269,8 +297,8 @@ export class LeadsService {
         syncLogId: sync.syncLogId,
         externalId: sync.externalId,
         url: sync.url,
-        syncedAt: sync.syncedAt.toISOString()
-      }
+        syncedAt: sync.syncedAt.toISOString(),
+      },
     };
   }
 
@@ -293,22 +321,34 @@ export class LeadsService {
       assignedToUserId: lead.assignedToUserId,
       assignedToName: lead.assignedTo?.name ?? null,
       lastMessageAt: lead.lastMessageAt?.toISOString() ?? null,
-      createdAt: lead.createdAt.toISOString()
+      createdAt: lead.createdAt.toISOString(),
     };
   }
 
-  private mapEvent(event: { id: string; leadId: string; type: string; title: string; message: string | null; createdAt: Date }): LeadEvent {
+  private mapEvent(event: {
+    id: string;
+    leadId: string;
+    type: string;
+    title: string;
+    message: string | null;
+    createdAt: Date;
+  }): LeadEvent {
     return {
       id: event.id,
       leadId: event.leadId,
       type: event.type,
       title: event.title,
       message: event.message,
-      createdAt: event.createdAt.toISOString()
+      createdAt: event.createdAt.toISOString(),
     };
   }
 
-  private async logLeadAction(context: RequestContext, action: string, entityId: string, payload: Prisma.JsonObject) {
+  private async logLeadAction(
+    context: RequestContext,
+    action: string,
+    entityId: string,
+    payload: Prisma.JsonObject,
+  ) {
     await this.prisma.auditLog.create({
       data: {
         tenantId: context.tenantId,
@@ -316,8 +356,8 @@ export class LeadsService {
         action,
         entityType: "lead",
         entityId,
-        payload
-      }
+        payload,
+      },
     });
   }
 }

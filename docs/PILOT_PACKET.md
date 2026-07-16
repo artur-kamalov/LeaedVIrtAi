@@ -90,7 +90,11 @@ Domain status: live at `https://leadvirt.com`.
 - Message endpoint: https://leadvirt.com/api/public/widget/demo-website-widget/messages
 
 ```html
-<script async src="https://leadvirt.com/widget/embed.js" data-leadvirt-key="demo-website-widget"></script>
+<script
+  async
+  src="https://leadvirt.com/widget/embed.js"
+  data-leadvirt-key="demo-website-widget"
+></script>
 ```
 
 ## Manual Intake Smoke Commands
@@ -212,5 +216,7 @@ corepack pnpm run qa:pilot:public
 
 ```powershell
 corepack pnpm run db:cleanup:pilot
+corepack pnpm run db:cleanup:pilot -- --tenant-slug demo-company
 corepack pnpm run db:cleanup:pilot -- --confirm
+corepack pnpm run db:cleanup:pilot -- --tenant-slug demo-company --confirm
 ```

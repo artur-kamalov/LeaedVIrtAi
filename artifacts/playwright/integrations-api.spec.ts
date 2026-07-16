@@ -1,11 +1,21 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { loginAsCleanUser } from "./helpers/auth";
 
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
 
-test.beforeEach(async ({ page }) => {
-  await loginAsCleanUser(page, apiBase);
+async function selectLocale(page: Page, locale: string) {
+  const switcher = page.locator('[data-testid="language-switcher"]:visible').first();
+  await switcher.click();
+  await page.getByTestId(`language-option-${locale}`).click();
+  await expect(switcher).toHaveAttribute("data-locale", locale);
+}
+
+test.beforeEach(async ({ context, page }) => {
+  await loginAsCleanUser(page, apiBase, { locale: "ru" });
+  await context.addCookies([
+    { name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" },
+  ]);
 });
 
 function integration(provider: string, status: "CONNECTED" | "DISCONNECTED") {
@@ -104,18 +114,71 @@ test("integrations page starts empty when API returns no tenant integrations", a
   await expect(page.getByTestId("pilot-readiness-panel")).toContainText("0/3");
 });
 
+test("integration resource failures retry instead of appearing disconnected", async ({ page }) => {
+  let failLoad = true;
+
+  await page.route("**/api/integrations", async (route) => {
+    if (failLoad) {
+      await route.fulfill({
+        status: 503,
+        json: { error: { code: "SERVICE_UNAVAILABLE", message: "Temporary outage" } },
+      });
+      return;
+    }
+    await route.fulfill({ json: { data: [] } });
+  });
+  await page.route("**/api/channels", async (route) => {
+    if (failLoad) {
+      await route.fulfill({
+        status: 503,
+        json: { error: { code: "SERVICE_UNAVAILABLE", message: "Temporary outage" } },
+      });
+      return;
+    }
+    await route.fulfill({ json: { data: [] } });
+  });
+
+  await page.goto(`${webBase}/app/integrations`, { waitUntil: "networkidle" });
+
+  await expect(page.getByTestId("integrations-load-error")).toBeVisible();
+  await expect(page.getByTestId("integrations-stat-connected")).toHaveCount(0);
+  await page.screenshot({
+    path: "artifacts/playwright/integrations-load-error.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+
+  failLoad = false;
+  await page.getByTestId("integrations-load-error").getByRole("button").click();
+
+  await expect(page.getByTestId("integrations-load-error")).toHaveCount(0);
+  await expect(page.getByTestId("integrations-stat-connected")).toContainText(/^0/);
+  await expect(page.getByTestId("pilot-readiness-panel")).toContainText("0/3");
+});
+
 test("Telegram connects from one bot token while LeadVirt manages webhook security", async ({
   page,
 }) => {
   let connectBody: unknown = null;
+  let channelRequests = 0;
+  let failChannelRefresh = false;
   await page.route("**/api/integrations", async (route) => {
     await route.fulfill({ json: { data: [integration("TELEGRAM", "DISCONNECTED")] } });
   });
   await page.route("**/api/channels", async (route) => {
-    await route.fulfill({ json: { data: [] } });
+    channelRequests += 1;
+    if (failChannelRefresh) {
+      await route.fulfill({
+        status: 503,
+        json: { error: { message: "Temporary refresh outage" } },
+      });
+    } else {
+      await route.fulfill({ json: { data: [channel("WEBSITE", "retained-widget-key")] } });
+    }
   });
   await page.route("**/api/integrations/TELEGRAM/connect", async (route) => {
     connectBody = await route.request().postDataJSON();
+    failChannelRefresh = true;
     await route.fulfill({
       json: {
         data: {
@@ -135,6 +198,7 @@ test("Telegram connects from one bot token while LeadVirt manages webhook securi
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app/integrations`, { waitUntil: "networkidle" });
+  await selectLocale(page, "ru");
   await page
     .getByTestId("integration-card-telegram")
     .getByRole("button", { name: "Подключить" })
@@ -156,18 +220,51 @@ test("Telegram connects from one bot token while LeadVirt manages webhook securi
   await page.getByTestId("telegram-bot-token").fill("987654321:AA-client-token");
   await page.getByTestId("telegram-connect-submit").click();
   await expect.poll(() => connectBody).toEqual({ botToken: "987654321:AA-client-token" });
-  await expect(dialog).toBeHidden();
+  await expect.poll(() => channelRequests).toBeGreaterThan(1);
+  const connectedDialog = page.getByRole("dialog", { name: "Telegram @client_magic_bot" });
+  await expect(connectedDialog).toBeVisible();
+  await expect(connectedDialog).toContainText("@client_magic_bot");
+  await expect(page.getByTestId("telegram-bot-token")).toHaveValue("");
+  await expect(connectedDialog.getByTestId("telegram-open-bot")).toHaveAttribute(
+    "href",
+    "https://t.me/client_magic_bot?start=leadvirt",
+  );
   await expect(page.getByTestId("integration-card-telegram")).toContainText("Подключено");
+  await expect(page.getByTestId("integrations-refresh-error")).toBeVisible();
+  await expect(page.getByTestId("pilot-readiness-widget")).toContainText("retained-widget-key");
+
+  await page.keyboard.press("Escape");
+  await expect(connectedDialog).toBeHidden();
+  await expect(page.getByTestId("telegram-card-open-bot")).toHaveAttribute(
+    "href",
+    "https://t.me/client_magic_bot?start=leadvirt",
+  );
+  await expect(page.getByTestId("telegram-card-open-bot")).toContainText("@client_magic_bot");
+  await page.getByTestId("integration-card-telegram").screenshot({
+    path: "artifacts/playwright/telegram-connected-card-mobile.png",
+  });
+  failChannelRefresh = false;
+  await page.getByTestId("integrations-refresh-error").getByRole("button").click();
+  await expect(page.getByTestId("integrations-refresh-error")).toHaveCount(0);
+  await expect(page.getByTestId("pilot-readiness-widget")).toContainText("retained-widget-key");
 });
 
-test("integrations page opens setup settings without marking disconnected cards connected", async ({
+test("integrations expose only live self-service controls and preserve channel workflows", async ({
   page,
 }) => {
-  let connectedProvider = "";
-  let disconnectedProvider = "";
+  test.setTimeout(60_000);
   const sampledProviders: string[] = [];
-  let savedSettings: unknown = null;
-  let retailSettings: unknown = null;
+  const testedProviders: string[] = [];
+  const unavailableMutationRequests: string[] = [];
+  page.on("request", (request) => {
+    if (
+      /\/api\/integrations\/(?:AMOCRM|BITRIX24|RETAILCRM|EMAIL|GOOGLE_CALENDAR)\//.test(
+        request.url(),
+      )
+    ) {
+      unavailableMutationRequests.push(request.url());
+    }
+  });
 
   await page.route("**/api/integrations", async (route) => {
     await route.fulfill({
@@ -185,6 +282,14 @@ test("integrations page opens setup settings without marking disconnected cards 
             },
           },
           integration("RETAILCRM", "DISCONNECTED"),
+          {
+            ...integration("EMAIL", "CONNECTED"),
+            settings: { credentialsConfigured: true, host: "mail.example.test" },
+          },
+          {
+            ...integration("GOOGLE_CALENDAR", "CONNECTED"),
+            settings: { credentialsConfigured: true, calendarId: "primary" },
+          },
           {
             ...integration("TELEGRAM", "CONNECTED"),
             name: "Telegram @demo_telegram_bot",
@@ -214,45 +319,6 @@ test("integrations page opens setup settings without marking disconnected cards 
     });
   });
 
-  await page.route("**/api/integrations/RETAILCRM/connect", async (route) => {
-    connectedProvider = "RETAILCRM";
-    await route.fulfill({ json: { data: integration("RETAILCRM", "CONNECTED") } });
-  });
-
-  await page.route("**/api/integrations/RETAILCRM/disconnect", async (route) => {
-    disconnectedProvider = "RETAILCRM";
-    await route.fulfill({ json: { data: integration("RETAILCRM", "DISCONNECTED") } });
-  });
-
-  await page.route("**/api/integrations/AMOCRM/disconnect", async (route) => {
-    disconnectedProvider = "AMOCRM";
-    await route.fulfill({ json: { data: integration("AMOCRM", "DISCONNECTED") } });
-  });
-
-  await page.route("**/api/integrations/AMOCRM/settings", async (route) => {
-    savedSettings = await route.request().postDataJSON();
-    await route.fulfill({
-      json: {
-        data: {
-          ...integration("AMOCRM", "CONNECTED"),
-          settings: (savedSettings as { settings?: unknown }).settings ?? {},
-        },
-      },
-    });
-  });
-
-  await page.route("**/api/integrations/RETAILCRM/settings", async (route) => {
-    retailSettings = await route.request().postDataJSON();
-    await route.fulfill({
-      json: {
-        data: {
-          ...integration("RETAILCRM", "DISCONNECTED"),
-          settings: (retailSettings as { settings?: unknown }).settings ?? {},
-        },
-      },
-    });
-  });
-
   await page.route("**/api/integrations/TELEGRAM/sample-inbound", async (route) => {
     sampledProviders.push("TELEGRAM");
     await route.fulfill({
@@ -268,6 +334,33 @@ test("integrations page opens setup settings without marking disconnected cards 
           aiMessageId: null,
           outboundStatus: "queued",
           reply: null,
+          integration: {
+            ...integration("TELEGRAM", "CONNECTED"),
+            name: "Telegram @demo_telegram_bot",
+            settings: {
+              botId: "123456789",
+              botUsername: "demo_telegram_bot",
+              tokenConfigured: true,
+              webhookConfigured: true,
+              managedByLeadVirt: true,
+            },
+          },
+        },
+      },
+    });
+  });
+
+  await page.route("**/api/integrations/TELEGRAM/test", async (route) => {
+    testedProviders.push("TELEGRAM");
+    await route.fulfill({
+      json: {
+        data: {
+          ok: true,
+          provider: "TELEGRAM",
+          integrationId: "integration-telegram",
+          status: "SUCCESS",
+          message: "Telegram is connected and ready.",
+          checkedAt: new Date().toISOString(),
           integration: {
             ...integration("TELEGRAM", "CONNECTED"),
             name: "Telegram @demo_telegram_bot",
@@ -307,6 +400,7 @@ test("integrations page opens setup settings without marking disconnected cards 
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app/integrations`, { waitUntil: "networkidle" });
+  await selectLocale(page, "ru");
 
   const productShell = page.getByTestId("product-shell");
   await expect(productShell).toBeVisible();
@@ -351,7 +445,7 @@ test("integrations page opens setup settings without marking disconnected cards 
     "x-leadvirt-webhook-secret",
   );
   await expect(page.getByTestId("api-webhook-payload")).toContainText("leadvirt-sample-event");
-  await expect(page.getByTestId("api-webhook-status")).toContainText("Webhook/API готов");
+  await expect(page.getByTestId("api-webhook-status")).toContainText("Webhook готов");
   await expect(page.getByTestId("integration-card-instagram")).toContainText(
     "Подключение по запросу",
   );
@@ -448,12 +542,12 @@ test("integrations page opens setup settings without marking disconnected cards 
   await shopScriptDialog.getByRole("button", { name: "Закрыть" }).click();
   await expect(shopScriptDialog).toBeHidden();
   await expect(page.getByText("sk-admin")).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Открыть API ключи" })).toHaveAttribute(
-    "href",
-    "/app/settings?tab=api",
-  );
-  await page.getByTestId("pilot-readiness-telegram-sample").click();
-  await expect.poll(() => sampledProviders).toContain("TELEGRAM");
+  await expect(page.getByRole("heading", { name: "Входящий webhook" })).toBeVisible();
+  await expect(page.locator('a[href="/app/settings?tab=api"]')).toHaveCount(0);
+  await expect(page.getByText("Открыть API ключи")).toHaveCount(0);
+  await page.getByTestId("pilot-readiness-telegram-health").click();
+  await expect.poll(() => testedProviders).toContain("TELEGRAM");
+  expect(sampledProviders).not.toContain("TELEGRAM");
   await page.getByTestId("pilot-readiness-webhook-sample").click();
   await expect.poll(() => sampledProviders).toContain("WEBHOOK_API");
   const apiCardWebhookSamples = sampledProviders.filter(
@@ -465,56 +559,18 @@ test("integrations page opens setup settings without marking disconnected cards 
     .toBe(apiCardWebhookSamples + 1);
 
   const amoCard = page.locator(".group").filter({ hasText: "amoCRM" }).first();
-  await amoCard.getByRole("button", { name: /Настроить/ }).click();
-  await page.getByRole("menuitem", { name: /^Настроить$/ }).click();
-  await expect(page.getByRole("dialog", { name: /amoCRM: настройки/ })).toBeVisible();
-  await page.getByLabel("Название подключения").fill("amoCRM production");
-  await page.getByLabel("amoCRM account URL").fill("https://crm.example.test");
-  await page.getByLabel("Client ID").fill("client-id-42");
-  await page.getByLabel("Client secret").fill("client-secret-42");
-  await page.getByLabel("Authorization code").fill("authorization-code-42");
-  await page.getByLabel("Синхронизация включена").click();
-  await page.getByLabel("Заметки").fill("Production CRM account");
-  await page.getByRole("button", { name: "Сохранить настройки" }).click();
-  await expect
-    .poll(
-      () =>
-        (savedSettings as { settings?: { displayName?: string } } | null)?.settings?.displayName,
-    )
-    .toBe("amoCRM production");
-  await expect
-    .poll(
-      () =>
-        (savedSettings as { settings?: { endpointUrl?: string } } | null)?.settings?.endpointUrl,
-    )
-    .toBe("https://crm.example.test");
-  await expect
-    .poll(() => (savedSettings as { settings?: { clientId?: string } } | null)?.settings?.clientId)
-    .toBe("client-id-42");
-  await expect
-    .poll(
-      () =>
-        (savedSettings as { settings?: { authorizationCode?: string } } | null)?.settings
-          ?.authorizationCode,
-    )
-    .toBe("authorization-code-42");
-  await expect
-    .poll(
-      () =>
-        (savedSettings as { settings?: { syncEnabled?: boolean } } | null)?.settings?.syncEnabled,
-    )
-    .toBe(false);
-  await expect
-    .poll(() => (savedSettings as { settings?: { notes?: string } } | null)?.settings?.notes)
-    .toBe("Production CRM account");
-  await expect
-    .poll(
-      () =>
-        (savedSettings as { settings?: { ui?: { configuredFrom?: string } } } | null)?.settings?.ui
-          ?.configuredFrom,
-    )
-    .toBe("integrations-page");
-  await expect(page.getByRole("dialog", { name: /amoCRM: настройки/ })).toBeHidden();
+  await expect(amoCard).toContainText("Скоро будет");
+  await expect(amoCard.getByText("Подключено")).toHaveCount(0);
+  await expect(amoCard.getByRole("button", { name: /Подключить|Настроить/ })).toHaveCount(0);
+  await amoCard.getByRole("button", { name: "Скоро будет" }).click();
+  const amoDialog = page.getByRole("dialog", { name: /amoCRM: настройки/ });
+  await expect(amoDialog).toBeVisible();
+  await expect(amoDialog.locator("input, textarea, [role='switch']")).toHaveCount(0);
+  await amoDialog.screenshot({ path: "artifacts/playwright/integrations-crm-unavailable.png" });
+  await expect(
+    amoDialog.getByRole("button", { name: /Сохранить|Подключить|Отключить/ }),
+  ).toHaveCount(0);
+  await amoDialog.getByRole("button", { name: "Закрыть" }).click();
 
   const telegramCard = page.locator(".group").filter({ hasText: "Telegram" }).first();
   await telegramCard.getByRole("button", { name: /Настроить/ }).click();
@@ -525,15 +581,30 @@ test("integrations page opens setup settings without marking disconnected cards 
   await expect(
     telegramDialog.getByText("@demo_telegram_bot управляется LeadVirt.ai"),
   ).toBeVisible();
+  await expect(telegramDialog.getByTestId("telegram-open-bot")).toHaveAttribute(
+    "href",
+    "https://t.me/demo_telegram_bot?start=leadvirt",
+  );
+  await telegramDialog.screenshot({
+    path: "artifacts/playwright/telegram-connected-bot-cta.png",
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect
+    .poll(() => telegramDialog.evaluate((element) => element.scrollWidth - element.clientWidth))
+    .toBe(0);
+  await telegramDialog.screenshot({
+    path: "artifacts/playwright/telegram-connected-bot-cta-mobile.png",
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(telegramDialog.getByText("Webhook secret token")).toHaveCount(0);
   await expect(telegramDialog.getByText("x-telegram-bot-api-secret-token")).toHaveCount(0);
-  await page.getByRole("button", { name: "Отмена" }).click();
+  await telegramDialog.getByRole("button", { name: "Закрыть" }).click();
   await expect(telegramDialog).toBeHidden();
 
-  const webhookCard = page.locator(".group").filter({ hasText: "Webhook / API" }).first();
+  const webhookCard = page.getByTestId("integration-card-webhook");
   await webhookCard.getByRole("button", { name: /Настроить/ }).click();
   await page.getByRole("menuitem", { name: /^Настроить$/ }).click();
-  const webhookDialog = page.getByRole("dialog", { name: /Webhook \/ API: настройки/ });
+  const webhookDialog = page.getByRole("dialog", { name: /Webhook: настройки/ });
   await expect(webhookDialog).toBeVisible();
   await expect(
     webhookDialog.getByText(
@@ -542,6 +613,11 @@ test("integrations page opens setup settings without marking disconnected cards 
   ).toBeVisible();
   await expect(webhookDialog.getByText("demo-generic-webhook", { exact: true })).toBeVisible();
   await expect(webhookDialog.getByText("x-leadvirt-webhook-secret")).toBeVisible();
+  await expect(webhookDialog.locator("input, textarea, [role='switch']")).toHaveCount(0);
+  await expect(webhookDialog.getByTestId("webhook-settings-authority")).toBeVisible();
+  await expect(
+    webhookDialog.getByRole("link", { name: "Открыть настройки канала" }),
+  ).toHaveAttribute("href", "/app/settings?tab=channels");
   const modalWebhookSamples = sampledProviders.filter(
     (provider) => provider === "WEBHOOK_API",
   ).length;
@@ -549,45 +625,44 @@ test("integrations page opens setup settings without marking disconnected cards 
   await expect
     .poll(() => sampledProviders.filter((provider) => provider === "WEBHOOK_API").length)
     .toBe(modalWebhookSamples + 1);
-  await page.getByRole("button", { name: "Отмена" }).click();
+  await webhookDialog.screenshot({
+    path: "artifacts/playwright/integrations-webhook-authoritative-settings.png",
+  });
+  await page.getByRole("button", { name: "Закрыть" }).click();
   await expect(webhookDialog).toBeHidden();
 
   const retailCard = page.locator(".group").filter({ hasText: "RetailCRM" }).first();
-  await expect(retailCard.getByRole("button", { name: /Подключить/ })).toBeVisible();
-
-  await retailCard.getByRole("button", { name: /Подключить/ }).click();
+  await expect(retailCard).toContainText("Скоро будет");
+  await expect(retailCard.getByRole("button", { name: /Подключить|Настроить/ })).toHaveCount(0);
+  await retailCard.getByRole("button", { name: "Скоро будет" }).click();
   const retailDialog = page.getByRole("dialog", { name: /RetailCRM: настройки/ });
   await expect(retailDialog).toBeVisible();
-  await expect.poll(() => connectedProvider).toBe("");
-  await expect(retailCard.getByText("Подключено")).toHaveCount(0);
-  await retailDialog.getByLabel("Название подключения").fill("RetailCRM setup");
-  await retailDialog.getByLabel("RetailCRM account URL").fill("https://shop.retailcrm.ru");
-  await retailDialog.getByLabel("API key").fill("retail-api-key-123456789012345678901234567890");
-  await retailDialog.getByLabel("Site code").fill("main");
-  await retailDialog.getByRole("button", { name: "Сохранить настройки" }).click();
-  await expect
-    .poll(
-      () =>
-        (retailSettings as { settings?: { displayName?: string } } | null)?.settings?.displayName,
-    )
-    .toBe("RetailCRM setup");
-  await expect
-    .poll(
-      () =>
-        (retailSettings as { settings?: { endpointUrl?: string } } | null)?.settings?.endpointUrl,
-    )
-    .toBe("https://shop.retailcrm.ru");
-  await expect
-    .poll(() => (retailSettings as { settings?: { siteCode?: string } } | null)?.settings?.siteCode)
-    .toBe("main");
-  await expect(retailDialog).toBeHidden();
-  await expect(retailCard.getByRole("button", { name: /Подключить/ })).toBeVisible();
+  await expect(retailDialog.locator("input, textarea, [role='switch']")).toHaveCount(0);
+  await retailDialog.getByRole("button", { name: "Закрыть" }).click();
 
-  const amoMenuCard = page.locator(".group").filter({ hasText: "amoCRM" }).first();
-  await amoMenuCard.getByRole("button", { name: /Настроить/ }).click();
-  await page.getByRole("menuitem", { name: /Отключить/ }).click();
-  await page.getByRole("button", { name: "Отключить" }).click();
+  const bitrixCard = page.getByTestId("integration-card-bitrix24");
+  await expect(bitrixCard).toContainText("Скоро будет");
+  await expect(bitrixCard.getByRole("button", { name: /Подключить|Настроить/ })).toHaveCount(0);
+  for (const unavailable of [
+    { id: "email", dialogName: /^Email:/ },
+    { id: "gcalendar", dialogName: /^Google Calendar:/ },
+  ]) {
+    const card = page.getByTestId(`integration-card-${unavailable.id}`);
+    await expect(card.getByRole("button")).toHaveCount(1);
+    await card.getByRole("button").click();
+    const dialog = page.getByRole("dialog", { name: unavailable.dialogName });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator("input, textarea, [role='switch']")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+  }
 
-  await expect.poll(() => disconnectedProvider).toBe("AMOCRM");
-  await expect(amoMenuCard.getByRole("button", { name: /Подключить/ })).toBeVisible();
+  expect(unavailableMutationRequests).toEqual([]);
+
+  await webhookCard.getByRole("button", { name: /Настроить/ }).click();
+  await page.getByRole("menuitem", { name: /^Настроить$/ }).click();
+  await expect(webhookDialog).toBeVisible();
+  await webhookDialog.getByRole("link", { name: "Открыть настройки канала" }).click();
+  await expect(page).toHaveURL(`${webBase}/app/settings?tab=channels`);
+  await expect(page.getByTestId("settings-channels-list")).toBeVisible();
 });

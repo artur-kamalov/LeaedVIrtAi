@@ -1,0 +1,67 @@
+name: Protected Knowledge Real-Provider Gate
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: leadvirt-knowledge-real-provider-gate
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DEPLOY_HOST: ${{ vars.LEADVIRT_DEPLOY_HOST || '193.187.92.88' }}
+  DEPLOY_USER: ${{ vars.LEADVIRT_DEPLOY_USER || 'deploy' }}
+  DEPLOY_ROOT: /opt/leadvirt
+  DEPLOY_ENV_FILE: /opt/leadvirt/secrets/.env
+
+jobs:
+  real-provider-gate:
+    name: Multilingual structured-v2 quality gate
+    runs-on: ubuntu-24.04
+    environment: leadvirt-knowledge-quality
+    timeout-minutes: 60
+
+    steps:
+      - name: Install SSH key
+        env:
+          LEADVIRT_DEPLOY_SSH_KEY: ${{ secrets.LEADVIRT_DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$LEADVIRT_DEPLOY_SSH_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$LEADVIRT_DEPLOY_SSH_KEY" > ~/.ssh/leadvirt_deploy_key
+          chmod 600 ~/.ssh/leadvirt_deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Run protected staging gate
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/leadvirt_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+            "DEPLOY_ROOT='$DEPLOY_ROOT' DEPLOY_ENV_FILE='$DEPLOY_ENV_FILE' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_ROOT/current"
+          report=/tmp/knowledge-v2-real-provider-gate.json
+          rm -f "$report"
+          docker compose --env-file "$DEPLOY_ENV_FILE" -f deploy/docker-compose.staging.yml exec -T \
+            -e KNOWLEDGE_REAL_PROVIDER_GATE_ENABLED=true \
+            -e KNOWLEDGE_REAL_PROVIDER_REPORT_PATH="$report" \
+            worker corepack pnpm run qa:knowledge:v2:real-provider
+          docker compose --env-file "$DEPLOY_ENV_FILE" -f deploy/docker-compose.staging.yml \
+            cp "worker:$report" "$report"
+          test -s "$report"
+          REMOTE
+          scp -i ~/.ssh/leadvirt_deploy_key \
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/knowledge-v2-real-provider-gate.json" \
+            "$RUNNER_TEMP/knowledge-v2-real-provider-gate.json"
+
+      - name: Upload content-free gate report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: knowledge-v2-real-provider-gate
+          path: ${{ runner.temp }}/knowledge-v2-real-provider-gate.json
+          if-no-files-found: error
+          retention-days: 30

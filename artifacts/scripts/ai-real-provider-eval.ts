@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url";
 import { OpenAiProvider, type AiReasoningEffort, type AiVerbosity } from "@leadvirt/ai";
 import { loadEnvFile } from "@leadvirt/config";
 import { prisma } from "@leadvirt/db";
+import {
+  KnowledgeRetriever,
+  LegacyKnowledgePublisher,
+  type KnowledgeRuntimeConfig
+} from "@leadvirt/knowledge";
 import { redactAndTagSensitiveData, type SensitiveDataTag } from "@leadvirt/observability";
 import type { AiReplyJobData } from "@leadvirt/types";
 import { runAiReplyGraph } from "../../apps/worker/src/ai/ai-reply-graph.js";
@@ -94,6 +99,25 @@ function enabled(value: string | undefined) {
 function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) ? value : fallback;
+}
+
+function knowledgeRuntimeConfig(): KnowledgeRuntimeConfig {
+  const configuredMode = process.env.RAG_RETRIEVAL_MODE?.trim().toLowerCase();
+  assert(
+    !configuredMode || configuredMode === "database" || configuredMode === "qdrant",
+    "RAG_RETRIEVAL_MODE must be database or qdrant."
+  );
+  const qdrantApiKey = process.env.RAG_QDRANT_API_KEY?.trim();
+  return {
+    mode: configuredMode === "qdrant" ? "qdrant" : "database",
+    qdrantUrl: process.env.RAG_QDRANT_URL ?? "http://localhost:6333",
+    ...(qdrantApiKey ? { qdrantApiKey } : {}),
+    qdrantCollection: process.env.RAG_QDRANT_COLLECTION ?? "leadvirt_knowledge",
+    qdrantTimeoutMs: Math.max(1, Math.floor(numberEnv("RAG_QDRANT_TIMEOUT_MS", 3000))),
+    minScore: numberEnv("RAG_MIN_SCORE", 0.05),
+    candidateLimit: Math.max(1, Math.floor(numberEnv("RAG_CANDIDATE_LIMIT", 50))),
+    targetKey: "workspace"
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -204,13 +228,13 @@ async function retrievedContext(tenantId: string, metadata: Record<string, unkno
   const chunkIds = refs.map((item) => item.chunkId).filter((id): id is string => typeof id === "string");
   const chunks =
     chunkIds.length > 0
-      ? await prisma.businessKnowledgeChunk.findMany({
+      ? await prisma.knowledgeRevisionChunk.findMany({
           where: { tenantId, id: { in: chunkIds } },
-          select: { content: true, source: { select: { title: true } } }
+          select: { content: true, revision: { select: { title: true } } }
         })
       : [];
 
-  const mapped = chunks.map((chunk) => ({ title: chunk.source.title, content: chunk.content }));
+  const mapped = chunks.map((chunk) => ({ title: chunk.revision.title, content: chunk.content }));
   return {
     text: mapped.map((chunk) => `${chunk.title}: ${chunk.content}`).join("\n"),
     chunks: mapped
@@ -247,13 +271,18 @@ function retrievalMetrics(goldenCase: GoldenCase, context: RetrievedContext): Re
   };
 }
 
-async function seedKnowledge(tenantId: string, suffix: string, entries: GoldenKnowledge[]) {
+async function seedKnowledge(
+  publisher: LegacyKnowledgePublisher,
+  tenantId: string,
+  suffix: string,
+  entries: GoldenKnowledge[]
+) {
   let index = 0;
   for (const entry of entries) {
-    const source = await prisma.businessKnowledgeSource.create({
+    await prisma.businessKnowledgeSource.create({
       data: {
         tenantId,
-        type: entry.type,
+        type: entry.type === "PROFILE" ? "BUSINESS_PROFILE" : entry.type,
         status: "ACTIVE",
         source: "real-provider-eval",
         sourceKey: `real-eval:${suffix}:${index}`,
@@ -262,23 +291,12 @@ async function seedKnowledge(tenantId: string, suffix: string, entries: GoldenKn
         structuredData: { realProviderEval: true }
       }
     });
-
-    await prisma.businessKnowledgeChunk.create({
-      data: {
-        tenantId,
-        sourceId: source.id,
-        sourceVersion: source.version,
-        chunkIndex: 0,
-        content: source.content,
-        contentHash: `real-eval-${suffix}-${index}`,
-        tokenEstimate: Math.max(8, Math.round(source.content.length / 4)),
-        embeddedAt: new Date(),
-        indexedAt: new Date(),
-        metadata: { realProviderEval: true, sourceTitle: source.title }
-      }
-    });
     index += 1;
   }
+  await publisher.publish({
+    tenantId,
+    reason: `real_provider_eval:${suffix}`
+  });
 }
 
 function addCheck(failures: string[], condition: unknown, message: string) {
@@ -438,7 +456,13 @@ async function callJudge(input: {
   };
 }
 
-async function runCase(aiProvider: OpenAiProvider, golden: GoldenSet, goldenCase: GoldenCase): Promise<CaseResult> {
+async function runCase(
+  aiProvider: OpenAiProvider,
+  knowledgePublisher: LegacyKnowledgePublisher,
+  knowledgeRetriever: KnowledgeRetriever,
+  golden: GoldenSet,
+  goldenCase: GoldenCase
+): Promise<CaseResult> {
   const suffix = `${goldenCase.id}-${Date.now()}-${randomUUID().slice(0, 8)}`.replace(/[^a-zA-Z0-9-]/g, "-");
   let tenantId: string | null = null;
 
@@ -497,24 +521,19 @@ async function runCase(aiProvider: OpenAiProvider, golden: GoldenSet, goldenCase
       }
     });
 
-    await seedKnowledge(tenant.id, suffix, goldenCase.knowledge ?? golden.commonKnowledge);
+    await seedKnowledge(knowledgePublisher, tenant.id, suffix, goldenCase.knowledge ?? golden.commonKnowledge);
 
     const data: AiReplyJobData = {
       tenantId: tenant.id,
       conversationId: conversation.id,
       triggerMessageId: inbound.id,
-      text: goldenCase.text,
-      businessName: tenant.name,
-      ...(tenant.businessType ? { businessType: tenant.businessType } : {}),
-      leadId: lead.id,
-      leadStatus: lead.status,
-      source: "worker-test",
-      receivedAt: inbound.createdAt.toISOString()
+      source: "worker-test"
     };
     const result = await runAiReplyGraph({
       data,
       jobId: `ai-real-eval:${goldenCase.id}:${conversation.id}:${inbound.id}`,
-      aiProvider
+      aiProvider,
+      knowledgeRetriever
     });
 
     const message = await prisma.message.findUniqueOrThrow({ where: { id: result.messageId } });
@@ -563,6 +582,14 @@ async function runCase(aiProvider: OpenAiProvider, golden: GoldenSet, goldenCase
     };
   } finally {
     if (tenantId) {
+      await prisma.externalOperation.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.runtimeInbox.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.runtimeOutbox.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.channelDeliveryOperation.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.aiReplyRun.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.activeKnowledgePublication.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.knowledgePublication.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.knowledgeIndexSnapshot.deleteMany({ where: { tenantId } }).catch(() => undefined);
       await prisma.tenant.delete({ where: { id: tenantId } }).catch(() => undefined);
     }
   }
@@ -587,6 +614,9 @@ async function main() {
 
   const golden = readGoldenSet();
   const cases = selectedCases(golden);
+  const knowledgeConfig = knowledgeRuntimeConfig();
+  const knowledgePublisher = new LegacyKnowledgePublisher(prisma, knowledgeConfig);
+  const knowledgeRetriever = new KnowledgeRetriever(prisma, knowledgeConfig);
   const aiProvider = new OpenAiProvider({
     apiKey: process.env.AI_API_KEY ?? "",
     ...(process.env.AI_DEFAULT_MODEL ? { model: process.env.AI_DEFAULT_MODEL } : {}),
@@ -597,7 +627,7 @@ async function main() {
 
   const results: CaseResult[] = [];
   for (const goldenCase of cases) {
-    results.push(await runCase(aiProvider, golden, goldenCase));
+    results.push(await runCase(aiProvider, knowledgePublisher, knowledgeRetriever, golden, goldenCase));
   }
 
   const judgePassRate = results.filter((result) => result.judge.passed).length / results.length;

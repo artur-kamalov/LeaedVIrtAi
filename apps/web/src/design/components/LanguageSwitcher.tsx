@@ -2,13 +2,34 @@
 
 import React from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Check, ChevronDown, Languages } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, Languages, LoaderCircle, RefreshCw } from "lucide-react";
 import { localeOptions, type Locale } from "@/i18n/config";
 import { useI18n } from "@/i18n/I18nProvider";
+import {
+  useOptionalCurrentUser,
+  useOptionalCurrentUserLocaleUpdater,
+} from "../product/CurrentUser";
 import { cn } from "../lib/utils";
 
-export function LanguageSwitcher({ compact = false, className }: { compact?: boolean; className?: string }) {
-  const { locale, setLocale, t } = useI18n();
+export function LanguageSwitcher({
+  compact = false,
+  className,
+}: {
+  compact?: boolean;
+  className?: string;
+}) {
+  const {
+    locale,
+    setLocale,
+    persistLocale,
+    retryLocalePersistence,
+    localePersistenceStatus,
+    localePersistenceError,
+    t,
+  } = useI18n();
+  const authenticated = useOptionalCurrentUser() !== null;
+  const updateCurrentUserLocale = useOptionalCurrentUserLocaleUpdater();
+  const persistenceFailed = authenticated && localePersistenceStatus === "error";
   const [hydrated, setHydrated] = React.useState(false);
   const activeLocale = localeOptions.find((option) => option.value === locale) ?? localeOptions[0];
 
@@ -23,10 +44,13 @@ export function LanguageSwitcher({ compact = false, className }: { compact?: boo
           type="button"
           data-testid="language-switcher"
           data-locale={locale}
+          data-persistence-status={authenticated ? localePersistenceStatus : "local-only"}
           aria-label={t("language.label")}
+          aria-invalid={persistenceFailed || undefined}
           disabled={!hydrated}
           className={cn(
             "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2.5 text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.08] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:cursor-wait disabled:opacity-60",
+            persistenceFailed && "border-red-400/50 text-red-200 hover:border-red-400/70",
             className,
           )}
         >
@@ -34,7 +58,21 @@ export function LanguageSwitcher({ compact = false, className }: { compact?: boo
           <span lang={activeLocale.value} className="min-w-0 truncate text-xs font-semibold">
             {compact ? activeLocale.shortLabel : activeLocale.label}
           </span>
-          <ChevronDown className="h-3.5 w-3.5 text-zinc-500" aria-hidden="true" />
+          {authenticated && localePersistenceStatus === "saving" ? (
+            <LoaderCircle
+              data-testid="language-persistence-saving"
+              className="h-3.5 w-3.5 animate-spin text-emerald-400"
+              aria-hidden="true"
+            />
+          ) : persistenceFailed ? (
+            <AlertCircle
+              data-testid="language-persistence-error-indicator"
+              className="h-3.5 w-3.5 text-red-400"
+              aria-hidden="true"
+            />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 text-zinc-500" aria-hidden="true" />
+          )}
         </button>
       </DropdownMenu.Trigger>
 
@@ -48,7 +86,17 @@ export function LanguageSwitcher({ compact = false, className }: { compact?: boo
           <DropdownMenu.Label className="px-2.5 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-normal text-zinc-500">
             {t("language.label")}
           </DropdownMenu.Label>
-          <DropdownMenu.RadioGroup value={locale} onValueChange={(value) => setLocale(value as Locale)}>
+          <DropdownMenu.RadioGroup
+            value={locale}
+            onValueChange={(value) => {
+              const nextLocale = value as Locale;
+              setLocale(nextLocale);
+              if (authenticated) {
+                updateCurrentUserLocale?.(nextLocale);
+                persistLocale(nextLocale);
+              }
+            }}
+          >
             {localeOptions.map((option) => (
               <DropdownMenu.RadioItem
                 key={option.value}
@@ -68,6 +116,29 @@ export function LanguageSwitcher({ compact = false, className }: { compact?: boo
               </DropdownMenu.RadioItem>
             ))}
           </DropdownMenu.RadioGroup>
+          {persistenceFailed ? (
+            <>
+              <DropdownMenu.Separator className="my-1.5 h-px bg-white/10" />
+              <div
+                role="alert"
+                data-testid="language-persistence-error"
+                className="px-2.5 py-1 text-xs leading-5 text-red-200"
+              >
+                {localePersistenceError ?? t("resource.loadFailed.title")}
+              </div>
+              <DropdownMenu.Item
+                data-testid="language-persistence-retry"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  retryLocalePersistence();
+                }}
+                className="flex h-9 cursor-pointer select-none items-center gap-2 rounded-md px-2.5 text-xs font-semibold text-zinc-200 outline-none transition-colors data-[highlighted]:bg-white/[0.07]"
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                {t("resource.retry")}
+              </DropdownMenu.Item>
+            </>
+          ) : null}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

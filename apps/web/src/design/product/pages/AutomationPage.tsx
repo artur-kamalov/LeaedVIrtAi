@@ -5,7 +5,7 @@ import { Card } from "../shared";
 import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "motion/react";
-import { ConfirmDialog, Modal, Tip, Select as BrandSelect } from "../ui";
+import { ConfirmDialog, Modal, Skeleton, Tip, Select as BrandSelect } from "../ui";
 import { toast } from "sonner";
 import { createWorkflow, listWorkflows, publishWorkflow, testWorkflow, updateWorkflow, type WorkflowStepPayload } from "@/lib/api/workflows";
 import {
@@ -28,11 +28,27 @@ import {
   ToggleRight,
   X,
   Info,
+  AlertTriangle,
+  Square,
+  UserRoundCheck,
 } from "lucide-react";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { TranslationKey, TranslationValues } from "@/i18n/messages";
+import { useProductPermissions } from "../CurrentUser";
+import { ResourceErrorState } from "../ResourceErrorState";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type BlockType = "trigger" | "ai" | "qualify" | "condition" | "booking" | "followup" | "crm";
+type BlockType =
+  | "trigger"
+  | "ai"
+  | "qualify"
+  | "condition"
+  | "booking"
+  | "followup"
+  | "crm"
+  | "handoff"
+  | "end";
 
 type TriggerChannels = { telegram: boolean; whatsapp: boolean; instagram: boolean; web: boolean };
 type ConditionRule = { field: string; op: string; value: string };
@@ -71,12 +87,21 @@ interface WorkflowBlock {
 }
 
 type ApiWorkflowStep = NonNullable<Workflow["steps"]>[number];
+type Translate = (key: TranslationKey, values?: TranslationValues) => string;
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
-const SCENARIOS = ["Запись на услугу", "Оформление заказа", "Возврат клиента"];
+const scenarioKeys: TranslationKey[] = [
+  "suite.automation.scenarioBooking",
+  "suite.automation.scenarioOrder",
+  "suite.automation.scenarioReturn",
+];
 
-function defaultConfigForType(type: BlockType): WorkflowBlockConfig {
+function translated(t: Translate | undefined, key: TranslationKey, fallback: string) {
+  return t ? t(key) : fallback;
+}
+
+function defaultConfigForType(type: BlockType, t?: Translate): WorkflowBlockConfig {
   switch (type) {
     case "trigger":
       return {
@@ -85,40 +110,47 @@ function defaultConfigForType(type: BlockType): WorkflowBlockConfig {
       };
     case "ai":
       return {
-        greetingText: "Привет, {{имя}}! Я AI-ассистент. Чем могу помочь?",
+        greetingText: translated(t, "suite.automation.greetingDefault", "Hi, {{name}}! I am an AI assistant. How can I help?"),
         tone: "friendly",
         responseDelaySec: "1",
       };
     case "qualify":
       return {
-        questions: ["Какая услуга вас интересует?", "Когда планируете начать?", "Каков ваш бюджет?"],
+        questions: [
+          translated(t, "suite.automation.questionService", "Which service are you interested in?"),
+          translated(t, "suite.automation.questionTiming", "When are you planning to start?"),
+          translated(t, "suite.automation.questionBudget", "What is your budget?"),
+        ],
         maxQuestions: "3",
       };
     case "condition":
       return {
         rules: [
-          { field: "бюджет", op: "gt", value: "5000" },
-          { field: "интерес", op: "eq", value: "высокий" },
+          { field: translated(t, "suite.automation.fieldBudget", "budget"), op: "gt", value: "5000" },
+          { field: translated(t, "suite.automation.fieldInterest", "interest"), op: "eq", value: translated(t, "suite.automation.valueHigh", "high") },
         ],
       };
     case "booking":
       return {
         bookingSystem: "google",
-        bookingConfirmationTemplate: "Запись оформлена на {{дата}} в {{время}}. До встречи!",
+        bookingConfirmationTemplate: translated(t, "suite.automation.bookingDefault", "Your appointment is booked for {{date}} at {{time}}. See you then!"),
         bookingRequiresConfirmation: true,
       };
     case "followup":
       return {
         followupDelayHours: "24",
         followupMaxAttempts: "2",
-        followupText: "{{имя}}, вы ещё думаете? Готов ответить на вопросы!",
+        followupText: translated(t, "suite.automation.followupDefault", "{{name}}, are you still deciding? I am ready to answer questions."),
       };
     case "crm":
       return {
         crmSystem: "amocrm",
-        crmPipeline: "Новые лиды",
+        crmPipeline: translated(t, "suite.automation.pipelineDefault", "New leads"),
         crmFields: { name: true, phone: true, source: true, budget: true, request: true },
       };
+    case "handoff":
+    case "end":
+      return {};
   }
 }
 
@@ -126,91 +158,120 @@ function cloneConfig(config: WorkflowBlockConfig): WorkflowBlockConfig {
   return JSON.parse(JSON.stringify(config)) as WorkflowBlockConfig;
 }
 
-const INITIAL_BLOCKS: WorkflowBlock[] = [
+const INITIAL_BLOCK_DEFINITIONS: Array<Omit<WorkflowBlock, "title" | "subtitle" | "config"> & {
+  titleKey: TranslationKey;
+  subtitleKey: TranslationKey;
+}> = [
   {
     id: "trigger",
     type: "trigger",
-    title: "Триггер: Новое сообщение",
-    subtitle: "Клиент пишет в любой канал",
+    titleKey: "suite.automation.blockTrigger",
+    subtitleKey: "suite.automation.blockTriggerSub",
     icon: MessageCircle,
     accent: "from-violet-500 to-indigo-500",
     glowColor: "rgba(139,92,246,0.35)",
     enabled: true,
-    config: defaultConfigForType("trigger"),
   },
   {
     id: "greeting",
     type: "ai",
-    title: "AI-приветствие",
-    subtitle: "Персональное приветствие и сбор контекста",
+    titleKey: "suite.automation.blockGreeting",
+    subtitleKey: "suite.automation.blockGreetingSub",
     icon: Bot,
     accent: "from-emerald-500 to-teal-500",
     glowColor: "rgba(16,185,129,0.35)",
     enabled: true,
-    config: defaultConfigForType("ai"),
   },
   {
     id: "qualify",
     type: "qualify",
-    title: "Квалификация",
-    subtitle: "AI задаёт уточняющие вопросы",
+    titleKey: "suite.automation.blockQualify",
+    subtitleKey: "suite.automation.blockQualifySub",
     icon: ListChecks,
     accent: "from-sky-500 to-blue-500",
     glowColor: "rgba(14,165,233,0.35)",
     enabled: true,
-    config: defaultConfigForType("qualify"),
   },
   {
     id: "condition",
     type: "condition",
-    title: "Условие",
-    subtitle: "Целевой лид?",
+    titleKey: "suite.automation.blockCondition",
+    subtitleKey: "suite.automation.blockConditionSub",
     icon: GitBranch,
     accent: "from-amber-500 to-orange-500",
     glowColor: "rgba(245,158,11,0.35)",
     enabled: true,
-    config: defaultConfigForType("condition"),
   },
   {
     id: "booking",
     type: "booking",
-    title: "Запись / Заказ",
-    subtitle: "Бронирование времени или оформление заказа",
+    titleKey: "suite.automation.blockBooking",
+    subtitleKey: "suite.automation.blockBookingSub",
     icon: CalendarCheck,
     accent: "from-emerald-500 to-green-500",
     glowColor: "rgba(16,185,129,0.35)",
     enabled: true,
-    config: defaultConfigForType("booking"),
   },
   {
     id: "followup",
     type: "followup",
-    title: "Повторное касание",
-    subtitle: "Напоминание через 24ч если нет ответа",
+    titleKey: "suite.automation.blockFollowup",
+    subtitleKey: "suite.automation.blockFollowupSub",
     icon: Repeat,
     accent: "from-rose-500 to-pink-500",
     glowColor: "rgba(244,63,94,0.35)",
     enabled: true,
-    config: defaultConfigForType("followup"),
   },
   {
     id: "crm",
     type: "crm",
-    title: "Отправка в CRM",
-    subtitle: "Структурированный лид уходит в amoCRM",
+    titleKey: "suite.automation.blockCrm",
+    subtitleKey: "suite.automation.blockCrmSub",
     icon: Database,
     accent: "from-teal-500 to-cyan-500",
     glowColor: "rgba(20,184,166,0.35)",
     enabled: true,
-    config: defaultConfigForType("crm"),
+  },
+  {
+    id: "handoff",
+    type: "handoff",
+    titleKey: "suite.automation.blockHandoff",
+    subtitleKey: "suite.automation.blockHandoffSub",
+    icon: UserRoundCheck,
+    accent: "from-cyan-500 to-emerald-500",
+    glowColor: "rgba(16,185,129,0.35)",
+    enabled: true,
+  },
+  {
+    id: "end",
+    type: "end",
+    titleKey: "suite.automation.blockEnd",
+    subtitleKey: "suite.automation.blockEndSub",
+    icon: Square,
+    accent: "from-zinc-500 to-zinc-600",
+    glowColor: "rgba(113,113,122,0.25)",
+    enabled: true,
   },
 ];
 
-function freshInitialBlocks() {
-  return INITIAL_BLOCKS.map((block) => ({
+const initialBlockTypes = new Set<BlockType>(["trigger", "handoff", "end"]);
+const executableBlockTypes = new Set<BlockType>(["trigger", "condition", "handoff", "end"]);
+
+function blockTemplates(t?: Translate) {
+  return INITIAL_BLOCK_DEFINITIONS.map(({ titleKey, subtitleKey, ...block }) => ({
     ...block,
-    config: cloneConfig(block.config),
+    title: translated(t, titleKey, titleKey),
+    subtitle: translated(t, subtitleKey, subtitleKey),
+    config: cloneConfig(defaultConfigForType(block.type, t)),
   }));
+}
+
+function freshInitialBlocks(t?: Translate) {
+  return blockTemplates(t).filter((block) => initialBlockTypes.has(block.type));
+}
+
+function isExecutableBlock(block: Pick<WorkflowBlock, "type">) {
+  return executableBlockTypes.has(block.type);
 }
 
 const apiStepTypeToBlockType: Partial<Record<WorkflowStepType, BlockType>> = {
@@ -220,7 +281,8 @@ const apiStepTypeToBlockType: Partial<Record<WorkflowStepType, BlockType>> = {
   CONDITION: "condition",
   ACTION: "crm",
   DELAY: "followup",
-  HANDOFF: "crm",
+  HANDOFF: "handoff",
+  END: "end",
 };
 
 const blockTypeToApiStepType: Record<BlockType, WorkflowStepType> = {
@@ -231,6 +293,8 @@ const blockTypeToApiStepType: Record<BlockType, WorkflowStepType> = {
   booking: "ACTION",
   followup: "DELAY",
   crm: "ACTION",
+  handoff: "HANDOFF",
+  end: "END",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -245,7 +309,9 @@ function isBlockType(value: unknown): value is BlockType {
     value === "condition" ||
     value === "booking" ||
     value === "followup" ||
-    value === "crm"
+    value === "crm" ||
+    value === "handoff" ||
+    value === "end"
   );
 }
 
@@ -259,37 +325,51 @@ function blockTypeFromStep(step: ApiWorkflowStep): BlockType | null {
   return apiStepTypeToBlockType[step.type] ?? null;
 }
 
-function blockTemplateForType(type: BlockType) {
-  return INITIAL_BLOCKS.find((block) => block.type === type) ?? INITIAL_BLOCKS[1];
+function blockTemplateForType(type: BlockType, t?: Translate) {
+  const blocks = blockTemplates(t);
+  return blocks.find((block) => block.type === type) ?? blocks[0];
 }
 
-function blocksFromWorkflow(workflow: Workflow): WorkflowBlock[] {
+function blocksFromWorkflow(workflow: Workflow, t?: Translate): WorkflowBlock[] {
   const blocks = workflow.steps
     ?.map((step) => {
       const type = blockTypeFromStep(step);
       if (!type) return null;
-      const template = blockTemplateForType(type);
+      const template = blockTemplateForType(type, t);
       const config = stepConfig(step);
       return {
         ...template,
         id: step.id,
         type,
-        title: step.name ? localizeStepName(step.name) : template.title,
+        title: step.name ? localizeStepName(step.name, t) : template.title,
         subtitle: typeof config.subtitle === "string"
           ? config.subtitle
           : typeof workflow.description === "string" && workflow.description.length > 0
-            ? localizeWorkflowDescription(workflow.description) ?? workflow.description
+            ? workflow.description
             : template.subtitle,
         enabled: typeof config.enabled === "boolean" ? config.enabled : workflow.status !== "PAUSED" && workflow.status !== "ARCHIVED",
         config: {
-          ...cloneConfig(defaultConfigForType(type)),
+          ...cloneConfig(defaultConfigForType(type, t)),
           ...config,
         },
       };
     })
     .filter((block): block is WorkflowBlock => block !== null);
 
-  return blocks && blocks.length > 0 ? blocks : freshInitialBlocks();
+  return blocks && blocks.length > 0 ? blocks : freshInitialBlocks(t);
+}
+
+function workflowIsRuntimeBlocked(workflow: Workflow) {
+  if (workflow.execution) return !workflow.execution.executable;
+  const steps = workflow.steps ?? [];
+  const hasUnsupportedStep = steps.some((step) => {
+    const type = blockTypeFromStep(step);
+    return !type || !executableBlockTypes.has(type);
+  });
+  const enabledTriggerCount = steps.filter(
+    (step) => step.type === "TRIGGER" && stepConfig(step).enabled !== false,
+  ).length;
+  return hasUnsupportedStep || enabledTriggerCount !== 1;
 }
 
 function stepsFromBlocks(blocks: WorkflowBlock[], { includeIds = true }: { includeIds?: boolean } = {}): WorkflowStepPayload[] {
@@ -330,50 +410,78 @@ function statusFromActive(active: boolean): WorkflowStatus {
   return active ? "ACTIVE" : "PAUSED";
 }
 
-function workflowStatusMeta(workflow: Workflow | null, restored: boolean) {
+function workflowStatusMeta(
+  workflow: Workflow | null,
+  restored: boolean,
+  blocked: boolean,
+  t: Translate,
+) {
   if (restored) {
     return {
-      label: "Восстановлен",
+      label: t("suite.automation.statusRestored"),
       className: "border-sky-500/30 bg-sky-500/10 text-sky-300",
     };
   }
 
   if (!workflow) {
     return {
-      label: "Шаблон",
+      label: t("suite.automation.statusTemplate"),
       className: "border-white/10 bg-white/5 text-zinc-400",
+    };
+  }
+
+  if (blocked && workflow.status === "ACTIVE") {
+    return {
+      label: t("suite.automation.statusBlocked"),
+      className: "border-rose-500/30 bg-rose-500/10 text-rose-300",
     };
   }
 
   if (workflow.status === "ACTIVE") {
     return {
-      label: "Активен",
+      label: t("suite.automation.statusActive"),
       className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
     };
   }
 
   if (workflow.status === "DRAFT") {
     return {
-      label: "Черновик",
+      label: t("suite.automation.statusDraft"),
       className: "border-amber-500/30 bg-amber-500/10 text-amber-300",
     };
   }
 
   if (workflow.status === "ARCHIVED") {
     return {
-      label: "Архив",
+      label: t("suite.automation.statusArchive"),
       className: "border-zinc-500/30 bg-zinc-500/10 text-zinc-300",
     };
   }
 
   return {
-    label: "Пауза",
+    label: t("suite.automation.statusPaused"),
     className: "border-indigo-500/30 bg-indigo-500/10 text-indigo-300",
   };
 }
 
-function WorkflowStatusBadge({ workflow, restored = false, compact = false }: { workflow: Workflow | null; restored?: boolean; compact?: boolean }) {
-  const meta = workflowStatusMeta(workflow, restored);
+function WorkflowStatusBadge({
+  workflow,
+  restored = false,
+  compact = false,
+  blocked,
+}: {
+  workflow: Workflow | null;
+  restored?: boolean;
+  compact?: boolean;
+  blocked?: boolean;
+}) {
+  const { t } = useI18n();
+  const meta = workflowStatusMeta(
+    workflow,
+    restored,
+    blocked ?? Boolean(workflow && workflowIsRuntimeBlocked(workflow)),
+    t,
+  );
 
   return (
     <span
@@ -389,50 +497,35 @@ function WorkflowStatusBadge({ workflow, restored = false, compact = false }: { 
 }
 
 function UnsavedChangesBadge() {
+  const { t } = useI18n();
   return (
     <span className="inline-flex shrink-0 items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold leading-none text-amber-300">
-      Несохранено
+      {t("suite.automation.unsaved")}
     </span>
   );
 }
 
-function localizeWorkflowName(name: string) {
-  const labels: Record<string, string> = {
-    "Lead qualification": "Квалификация лида",
-    "Booking appointment": "Запись на услугу",
-    "Order assistance": "Оформление заказа",
-    "FAQ response": "Ответы на FAQ",
-    "Follow-up": "Повторное касание",
-    "Send to CRM": "Отправка в CRM",
-    "New message": "Новое сообщение",
-    "AI response": "AI-ответ",
+function localizeWorkflowName(name: string, t: Translate) {
+  const labels: Record<string, TranslationKey> = {
+    "Lead qualification": "suite.automation.blockQualify",
+    "Booking appointment": "suite.automation.scenarioBooking",
+    "Order assistance": "suite.automation.scenarioOrder",
+    "Follow-up": "suite.automation.blockFollowup",
+    "Send to CRM": "suite.automation.blockCrm",
+    "New message": "suite.automation.blockTrigger",
+    "AI response": "suite.automation.blockGreeting",
   };
-  return labels[name] ?? name;
+  return labels[name] ? t(labels[name]) : name;
 }
 
-function localizeWorkflowDescription(description: string | null | undefined) {
-  const labels: Record<string, string> = {
-    "Collect contact details, need, budget, and urgency.": "Собирает контакты, потребность, бюджет и срочность.",
-    "Offer available slots and create a booking draft.": "Предлагает свободные окна и создает черновик записи.",
-    "Help collect product, delivery, and payment details.": "Собирает детали товара, доставки и оплаты.",
-    "Answer common questions with safe fallback rules.": "Отвечает на частые вопросы с безопасными правилами fallback.",
-    "Recover silent leads with polite reminders.": "Возвращает молчащих лидов вежливыми напоминаниями.",
-    "Package qualified leads and sync them to amoCRM.": "Передает квалифицированных лидов в amoCRM.",
+function localizeStepName(name: string, t?: Translate) {
+  if (!t) return name;
+  const labels: Record<string, TranslationKey> = {
+    "Collect key details": "suite.automation.blockQualify",
+    "AI response": "suite.automation.blockGreeting",
+    "New message": "suite.automation.blockTrigger",
   };
-  return description ? labels[description] ?? description : null;
-}
-
-function localizeStepName(name: string) {
-  const labels: Record<string, string> = {
-    "New customer message": "Новое сообщение клиента",
-    "Collect key details": "Сбор ключевых деталей",
-    "Safe AI reply": "Безопасный AI-ответ",
-    "Create event or handoff": "Событие или передача менеджеру",
-    "End": "Завершение",
-    "AI response": "AI-ответ",
-    "New message": "Новое сообщение",
-  };
-  return labels[name] ?? name;
+  return labels[name] ? t(labels[name]) : name;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -577,8 +670,8 @@ function triggerChannelsSetting(config: WorkflowBlockConfig) {
     : fallback;
 }
 
-function conditionRulesSetting(config: WorkflowBlockConfig) {
-  const fallback = defaultConfigForType("condition").rules ?? [];
+function conditionRulesSetting(config: WorkflowBlockConfig, t?: Translate) {
+  const fallback = defaultConfigForType("condition", t).rules ?? [];
   const value = config.rules;
   if (!Array.isArray(value)) return fallback;
   return value
@@ -604,7 +697,8 @@ function crmFieldsSetting(config: WorkflowBlockConfig) {
 }
 
 function GreetingSettings({ config, onChange }: { config: WorkflowBlockConfig; onChange: (patch: WorkflowBlockConfig) => void }) {
-  const defaults = defaultConfigForType("ai");
+  const { t } = useI18n();
+  const defaults = defaultConfigForType("ai", t);
   const text = stringSetting(config, "greetingText", String(defaults.greetingText));
   const tone = stringSetting(config, "tone", String(defaults.tone));
   const delay = stringSetting(config, "responseDelaySec", String(defaults.responseDelaySec));
@@ -612,23 +706,23 @@ function GreetingSettings({ config, onChange }: { config: WorkflowBlockConfig; o
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-400">Текст приветствия</label>
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.greetingText")}</label>
         <DarkTextarea value={text} onChange={(greetingText) => onChange({ greetingText })} rows={4} />
       </div>
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-400">Тон общения</label>
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.tone")}</label>
         <DarkSelect
           value={tone}
           onChange={(nextTone) => onChange({ tone: nextTone })}
           options={[
-            { label: "Дружелюбный", value: "friendly" },
-            { label: "Деловой", value: "business" },
-            { label: "Нейтральный", value: "neutral" },
+            { label: t("suite.automation.toneFriendly"), value: "friendly" },
+            { label: t("suite.automation.toneBusiness"), value: "business" },
+            { label: t("suite.automation.toneNeutral"), value: "neutral" },
           ]}
         />
       </div>
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-400">Задержка ответа (сек)</label>
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.responseDelay")}</label>
         <DarkInput value={delay} onChange={(responseDelaySec) => onChange({ responseDelaySec })} placeholder="1" />
       </div>
     </div>
@@ -636,14 +730,15 @@ function GreetingSettings({ config, onChange }: { config: WorkflowBlockConfig; o
 }
 
 function QualifySettings({ config, onChange }: { config: WorkflowBlockConfig; onChange: (patch: WorkflowBlockConfig) => void }) {
-  const defaults = defaultConfigForType("qualify");
-  const questions = stringArraySetting(config, "questions", defaults.questions as string[]);
+  const { t } = useI18n();
+  const defaults = defaultConfigForType("qualify", t);
+  const questions = stringArraySetting(config, "questions", defaults.questions ?? []);
   const maxQuestions = stringSetting(config, "maxQuestions", String(defaults.maxQuestions));
   const [newQ, setNewQ] = useState("");
 
   return (
     <div className="space-y-4">
-      <label className="text-xs font-medium text-zinc-400">Вопросы для квалификации</label>
+      <label className="text-xs font-medium text-zinc-400">{t("suite.automation.qualificationQuestions")}</label>
       <div className="space-y-2">
         {questions.map((q, i) => (
           <div key={i} className="flex gap-2 items-center">
@@ -661,7 +756,7 @@ function QualifySettings({ config, onChange }: { config: WorkflowBlockConfig; on
         ))}
       </div>
       <div className="flex gap-2">
-        <DarkInput value={newQ} onChange={setNewQ} placeholder="Новый вопрос..." />
+        <DarkInput value={newQ} onChange={setNewQ} placeholder={t("suite.automation.newQuestion")} />
         <button
           onClick={() => {
             if (newQ.trim()) {
@@ -675,7 +770,7 @@ function QualifySettings({ config, onChange }: { config: WorkflowBlockConfig; on
         </button>
       </div>
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-400">Макс. вопросов подряд</label>
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.maxQuestions")}</label>
         <DarkInput value={maxQuestions} onChange={(nextMaxQuestions) => onChange({ maxQuestions: nextMaxQuestions })} />
       </div>
     </div>
@@ -683,11 +778,12 @@ function QualifySettings({ config, onChange }: { config: WorkflowBlockConfig; on
 }
 
 function ConditionSettings({ config, onChange }: { config: WorkflowBlockConfig; onChange: (patch: WorkflowBlockConfig) => void }) {
-  const rules = conditionRulesSetting(config);
+  const { t } = useI18n();
+  const rules = conditionRulesSetting(config, t);
 
   return (
     <div className="space-y-4">
-      <label className="text-xs font-medium text-zinc-400">Условия (все должны совпасть)</label>
+      <label className="text-xs font-medium text-zinc-400">{t("suite.automation.conditions")}</label>
       <div className="space-y-2">
         {rules.map((r, i) => (
           <div key={i} className="flex gap-1.5 items-center">
@@ -699,7 +795,7 @@ function ConditionSettings({ config, onChange }: { config: WorkflowBlockConfig; 
                 { label: ">", value: "gt" },
                 { label: "=", value: "eq" },
                 { label: "<", value: "lt" },
-                { label: "содержит", value: "contains" },
+                { label: t("suite.automation.contains"), value: "contains" },
               ]}
             />
             <DarkInput value={r.value} onChange={(v) => onChange({ rules: rules.map((x, j) => j === i ? { ...x, value: v } : x) })} className="flex-1 min-w-0" />
@@ -713,14 +809,15 @@ function ConditionSettings({ config, onChange }: { config: WorkflowBlockConfig; 
         onClick={() => onChange({ rules: [...rules, { field: "", op: "eq", value: "" }] })}
         className="flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
       >
-        <Plus className="w-3 h-3" /> Добавить условие
+        <Plus className="w-3 h-3" /> {t("suite.automation.addCondition")}
       </button>
     </div>
   );
 }
 
 function BookingSettings({ config, onChange }: { config: WorkflowBlockConfig; onChange: (patch: WorkflowBlockConfig) => void }) {
-  const defaults = defaultConfigForType("booking");
+  const { t } = useI18n();
+  const defaults = defaultConfigForType("booking", t);
   const calendar = stringSetting(config, "bookingSystem", String(defaults.bookingSystem));
   const confirmationTemplate = stringSetting(config, "bookingConfirmationTemplate", String(defaults.bookingConfirmationTemplate));
   const confirm = booleanSetting(config, "bookingRequiresConfirmation", Boolean(defaults.bookingRequiresConfirmation));
@@ -728,23 +825,23 @@ function BookingSettings({ config, onChange }: { config: WorkflowBlockConfig; on
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-400">Система бронирования</label>
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.bookingSystem")}</label>
         <DarkSelect
           value={calendar}
           onChange={(bookingSystem) => onChange({ bookingSystem })}
           options={[
             { label: "Google Calendar", value: "google" },
             { label: "Yclients", value: "yclients" },
-            { label: "Кастомная ссылка", value: "custom" },
+            { label: t("suite.automation.customLink"), value: "custom" },
           ]}
         />
       </div>
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-400">Шаблон подтверждения</label>
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.confirmationTemplate")}</label>
         <DarkTextarea value={confirmationTemplate} onChange={(bookingConfirmationTemplate) => onChange({ bookingConfirmationTemplate })} rows={3} />
       </div>
       <div className="flex items-center justify-between py-1">
-        <span className="text-xs text-zinc-400">Запрос подтверждения</span>
+        <span className="text-xs text-zinc-400">{t("suite.automation.requestConfirmation")}</span>
         <MiniToggle checked={confirm} onChange={() => onChange({ bookingRequiresConfirmation: !confirm })} />
       </div>
     </div>
@@ -752,7 +849,8 @@ function BookingSettings({ config, onChange }: { config: WorkflowBlockConfig; on
 }
 
 function FollowupSettings({ config, onChange }: { config: WorkflowBlockConfig; onChange: (patch: WorkflowBlockConfig) => void }) {
-  const defaults = defaultConfigForType("followup");
+  const { t } = useI18n();
+  const defaults = defaultConfigForType("followup", t);
   const delay = stringSetting(config, "followupDelayHours", String(defaults.followupDelayHours));
   const maxAttempts = stringSetting(config, "followupMaxAttempts", String(defaults.followupMaxAttempts));
   const text = stringSetting(config, "followupText", String(defaults.followupText));
@@ -760,15 +858,15 @@ function FollowupSettings({ config, onChange }: { config: WorkflowBlockConfig; o
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-400">Задержка напоминания (часов)</label>
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.followupDelay")}</label>
         <DarkInput value={delay} onChange={(followupDelayHours) => onChange({ followupDelayHours })} />
       </div>
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-400">Макс. попыток</label>
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.maxAttempts")}</label>
         <DarkInput value={maxAttempts} onChange={(followupMaxAttempts) => onChange({ followupMaxAttempts })} />
       </div>
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-400">Текст напоминания</label>
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.followupText")}</label>
         <DarkTextarea value={text} onChange={(followupText) => onChange({ followupText })} rows={3} />
       </div>
     </div>
@@ -776,38 +874,39 @@ function FollowupSettings({ config, onChange }: { config: WorkflowBlockConfig; o
 }
 
 function CrmSettings({ config, onChange }: { config: WorkflowBlockConfig; onChange: (patch: WorkflowBlockConfig) => void }) {
-  const defaults = defaultConfigForType("crm");
+  const { t } = useI18n();
+  const defaults = defaultConfigForType("crm", t);
   const system = stringSetting(config, "crmSystem", String(defaults.crmSystem));
   const pipeline = stringSetting(config, "crmPipeline", String(defaults.crmPipeline));
   const crmFields = crmFieldsSetting(config);
   const fieldRows = [
-    { id: "name", label: "Имя" },
-    { id: "phone", label: "Телефон" },
-    { id: "source", label: "Источник" },
-    { id: "budget", label: "Бюджет" },
-    { id: "request", label: "Запрос" },
+    { id: "name", label: t("suite.automation.name") },
+    { id: "phone", label: t("suite.automation.phone") },
+    { id: "source", label: t("suite.automation.source") },
+    { id: "budget", label: t("suite.automation.budget") },
+    { id: "request", label: t("suite.automation.request") },
   ] as const;
 
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-400">CRM-система</label>
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.crmSystem")}</label>
         <DarkSelect
           value={system}
           onChange={(crmSystem) => onChange({ crmSystem })}
           options={[
             { label: "amoCRM", value: "amocrm" },
-            { label: "Битрикс24", value: "bitrix" },
+            { label: t("suite.automation.bitrix"), value: "bitrix" },
             { label: "HubSpot", value: "hubspot" },
           ]}
         />
       </div>
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-400">Воронка</label>
-        <DarkInput value={pipeline} onChange={(crmPipeline) => onChange({ crmPipeline })} placeholder="Новые лиды" />
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.pipeline")}</label>
+        <DarkInput value={pipeline} onChange={(crmPipeline) => onChange({ crmPipeline })} placeholder={t("suite.automation.pipelineDefault")} />
       </div>
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-400">Поля для передачи</label>
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.fields")}</label>
         {fieldRows.map((field) => (
           <div key={field.id} className="flex items-center justify-between py-0.5">
             <span className="text-xs text-zinc-300">{field.label}</span>
@@ -823,21 +922,22 @@ function CrmSettings({ config, onChange }: { config: WorkflowBlockConfig; onChan
 }
 
 function TriggerSettings({ config, onChange }: { config: WorkflowBlockConfig; onChange: (patch: WorkflowBlockConfig) => void }) {
+  const { t } = useI18n();
   const channels = triggerChannelsSetting(config);
   const keywordFilter = stringSetting(config, "keywordFilter", "");
 
   return (
     <div className="space-y-4">
-      <label className="text-xs font-medium text-zinc-400">Активные каналы</label>
+      <label className="text-xs font-medium text-zinc-400">{t("suite.automation.activeChannels")}</label>
       {(Object.entries(channels) as [keyof typeof channels, boolean][]).map(([ch, val]) => (
         <div key={ch} className="flex items-center justify-between">
-          <span className="text-sm text-zinc-200 capitalize">{ch === "web" ? "Web-чат" : ch.charAt(0).toUpperCase() + ch.slice(1)}</span>
+          <span className="text-sm text-zinc-200 capitalize">{ch === "web" ? t("suite.automation.webChat") : ch.charAt(0).toUpperCase() + ch.slice(1)}</span>
           <MiniToggle checked={val} onChange={() => onChange({ channels: { ...channels, [ch]: !channels[ch] } })} />
         </div>
       ))}
       <div className="space-y-1.5 mt-2">
-        <label className="text-xs font-medium text-zinc-400">Фильтр по ключевым словам</label>
-        <DarkInput value={keywordFilter} onChange={(nextKeywordFilter) => onChange({ keywordFilter: nextKeywordFilter })} placeholder="Оставьте пустым для всех сообщений" />
+        <label className="text-xs font-medium text-zinc-400">{t("suite.automation.keywordFilter")}</label>
+        <DarkInput value={keywordFilter} onChange={(nextKeywordFilter) => onChange({ keywordFilter: nextKeywordFilter })} placeholder={t("suite.automation.keywordPlaceholder")} />
       </div>
     </div>
   );
@@ -852,6 +952,7 @@ function BlockSettings({
   onDelete: () => void;
   onConfigChange: (patch: WorkflowBlockConfig) => void;
 }) {
+  const { t } = useI18n();
   const settingsMap: Record<BlockType, React.ReactNode> = {
     trigger: <TriggerSettings config={block.config} onChange={onConfigChange} />,
     ai: <GreetingSettings config={block.config} onChange={onConfigChange} />,
@@ -860,19 +961,37 @@ function BlockSettings({
     booking: <BookingSettings config={block.config} onChange={onConfigChange} />,
     followup: <FollowupSettings config={block.config} onChange={onConfigChange} />,
     crm: <CrmSettings config={block.config} onChange={onConfigChange} />,
+    handoff: (
+      <p className="text-xs leading-relaxed text-emerald-300">
+        {t("suite.automation.runtimeReady")}
+      </p>
+    ),
+    end: (
+      <p className="text-xs leading-relaxed text-emerald-300">
+        {t("suite.automation.runtimeReady")}
+      </p>
+    ),
   };
 
   return (
     <div className="space-y-5">
+      {!isExecutableBlock(block) && (
+        <div
+          className="flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3"
+          role="status"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+          <p className="text-xs leading-relaxed text-amber-200">
+            {t("suite.automation.draftOnlyDescription")}
+          </p>
+        </div>
+      )}
       {settingsMap[block.type]}
 
       {/* Variables hint */}
       <div className="flex items-start gap-2 p-3 rounded-xl bg-white/3 border border-white/5">
         <Info className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0 mt-0.5" />
-        <p className="text-xs text-zinc-500 leading-relaxed">
-          Используйте <span className="text-emerald-400 font-mono">{"{{переменная}}"}</span> для подстановки данных:{" "}
-          <span className="text-zinc-400">имя, телефон, источник, бюджет, дата</span>
-        </p>
+        <p className="text-xs text-zinc-500 leading-relaxed">{t("suite.automation.variableHint")}</p>
       </div>
 
       {/* Delete */}
@@ -882,7 +1001,7 @@ function BlockSettings({
           className="flex items-center gap-2 text-xs text-rose-500 hover:text-rose-400 transition-colors group"
         >
           <Trash2 className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-          Удалить блок
+          {t("suite.automation.deleteBlock")}
         </button>
       )}
     </div>
@@ -896,12 +1015,15 @@ function BlockNode({
   selected,
   onClick,
   onToggle,
+  editable,
 }: {
   block: WorkflowBlock;
   selected: boolean;
   onClick: () => void;
   onToggle: () => void;
+  editable: boolean;
 }) {
+  const { t } = useI18n();
   const Icon = block.icon;
   const isCondition = block.type === "condition";
 
@@ -936,7 +1058,7 @@ function BlockNode({
 
         <div className="flex items-center gap-3 relative z-10">
           {/* Drag handle */}
-          <Tip content="Перетащить блок">
+          <Tip content={t("suite.automation.dragBlock")}>
             <span className="cursor-grab active:cursor-grabbing">
               <GripVertical className="w-4 h-4 text-zinc-600 group-hover:text-zinc-500 flex-shrink-0 transition-colors" />
             </span>
@@ -955,16 +1077,27 @@ function BlockNode({
 
           {/* Text */}
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-zinc-100 leading-snug truncate">{block.title}</p>
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="min-w-0 truncate text-sm font-semibold leading-snug text-zinc-100">
+                {block.title}
+              </p>
+              {!isExecutableBlock(block) && (
+                <span className="shrink-0 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+                  {t("suite.automation.draftOnly")}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-zinc-500 truncate mt-0.5">{block.subtitle}</p>
           </div>
 
           {/* Toggle */}
-          <Tip content={block.enabled ? "Выключить блок" : "Включить блок"}>
-            <div className="flex-shrink-0" onClick={(e) => { e.stopPropagation(); onToggle(); }}>
-              <MiniToggle checked={block.enabled} onChange={onToggle} />
-            </div>
-          </Tip>
+          {editable ? (
+            <Tip content={block.enabled ? t("suite.automation.disableBlock") : t("suite.automation.enableBlock")}>
+              <div className="flex-shrink-0" onClick={(e) => { e.stopPropagation(); onToggle(); }}>
+                <MiniToggle checked={block.enabled} onChange={onToggle} />
+              </div>
+            </Tip>
+          ) : null}
         </div>
 
         {/* Condition branches */}
@@ -972,11 +1105,11 @@ function BlockNode({
           <div className="flex gap-3 mt-3 pl-[52px] relative z-10">
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              <span className="text-xs text-emerald-400 font-medium">Да</span>
+              <span className="text-xs text-emerald-400 font-medium">{t("suite.automation.yes")}</span>
             </div>
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-              <span className="text-xs text-rose-400 font-medium">Нет</span>
+              <span className="text-xs text-rose-400 font-medium">{t("suite.automation.no")}</span>
             </div>
           </div>
         )}
@@ -988,25 +1121,32 @@ function BlockNode({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function AutomationPage() {
+  const { formatNumber, t } = useI18n();
+  const permissions = useProductPermissions();
+  const scenarioDefaults = scenarioKeys.map((key) => t(key));
   const [workflows, setWorkflows] = useState<Array<Workflow | null>>([]);
-  const [blocks, setBlocks] = useState<WorkflowBlock[]>(() => freshInitialBlocks());
+  const [workflowsLoaded, setWorkflowsLoaded] = useState(false);
+  const [workflowLoadStatus, setWorkflowLoadStatus] = useState<"loading" | "success" | "error">("loading");
+  const [workflowReloadRevision, setWorkflowReloadRevision] = useState(0);
+  const [blocks, setBlocks] = useState<WorkflowBlock[]>(() => freshInitialBlocks(t));
   const [selectedId, setSelectedId] = useState<string>("trigger");
-  const [scenarioActive, setScenarioActive] = useState(true);
+  const [scenarioActive, setScenarioActive] = useState(false);
   const [activeScenario, setActiveScenario] = useState(0);
-  const [scenarioName, setScenarioName] = useState(SCENARIOS[0]);
+  const [scenarioName, setScenarioName] = useState(scenarioDefaults[0]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<"save" | "test" | "duplicate" | "archive" | null>(null);
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
   const [archivedWorkflows, setArchivedWorkflows] = useState<Workflow[]>([]);
-  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveLoaded, setArchiveLoaded] = useState(false);
+  const [archiveLoadStatus, setArchiveLoadStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [restoreWorkflowId, setRestoreWorkflowId] = useState<string | null>(null);
   const [restoredWorkflowIds, setRestoredWorkflowIds] = useState<Set<string>>(() => new Set());
   const [savedDraftSnapshot, setSavedDraftSnapshot] = useState(() =>
     workflowDraftSnapshot({
-      name: SCENARIOS[0],
-      active: true,
-      blocks: freshInitialBlocks(),
+      name: scenarioDefaults[0],
+      active: false,
+      blocks: freshInitialBlocks(t),
       includeIds: false,
     })
   );
@@ -1015,10 +1155,12 @@ export function AutomationPage() {
   const activeWorkflow = workflows[activeScenario] ?? null;
   const activeWorkflowRestored = Boolean(activeWorkflow && restoredWorkflowIds.has(activeWorkflow.id));
   const scenarioTabs = Array.from(
-    { length: Math.max(SCENARIOS.length, workflows.length) },
+    { length: Math.max(scenarioDefaults.length, workflows.length) },
     (_, index) => {
       const workflow = workflows[index];
-      return workflow ? localizeWorkflowName(workflow.name) : SCENARIOS[index] ?? `Сценарий ${index + 1}`;
+      return workflow
+        ? localizeWorkflowName(workflow.name, t)
+        : scenarioDefaults[index] ?? t("suite.automation.scenarioNumber", { count: formatNumber(index + 1) });
     }
   );
   const currentDraftSnapshot = useMemo(
@@ -1032,6 +1174,18 @@ export function AutomationPage() {
     [activeWorkflow, blocks, scenarioActive, scenarioName]
   );
   const hasUnsavedChanges = currentDraftSnapshot !== savedDraftSnapshot;
+  const unsupportedBlocks = blocks.filter((block) => !isExecutableBlock(block));
+  const enabledTriggerCount = blocks.filter(
+    (block) => block.type === "trigger" && block.enabled,
+  ).length;
+  const enabledEndIndex = blocks.findIndex((block) => block.type === "end" && block.enabled);
+  const hasUnreachableBlock =
+    enabledEndIndex >= 0 && blocks.slice(enabledEndIndex + 1).some((block) => block.enabled);
+  const runtimeBlocked =
+    unsupportedBlocks.length > 0 || enabledTriggerCount !== 1 || hasUnreachableBlock;
+  const testRequiresConversation = blocks.some(
+    (block) => block.type === "handoff" && block.enabled,
+  );
 
   function setWorkflowSlot(index: number, workflow: Workflow) {
     setWorkflows((prev) => {
@@ -1054,12 +1208,12 @@ export function AutomationPage() {
 
   function nextEmptyWorkflowSlot() {
     const index = workflows.findIndex((workflow) => workflow === null);
-    return index === -1 ? Math.max(workflows.length, SCENARIOS.length) : index;
+    return index === -1 ? Math.max(workflows.length, scenarioDefaults.length) : index;
   }
 
   function hydrateWorkflow(workflow: Workflow, index: number) {
-    const nextBlocks = blocksFromWorkflow(workflow);
-    const nextName = localizeWorkflowName(workflow.name);
+    const nextBlocks = blocksFromWorkflow(workflow, t);
+    const nextName = localizeWorkflowName(workflow.name, t);
     const nextActive = workflow.status === "ACTIVE";
     setActiveScenario(index);
     setScenarioName(nextName);
@@ -1077,16 +1231,16 @@ export function AutomationPage() {
   }
 
   function hydrateDraftScenario(index: number, name: string) {
-    const nextBlocks = freshInitialBlocks();
+    const nextBlocks = freshInitialBlocks(t);
     setActiveScenario(index);
     setScenarioName(name);
-    setScenarioActive(true);
+    setScenarioActive(false);
     setBlocks(nextBlocks);
     setSelectedId(nextBlocks[0]?.id ?? "trigger");
     setSavedDraftSnapshot(
       workflowDraftSnapshot({
         name,
-        active: true,
+        active: false,
         blocks: nextBlocks,
         includeIds: false,
       })
@@ -1096,29 +1250,34 @@ export function AutomationPage() {
   useEffect(() => {
     let cancelled = false;
 
+    setWorkflowLoadStatus("loading");
     void listWorkflows()
       .then((items) => {
         if (cancelled) return;
         setWorkflows(items);
+        setWorkflowsLoaded(true);
+        setWorkflowLoadStatus("success");
         if (items.length > 0) {
           hydrateWorkflow(items[0], 0);
         }
       })
       .catch(() => {
         if (cancelled) return;
-        setWorkflows([]);
+        setWorkflowLoadStatus("error");
       });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [workflowReloadRevision]);
 
   const toggleBlock = (id: string) => {
+    if (!permissions.canManageWorkflows) return;
     setBlocks((prev) => prev.map((b) => b.id === id ? { ...b, enabled: !b.enabled } : b));
   };
 
   const updateBlockConfig = (id: string, patch: WorkflowBlockConfig) => {
+    if (!permissions.canManageWorkflows) return;
     setBlocks((prev) =>
       prev.map((block) =>
         block.id === id
@@ -1135,42 +1294,54 @@ export function AutomationPage() {
   };
 
   const requestDeleteBlock = (id: string) => {
+    if (!permissions.canManageWorkflows) return;
     setPendingDeleteId(id);
     setDeleteDialogOpen(true);
   };
 
   const confirmDeleteBlock = () => {
+    if (!permissions.canManageWorkflows) return;
     if (!pendingDeleteId) return;
     setBlocks((prev) => prev.filter((b) => b.id !== pendingDeleteId));
     setSelectedId("trigger");
     setPendingDeleteId(null);
-    toast.success("Блок удалён");
+    toast.success(t("suite.automation.blockDeleted"));
   };
 
   const addBlock = () => {
+    if (!permissions.canManageWorkflows) return;
     const newBlock: WorkflowBlock = {
       id: `block-${Date.now()}`,
-      type: "ai",
-      title: "Новый блок",
-      subtitle: "Настройте действие",
-      icon: Bot,
-      accent: "from-emerald-500 to-teal-500",
+      type: "handoff",
+      title: t("suite.automation.blockHandoff"),
+      subtitle: t("suite.automation.blockHandoffSub"),
+      icon: UserRoundCheck,
+      accent: "from-cyan-500 to-emerald-500",
       glowColor: "rgba(16,185,129,0.35)",
       enabled: true,
-      config: cloneConfig(defaultConfigForType("ai")),
+      config: cloneConfig(defaultConfigForType("handoff", t)),
     };
-    setBlocks((prev) => [...prev, newBlock]);
+    setBlocks((prev) => {
+      const endIndex = prev.findIndex((block) => block.type === "end");
+      if (endIndex === -1) return [...prev, newBlock];
+      return [...prev.slice(0, endIndex), newBlock, ...prev.slice(endIndex)];
+    });
     setSelectedId(newBlock.id);
-    toast("Блок добавлен");
+    toast(t("suite.automation.blockAdded"));
   };
 
   async function saveScenario() {
+    if (!permissions.canManageWorkflows) return;
+    if (scenarioActive && runtimeBlocked) {
+      toast.error(t("suite.automation.runtimeBlocked"));
+      return;
+    }
     setPendingAction("save");
     try {
       const status = statusFromActive(scenarioActive);
       const payload = {
-        name: scenarioName.trim() || SCENARIOS[activeScenario] || "Новый сценарий",
-        description: activeWorkflow?.description ?? "Сценарий создан в конструкторе Automation",
+        name: scenarioName.trim() || scenarioDefaults[activeScenario] || t("suite.automation.newScenario"),
+        description: activeWorkflow?.description ?? t("suite.automation.createdDescription"),
         status,
         steps: stepsFromBlocks(blocks, { includeIds: Boolean(activeWorkflow) }),
       };
@@ -1180,22 +1351,27 @@ export function AutomationPage() {
       const finalWorkflow = scenarioActive ? await publishWorkflow(savedWorkflow.id) : savedWorkflow;
       setWorkflowSlot(activeScenario, finalWorkflow);
       hydrateWorkflow(finalWorkflow, activeScenario);
-      toast.success(scenarioActive ? "Сценарий опубликован" : "Сценарий сохранён");
+      toast.success(scenarioActive ? t("suite.automation.published") : t("suite.automation.saved"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось сохранить сценарий");
+      toast.error(error instanceof Error ? error.message : t("suite.automation.saveFailed"));
     } finally {
       setPendingAction(null);
     }
   }
 
   async function duplicateScenario() {
+    if (!permissions.canManageWorkflows) return;
+    if (scenarioActive && runtimeBlocked) {
+      toast.error(t("suite.automation.runtimeBlocked"));
+      return;
+    }
     setPendingAction("duplicate");
     try {
       const status = statusFromActive(scenarioActive);
-      const copyName = `${scenarioName.trim() || SCENARIOS[activeScenario] || "Новый сценарий"} (копия)`;
+      const copyName = `${scenarioName.trim() || scenarioDefaults[activeScenario] || t("suite.automation.newScenario")} (${t("suite.automation.copySuffix")})`;
       const created = await createWorkflow({
         name: copyName,
-        description: "Копия сценария из конструктора Automation",
+        description: t("suite.automation.copyDescription"),
         status,
         steps: stepsFromBlocks(blocks, { includeIds: false }),
       });
@@ -1203,17 +1379,18 @@ export function AutomationPage() {
       const nextSlot = nextEmptyWorkflowSlot();
       setWorkflowSlot(nextSlot, finalWorkflow);
       hydrateWorkflow(finalWorkflow, nextSlot);
-      toast.success("Сценарий продублирован");
+      toast.success(t("suite.automation.duplicated"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось продублировать сценарий");
+      toast.error(error instanceof Error ? error.message : t("suite.automation.duplicateFailed"));
     } finally {
       setPendingAction(null);
     }
   }
 
   async function archiveScenario() {
+    if (!permissions.canManageWorkflows) return;
     if (!activeWorkflow) {
-      toast("Сначала сохраните сценарий");
+      toast(t("suite.automation.saveFirst"));
       return;
     }
 
@@ -1221,35 +1398,40 @@ export function AutomationPage() {
     try {
       await updateWorkflow(activeWorkflow.id, {
         name: scenarioName,
-        description: activeWorkflow.description ?? "Сценарий из конструктора Automation",
+        description: activeWorkflow.description ?? t("suite.automation.builderDescription"),
         status: "ARCHIVED",
         steps: stepsFromBlocks(blocks),
       });
       clearWorkflowSlot(activeScenario);
-      hydrateDraftScenario(activeScenario, SCENARIOS[activeScenario] ?? `Сценарий ${activeScenario + 1}`);
-      toast.success("Сценарий архивирован");
+      hydrateDraftScenario(activeScenario, scenarioDefaults[activeScenario] ?? t("suite.automation.scenarioNumber", { count: formatNumber(activeScenario + 1) }));
+      toast.success(t("suite.automation.archived"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось архивировать сценарий");
+      toast.error(error instanceof Error ? error.message : t("suite.automation.archiveFailed"));
     } finally {
       setPendingAction(null);
     }
   }
 
-  async function openArchiveModal() {
-    setArchiveModalOpen(true);
-    setArchiveLoading(true);
+  async function loadArchivedWorkflows() {
+    setArchiveLoadStatus("loading");
     try {
       const items = await listWorkflows({ includeArchived: true });
       setArchivedWorkflows(items.filter((workflow) => workflow.status === "ARCHIVED"));
+      setArchiveLoaded(true);
+      setArchiveLoadStatus("success");
     } catch (error) {
-      setArchivedWorkflows([]);
-      toast.error(error instanceof Error ? error.message : "Не удалось загрузить архив");
-    } finally {
-      setArchiveLoading(false);
+      setArchiveLoadStatus("error");
+      toast.error(error instanceof Error ? error.message : t("suite.automation.archiveLoadFailed"));
     }
   }
 
+  function openArchiveModal() {
+    setArchiveModalOpen(true);
+    void loadArchivedWorkflows();
+  }
+
   async function restoreArchivedWorkflow(workflow: Workflow) {
+    if (!permissions.canManageWorkflows) return;
     setRestoreWorkflowId(workflow.id);
     try {
       const restored = await updateWorkflow(workflow.id, {
@@ -1263,34 +1445,82 @@ export function AutomationPage() {
       setWorkflowSlot(slot, restored);
       hydrateWorkflow(restored, slot);
       setArchiveModalOpen(false);
-      toast.success("Сценарий восстановлен");
+      toast.success(t("suite.automation.restored"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось восстановить сценарий");
+      toast.error(error instanceof Error ? error.message : t("suite.automation.restoreFailed"));
     } finally {
       setRestoreWorkflowId(null);
     }
   }
 
   async function runScenarioTest() {
+    if (!permissions.canManageWorkflows) return;
+    if (runtimeBlocked) {
+      toast.error(t("suite.automation.runtimeBlocked"));
+      return;
+    }
+    if (testRequiresConversation) {
+      toast.error(t("suite.automation.testNeedsConversation"));
+      return;
+    }
     if (!activeWorkflow) {
-      toast("Запускаю тест...", { description: "AI пройдёт сценарий на тестовом диалоге" });
+      toast(t("suite.automation.testStarting"), { description: t("suite.automation.testDescription") });
       return;
     }
 
     setPendingAction("test");
     try {
       const result = await testWorkflow(activeWorkflow.id);
-      toast.success(result.message, { description: result.runId });
+      if (result.status === "COMPLETED") {
+        toast.success(result.message, { description: result.runId ?? undefined });
+      } else {
+        toast.error(result.message, { description: result.runId ?? undefined });
+      }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось запустить тест сценария");
+      toast.error(error instanceof Error ? error.message : t("suite.automation.testFailed"));
     } finally {
       setPendingAction(null);
     }
   }
 
+  if (!workflowsLoaded) {
+    return (
+      <ProductLayout title={t("suite.automation.title")}>
+        {workflowLoadStatus === "loading" ? (
+          <div className="space-y-5" data-testid="automation-loading">
+            <div className="flex flex-wrap gap-2">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Skeleton key={index} className="h-8 w-40" />
+              ))}
+            </div>
+            <Skeleton className="h-12" />
+            <div className="grid min-h-[32rem] grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
+              <Skeleton className="h-full" />
+              <Skeleton className="h-full" />
+            </div>
+          </div>
+        ) : (
+          <ResourceErrorState
+            testId="automation-load-error"
+            onRetry={() => setWorkflowReloadRevision((current) => current + 1)}
+          />
+        )}
+      </ProductLayout>
+    );
+  }
+
   return (
-    <ProductLayout title="Автоматизация">
-      <div className="h-full flex flex-col gap-0 min-h-0">
+    <ProductLayout title={t("suite.automation.title")}>
+      <div
+        className="h-full flex flex-col gap-0 min-h-0"
+        data-testid={permissions.canManageWorkflows ? "automation-editor" : "automation-read-only"}
+      >
+        {workflowLoadStatus === "error" ? (
+          <ResourceErrorState
+            testId="automation-refresh-error"
+            onRetry={() => setWorkflowReloadRevision((current) => current + 1)}
+          />
+        ) : null}
         {/* ── Toolbar ── */}
         <div className="flex flex-col gap-3 mb-5 flex-shrink-0">
           {/* Scenario tabs */}
@@ -1325,25 +1555,44 @@ export function AutomationPage() {
           {/* Main toolbar */}
           <div className="flex items-center gap-3 flex-wrap">
             <input
-              aria-label="Название сценария"
+              aria-label={t("suite.automation.nameLabel")}
               value={scenarioName}
               onChange={(e) => setScenarioName(e.target.value)}
+              readOnly={!permissions.canManageWorkflows}
               className="flex-1 min-w-[180px] bg-transparent border-b border-white/10 pb-0.5 text-base font-bold text-zinc-100 tracking-tight outline-none focus:border-emerald-500/50 transition-colors placeholder-zinc-600"
             />
-            <WorkflowStatusBadge workflow={activeWorkflow} restored={activeWorkflowRestored} />
-            {hasUnsavedChanges && <UnsavedChangesBadge />}
+            <WorkflowStatusBadge
+              workflow={activeWorkflow}
+              restored={activeWorkflowRestored}
+              blocked={runtimeBlocked}
+            />
+            {permissions.canManageWorkflows && hasUnsavedChanges ? <UnsavedChangesBadge /> : null}
 
             {/* Active toggle */}
-            <Tip content={scenarioActive ? "Выключить сценарий" : "Включить сценарий"}>
+            {permissions.canManageWorkflows ? <Tip
+              content={
+                !scenarioActive && runtimeBlocked
+                  ? t("suite.automation.runtimeBlocked")
+                  : scenarioActive
+                    ? t("suite.automation.disableScenario")
+                    : t("suite.automation.enableScenario")
+              }
+            >
               <button
                 onClick={() => {
+                  if (!scenarioActive && runtimeBlocked) {
+                    toast.error(t("suite.automation.runtimeBlocked"));
+                    return;
+                  }
                   const next = !scenarioActive;
                   setScenarioActive(next);
-                  toast(next ? "Сценарий включён" : "Сценарий выключен");
+                  toast(next ? t("suite.automation.scenarioEnabled") : t("suite.automation.scenarioDisabled"));
                 }}
                 className={cn(
                   "flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all duration-200",
-                  scenarioActive
+                  scenarioActive && runtimeBlocked
+                    ? "bg-rose-500/10 border-rose-500/25 text-rose-300"
+                    : scenarioActive
                     ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
                     : "bg-white/4 border-white/8 text-zinc-500"
                 )}
@@ -1353,61 +1602,94 @@ export function AutomationPage() {
                 ) : (
                   <ToggleLeft className="w-4 h-4" />
                 )}
-                {scenarioActive ? "Активен" : "Выключен"}
+                {scenarioActive && runtimeBlocked
+                  ? t("suite.automation.statusBlocked")
+                  : scenarioActive
+                    ? t("suite.automation.statusActive")
+                    : t("suite.automation.disabled")}
               </button>
-            </Tip>
+            </Tip> : null}
 
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 text-xs"
-              disabled={pendingAction !== null}
-              onClick={() => void runScenarioTest()}
-            >
-              <Play className="w-3.5 h-3.5" />
-              {pendingAction === "test" ? "Тест..." : "Тест"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 text-xs"
-              disabled={pendingAction !== null}
-              onClick={() => void duplicateScenario()}
-            >
-              <Copy className="w-3.5 h-3.5" />
-              {pendingAction === "duplicate" ? "Копируем..." : "Дублировать"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 text-xs"
-              disabled={pendingAction !== null || !activeWorkflow}
-              onClick={() => void archiveScenario()}
-            >
-              <Archive className="w-3.5 h-3.5" />
-              {pendingAction === "archive" ? "Архив..." : "Архив"}
-            </Button>
+            {permissions.canManageWorkflows ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  disabled={pendingAction !== null || runtimeBlocked || testRequiresConversation}
+                  title={testRequiresConversation ? t("suite.automation.testNeedsConversation") : undefined}
+                  onClick={() => void runScenarioTest()}
+                >
+                  <Play className="w-3.5 h-3.5" />
+                  {pendingAction === "test" ? t("suite.automation.testing") : t("suite.automation.test")}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  disabled={pendingAction !== null || (scenarioActive && runtimeBlocked)}
+                  onClick={() => void duplicateScenario()}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  {pendingAction === "duplicate" ? t("suite.automation.duplicating") : t("suite.automation.duplicate")}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  disabled={pendingAction !== null || !activeWorkflow}
+                  onClick={() => void archiveScenario()}
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                  {pendingAction === "archive" ? t("suite.automation.archiving") : t("suite.automation.archive")}
+                </Button>
+              </>
+            ) : null}
             <Button
               variant="outline"
               size="sm"
               className="gap-1.5 text-xs"
               disabled={pendingAction !== null}
               onClick={() => void openArchiveModal()}
+              data-testid="automation-open-archive"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              Архивные
+              {t("suite.automation.archivedList")}
             </Button>
-            <Button
-              size="sm"
-              className="gap-1.5 text-xs"
-              disabled={pendingAction !== null}
-              onClick={() => void saveScenario()}
-            >
-              <Save className="w-3.5 h-3.5" />
-              {pendingAction === "save" ? "Сохраняем..." : hasUnsavedChanges ? "Сохранить изменения" : "Сохранить"}
-            </Button>
+            {permissions.canManageWorkflows ? (
+              <Button
+                size="sm"
+                className="gap-1.5 text-xs"
+                disabled={pendingAction !== null || (scenarioActive && runtimeBlocked)}
+                onClick={() => void saveScenario()}
+              >
+                <Save className="w-3.5 h-3.5" />
+                {pendingAction === "save" ? t("suite.automation.saving") : hasUnsavedChanges ? t("suite.automation.saveChanges") : t("suite.automation.save")}
+              </Button>
+            ) : null}
           </div>
         </div>
+
+        {runtimeBlocked && (
+          <div
+            className="mb-4 flex shrink-0 items-start gap-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3"
+            data-testid="automation-runtime-blocked"
+            role="alert"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-amber-200">
+                {t("suite.automation.runtimeBlocked")}
+              </p>
+              <p className="mt-0.5 text-xs leading-relaxed text-amber-200/75">
+                {t("suite.automation.runtimeBlockedDescription")}
+              </p>
+              <p className="mt-1 truncate text-xs text-amber-100/60">
+                {unsupportedBlocks.map((block) => block.title).join(", ")}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* ── Main layout ── */}
         <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5 overflow-hidden">
@@ -1422,6 +1704,7 @@ export function AutomationPage() {
                       selected={selectedId === block.id}
                       onClick={() => setSelectedId(block.id)}
                       onToggle={() => toggleBlock(block.id)}
+                      editable={permissions.canManageWorkflows}
                     />
                     {index < blocks.length - 1 && <Connector index={index} />}
                   </div>
@@ -1429,7 +1712,7 @@ export function AutomationPage() {
               </AnimatePresence>
 
               {/* Add block button */}
-              <motion.div
+              {permissions.canManageWorkflows ? <motion.div
                 className="mt-4 flex justify-center"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -1440,9 +1723,9 @@ export function AutomationPage() {
                   className="flex items-center gap-2 px-5 py-2.5 rounded-2xl border border-dashed border-white/12 text-sm text-zinc-500 hover:text-zinc-300 hover:border-emerald-500/30 hover:bg-emerald-500/5 transition-all duration-200 group"
                 >
                   <Plus className="w-4 h-4 group-hover:text-emerald-400 transition-colors" />
-                  Добавить блок
+                  {t("suite.automation.addBlock")}
                 </button>
-              </motion.div>
+              </motion.div> : null}
             </div>
           </div>
 
@@ -1469,15 +1752,17 @@ export function AutomationPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-zinc-100 truncate">{selectedBlock.title}</p>
-                      <p className="text-xs text-zinc-500 mt-0.5">Настройки блока</p>
+                      <p className="text-xs text-zinc-500 mt-0.5">{t("suite.automation.blockSettings")}</p>
                     </div>
                   </div>
 
-                  <BlockSettings
-                    block={selectedBlock}
-                    onDelete={() => requestDeleteBlock(selectedBlock.id)}
-                    onConfigChange={(patch) => updateBlockConfig(selectedBlock.id, patch)}
-                  />
+                  <fieldset disabled={!permissions.canManageWorkflows}>
+                    <BlockSettings
+                      block={selectedBlock}
+                      onDelete={() => requestDeleteBlock(selectedBlock.id)}
+                      onConfigChange={(patch) => updateBlockConfig(selectedBlock.id, patch)}
+                    />
+                  </fieldset>
                 </Card>
               </motion.div>
             </AnimatePresence>
@@ -1487,55 +1772,70 @@ export function AutomationPage() {
       <Modal
         open={archiveModalOpen}
         onOpenChange={setArchiveModalOpen}
-        title="Архивные сценарии"
-        description="Восстановленные сценарии возвращаются в конструктор выключенными, чтобы их можно было проверить перед публикацией."
+        title={t("suite.automation.archiveTitle")}
+        description={t("suite.automation.archiveDescription")}
         className="max-w-2xl"
       >
         <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-          {archiveLoading ? (
+          {(archiveLoadStatus === "loading" || archiveLoadStatus === "idle") && !archiveLoaded ? (
             <div className="rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-6 text-sm text-zinc-400">
-              Загружаем архив...
-            </div>
-          ) : archivedWorkflows.length === 0 ? (
-            <div className="rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-6 text-sm text-zinc-400">
-              Архивных сценариев пока нет.
+              {t("suite.automation.archiveLoading")}
             </div>
           ) : (
-            archivedWorkflows.map((workflow) => (
-              <div
-                key={workflow.id}
-                className="flex flex-col gap-3 rounded-2xl border border-white/5 bg-white/[0.03] p-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-zinc-100 truncate">{localizeWorkflowName(workflow.name)}</p>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    {workflow.steps?.length ?? 0} блоков · версия {workflow.version}
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5 text-xs sm:self-center"
-                  disabled={restoreWorkflowId === workflow.id}
-                  onClick={() => void restoreArchivedWorkflow(workflow)}
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  {restoreWorkflowId === workflow.id ? "Восстанавливаем..." : "Восстановить"}
-                </Button>
-              </div>
-            ))
+            <>
+              {archiveLoadStatus === "error" ? (
+                <ResourceErrorState
+                  testId="automation-archive-load-error"
+                  onRetry={() => void loadArchivedWorkflows()}
+                />
+              ) : null}
+              {archivedWorkflows.length === 0 ? (
+                archiveLoadStatus === "success" ? (
+                  <div className="rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-6 text-sm text-zinc-400">
+                    {t("suite.automation.archiveEmpty")}
+                  </div>
+                ) : null
+              ) : (
+                archivedWorkflows.map((workflow) => (
+                  <div
+                    key={workflow.id}
+                    className="flex flex-col gap-3 rounded-2xl border border-white/5 bg-white/[0.03] p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-zinc-100 truncate">{localizeWorkflowName(workflow.name, t)}</p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {t("suite.automation.archiveMeta", {
+                          blocks: formatNumber(workflow.steps?.length ?? 0),
+                          version: formatNumber(workflow.version),
+                        })}
+                      </p>
+                    </div>
+                    {permissions.canManageWorkflows ? <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-xs sm:self-center"
+                      disabled={restoreWorkflowId === workflow.id}
+                      onClick={() => void restoreArchivedWorkflow(workflow)}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      {restoreWorkflowId === workflow.id ? t("suite.automation.restoring") : t("suite.automation.restore")}
+                    </Button> : null}
+                  </div>
+                ))
+              )}
+            </>
           )}
         </div>
       </Modal>
-      <ConfirmDialog
+      {permissions.canManageWorkflows ? <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
-        title="Удалить блок?"
-        description="Это действие нельзя отменить."
+        title={t("suite.automation.deleteTitle")}
+        description={t("suite.automation.deleteDescription")}
         danger
-        confirmLabel="Удалить"
+        confirmLabel={t("suite.automation.delete")}
         onConfirm={confirmDeleteBlock}
-      />
+      /> : null}
     </ProductLayout>
   );
 }

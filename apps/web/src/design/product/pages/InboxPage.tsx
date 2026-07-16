@@ -12,43 +12,36 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { ProductLayout } from "../ProductLayout";
-import {
-  Card,
-  Avatar,
-  ChannelBadge,
-  StatusPill,
-  TempPill,
-  channels,
-  stages,
-} from "../shared";
+import { Card, Avatar, ChannelBadge, StatusPill, TempPill, channels, stages } from "../shared";
 import type { ChannelId, StageId } from "../shared";
 import type { Lead } from "../types";
 import { useNav } from "../nav";
 import { Button } from "../../components/ui/Button";
-import { EmptyState } from "../ui";
+import { EmptyState, Skeleton } from "../ui";
 import { toast } from "sonner";
 import { cn } from "../../lib/utils";
 import { listInboxConversations } from "@/lib/api/inbox";
 import { createLeadTask, sendLeadToCrm } from "@/lib/api/leads";
 import { leadFromConversation } from "../apiAdapters";
+import { useI18n } from "@/i18n/I18nProvider";
+import { useProductPermissions } from "../CurrentUser";
+import type { Locale } from "@/i18n/config";
+import { ResourceErrorState } from "../ResourceErrorState";
 
 const LIVE_REFRESH_INTERVAL_MS = 4_000;
 
 /* ─────────────────────────────────────────────
    Helpers
 ───────────────────────────────────────────── */
-function formatValue(v: number): string {
-  if (v === 0) return "—";
-  return v.toLocaleString("ru-RU") + " ₽";
-}
-
 function needsReply(lead: Lead): boolean {
   return lead.unread > 0;
 }
 
-function useInboxLeads() {
+function useInboxLeads(locale: Locale) {
   const [apiLeads, setApiLeads] = useState<Lead[] | null>(null);
   const [apiError, setApiError] = useState(false);
+  const [apiRefreshing, setApiRefreshing] = useState(true);
+  const [refreshRevision, setRefreshRevision] = useState(0);
 
   React.useEffect(() => {
     let active = true;
@@ -57,18 +50,19 @@ function useInboxLeads() {
     async function refresh() {
       if (refreshInFlight) return;
       refreshInFlight = true;
+      setApiRefreshing(true);
 
       try {
         const result = await listInboxConversations({ limit: 50 });
         if (!active) return;
-        setApiLeads(result.data.map(leadFromConversation));
+        setApiLeads(result.data.map((conversation) => leadFromConversation(conversation, locale)));
         setApiError(false);
       } catch {
         if (!active) return;
-        setApiLeads((current) => current ?? []);
         setApiError(true);
       } finally {
         refreshInFlight = false;
+        if (active) setApiRefreshing(false);
       }
     }
 
@@ -87,12 +81,14 @@ function useInboxLeads() {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, []);
+  }, [locale, refreshRevision]);
 
   return {
     leads: apiLeads ?? [],
     apiLoaded: apiLeads !== null,
     apiError,
+    apiRefreshing,
+    retry: () => setRefreshRevision((current) => current + 1),
   };
 }
 
@@ -108,6 +104,7 @@ function ChannelChip({
   active: boolean;
   onClick: () => void;
 }) {
+  const { t } = useI18n();
   if (id === "all") {
     return (
       <button
@@ -116,10 +113,10 @@ function ChannelChip({
           "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all border",
           active
             ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
-            : "bg-white/5 border-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/8"
+            : "bg-white/5 border-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/8",
         )}
       >
-        Все каналы
+        {t("ops.inbox.allChannels")}
       </button>
     );
   }
@@ -132,11 +129,11 @@ function ChannelChip({
         "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all border",
         active
           ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
-          : "bg-white/5 border-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/8"
+          : "bg-white/5 border-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/8",
       )}
     >
       <Icon className={cn("w-3.5 h-3.5", active ? "text-emerald-400" : ch.color)} />
-      {ch.label}
+      {ch.labelKey ? t(ch.labelKey) : ch.label}
     </button>
   );
 }
@@ -153,7 +150,8 @@ function StageChip({
   active: boolean;
   onClick: () => void;
 }) {
-  const label = id === "all" ? "Все статусы" : stages[id].label;
+  const { t } = useI18n();
+  const label = id === "all" ? t("ops.inbox.allStatuses") : t(stages[id].labelKey);
   return (
     <button
       onClick={onClick}
@@ -161,12 +159,10 @@ function StageChip({
         "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all border whitespace-nowrap",
         active
           ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
-          : "bg-white/5 border-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/8"
+          : "bg-white/5 border-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/8",
       )}
     >
-      {id !== "all" && (
-        <span className={cn("w-1.5 h-1.5 rounded-full", stages[id].dot)} />
-      )}
+      {id !== "all" && <span className={cn("w-1.5 h-1.5 rounded-full", stages[id].dot)} />}
       {label}
     </button>
   );
@@ -175,13 +171,17 @@ function StageChip({
 /* ─────────────────────────────────────────────
    Lead row
 ───────────────────────────────────────────── */
-const LeadRow = React.forwardRef<HTMLDivElement, {
-  lead: Lead;
-  selected: boolean;
-  onSelect: () => void;
-  onOpen: () => void;
-  index: number;
-}>(function LeadRow({ lead, selected, onSelect, onOpen, index }, ref) {
+const LeadRow = React.forwardRef<
+  HTMLDivElement,
+  {
+    lead: Lead;
+    selected: boolean;
+    onSelect: () => void;
+    onOpen: () => void;
+    index: number;
+  }
+>(function LeadRow({ lead, selected, onSelect, onOpen, index }, ref) {
+  const { t } = useI18n();
   const ch = channels[lead.channel];
   const ChIcon = ch.icon;
 
@@ -207,7 +207,7 @@ const LeadRow = React.forwardRef<HTMLDivElement, {
           "w-full text-left group relative flex items-start gap-3 px-4 py-3.5 rounded-2xl border transition-all cursor-pointer",
           selected
             ? "bg-emerald-500/10 border-emerald-500/30 shadow-[0_0_20px_rgba(52,211,153,0.08)]"
-            : "bg-transparent border-transparent hover:bg-white/[0.03] hover:border-white/5"
+            : "bg-transparent border-transparent hover:bg-white/[0.03] hover:border-white/5",
         )}
       >
         {/* Avatar + channel badge */}
@@ -216,7 +216,7 @@ const LeadRow = React.forwardRef<HTMLDivElement, {
           <span
             className={cn(
               "absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-zinc-950 flex items-center justify-center",
-              ch.bg
+              ch.bg,
             )}
           >
             <ChIcon className={cn("w-2.5 h-2.5", ch.color)} />
@@ -259,7 +259,7 @@ const LeadRow = React.forwardRef<HTMLDivElement, {
           }}
           className="hidden lg:flex shrink-0 opacity-0 group-hover:opacity-100 transition-opacity items-center gap-1 self-center text-[11px] text-emerald-400 font-medium hover:text-emerald-300"
         >
-          Открыть
+          {t("ops.inbox.open")}
           <ChevronRight className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -272,43 +272,52 @@ const LeadRow = React.forwardRef<HTMLDivElement, {
 ───────────────────────────────────────────── */
 function LeadSummary({ lead }: { lead: Lead }) {
   const { go } = useNav();
+  const { formatCurrency, t } = useI18n();
+  const permissions = useProductPermissions();
   const [pendingAction, setPendingAction] = useState<"crm" | "task" | null>(null);
 
   const fields: { label: string; value: string }[] = [
-    { label: "Источник", value: lead.source },
-    { label: "Услуга", value: lead.service },
-    { label: "Менеджер", value: lead.manager },
-    { label: "Сумма", value: formatValue(lead.value) },
-    { label: "Канал", value: channels[lead.channel].label },
+    { label: t("ops.common.source"), value: lead.source },
+    { label: t("ops.common.service"), value: lead.service },
+    { label: t("ops.common.manager"), value: lead.manager },
+    { label: t("ops.common.value"), value: lead.value === 0 ? "—" : formatCurrency(lead.value) },
+    {
+      label: t("ops.common.channel"),
+      value: channels[lead.channel].labelKey
+        ? t(channels[lead.channel].labelKey)
+        : channels[lead.channel].label,
+    },
   ];
 
   const handleSendToCrm = async () => {
+    if (!permissions.canManageLeads) return;
     if (!lead.apiLeadId) {
-      toast.error("Действие доступно только для API-лида");
+      toast.error(t("ops.common.apiLeadOnly"));
       return;
     }
     setPendingAction("crm");
     try {
       await sendLeadToCrm(lead.apiLeadId);
-      toast.success("Лид отправлен в CRM");
+      toast.success(t("ops.common.crmSent"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось отправить лида в CRM");
+      toast.error(error instanceof Error ? error.message : t("ops.common.crmFailed"));
     } finally {
       setPendingAction(null);
     }
   };
 
   const handleCreateTask = async () => {
+    if (!permissions.canManageLeads) return;
     if (!lead.apiLeadId) {
-      toast.error("Действие доступно только для API-лида");
+      toast.error(t("ops.common.apiLeadOnly"));
       return;
     }
     setPendingAction("task");
     try {
-      await createLeadTask(lead.apiLeadId, `Связаться с ${lead.name}`);
-      toast.success("Задача создана");
+      await createLeadTask(lead.apiLeadId, t("ops.inbox.taskTitle", { name: lead.name }));
+      toast.success(t("ops.common.taskCreated"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось создать задачу");
+      toast.error(error instanceof Error ? error.message : t("ops.common.taskFailed"));
     } finally {
       setPendingAction(null);
     }
@@ -360,11 +369,11 @@ function LeadSummary({ lead }: { lead: Lead }) {
         {/* Last message preview */}
         <div className="mb-5">
           <p className="text-[11px] text-zinc-500 mb-1.5 font-medium uppercase tracking-wider">
-            Последнее сообщение
+            {t("ops.inbox.lastMessage")}
           </p>
           <div className="rounded-xl bg-white/[0.03] border border-white/5 px-3 py-2.5">
             <p className="text-xs text-zinc-300 leading-relaxed">{lead.lastMessage}</p>
-            <p className="text-[10px] text-zinc-600 mt-1">{lead.time} назад</p>
+            <p className="text-[10px] text-zinc-600 mt-1">{lead.time}</p>
           </div>
         </div>
 
@@ -375,26 +384,30 @@ function LeadSummary({ lead }: { lead: Lead }) {
             onClick={() => go("conversation", { id: lead.conversationId ?? lead.id })}
           >
             <MessageSquare className="w-4 h-4 mr-1.5" />
-            Открыть диалог
+            {t("ops.inbox.openConversation")}
           </Button>
-          <Button
-            variant="outline"
-            className="w-full justify-center"
-            disabled={pendingAction !== null}
-            onClick={() => void handleSendToCrm()}
-          >
-            <Database className="w-4 h-4 mr-1.5" />
-            {pendingAction === "crm" ? "Отправляем..." : "В CRM"}
-          </Button>
-          <Button
-            variant="ghost"
-            className="w-full justify-center"
-            disabled={pendingAction !== null}
-            onClick={() => void handleCreateTask()}
-          >
-            <ClipboardList className="w-4 h-4 mr-1.5" />
-            {pendingAction === "task" ? "Создаём..." : "Создать задачу"}
-          </Button>
+          {permissions.canManageLeads ? (
+            <>
+              <Button
+                variant="outline"
+                className="w-full justify-center"
+                disabled={pendingAction !== null}
+                onClick={() => void handleSendToCrm()}
+              >
+                <Database className="w-4 h-4 mr-1.5" />
+                {pendingAction === "crm" ? t("ops.common.sending") : t("ops.common.toCrm")}
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full justify-center"
+                disabled={pendingAction !== null}
+                onClick={() => void handleCreateTask()}
+              >
+                <ClipboardList className="w-4 h-4 mr-1.5" />
+                {pendingAction === "task" ? t("ops.common.creating") : t("ops.common.createTask")}
+              </Button>
+            </>
+          ) : null}
         </div>
       </Card>
     </motion.div>
@@ -406,7 +419,8 @@ function LeadSummary({ lead }: { lead: Lead }) {
 ───────────────────────────────────────────── */
 export function InboxPage({ initialSearch = "" }: { initialSearch?: string }) {
   const { go } = useNav();
-  const { leads: inboxLeads, apiLoaded, apiError } = useInboxLeads();
+  const { locale, t } = useI18n();
+  const { leads: inboxLeads, apiLoaded, apiError, apiRefreshing, retry } = useInboxLeads(locale);
 
   const [selectedId, setSelectedId] = useState<string>("");
   const [channelFilter, setChannelFilter] = useState<ChannelId | "all">("all");
@@ -429,7 +443,8 @@ export function InboxPage({ initialSearch = "" }: { initialSearch?: string }) {
   }, [inboxLeads, selectedId]);
 
   const selectedLead = inboxLeads.find((l) => l.id === selectedId) ?? inboxLeads[0] ?? null;
-  const hasActiveFilters = channelFilter !== "all" || stageFilter !== "all" || search.trim().length > 0;
+  const hasActiveFilters =
+    channelFilter !== "all" || stageFilter !== "all" || search.trim().length > 0;
 
   const filtered = useMemo(() => {
     return inboxLeads.filter((l) => {
@@ -451,25 +466,22 @@ export function InboxPage({ initialSearch = "" }: { initialSearch?: string }) {
   const stageIds = Object.keys(stages) as StageId[];
 
   return (
-    <ProductLayout title="Входящие">
+    <ProductLayout title={t("ops.inbox.title")}>
       <div className="h-[calc(100vh-9rem)] flex flex-col gap-0 -mx-4 lg:-mx-8 -mt-6 px-0">
         {/* Two-pane layout */}
         <div className="flex-1 min-h-0 grid lg:grid-cols-[1fr_340px] gap-0 divide-x divide-white/5">
-
           {/* ── LEFT PANE ── */}
           <div className="flex flex-col min-h-0 overflow-hidden">
-
             {/* Filter bar */}
             <div className="shrink-0 px-4 lg:px-6 pt-5 pb-3 space-y-3 border-b border-white/5 bg-zinc-950/95">
-
               {/* Search */}
               <div className="flex items-center gap-2 rounded-xl bg-white/5 border border-white/5 px-3 h-9 focus-within:border-emerald-500/30 focus-within:bg-emerald-500/5 transition-all">
                 <Search className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                 <input
-                  aria-label="Поиск в диалогах"
+                  aria-label={t("ops.inbox.searchLabel")}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Поиск по имени или сообщению..."
+                  placeholder={t("ops.inbox.searchPlaceholder")}
                   className="flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-600 text-zinc-100"
                 />
                 {search && (
@@ -520,25 +532,44 @@ export function InboxPage({ initialSearch = "" }: { initialSearch?: string }) {
               <div className="flex items-center gap-2">
                 <Filter className="w-3.5 h-3.5 text-zinc-600" />
                 <span className="text-xs text-zinc-500">
-                  <span className="text-zinc-300 font-medium">{filtered.length}</span>
-                  {" "}диалог{filtered.length === 1 ? "" : filtered.length < 5 ? "а" : "ов"}
-                  {needsReplyCount > 0 && (
+                  {!apiLoaded
+                    ? apiError
+                      ? t("ops.inbox.loadFailed")
+                      : t("resource.loading")
+                    : t("ops.inbox.conversations", { count: filtered.length })}
+                  {apiLoaded && needsReplyCount > 0 ? (
                     <>
                       {" · "}
-                      <span className="text-emerald-400 font-medium">{needsReplyCount}</span>
-                      {" "}требуют ответа
+                      <span className="text-emerald-400 font-medium">
+                        {t("ops.inbox.needReply", { count: needsReplyCount })}
+                      </span>
                     </>
-                  )}
+                  ) : null}
                 </span>
               </div>
             </div>
 
+            {apiError && apiLoaded ? (
+              <div className="shrink-0 border-b border-white/5 px-3 py-3">
+                <ResourceErrorState testId="inbox-refresh-error" onRetry={retry} />
+              </div>
+            ) : null}
+
             {/* Lead list */}
             <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
               <AnimatePresence mode="popLayout">
-                {filtered.length === 0 ? (
+                {!apiLoaded && apiRefreshing && !apiError ? (
+                  <div className="space-y-2" data-testid="inbox-loading">
+                    {Array.from({ length: 5 }).map((_, index) => (
+                      <Skeleton key={index} className="h-24 w-full" />
+                    ))}
+                  </div>
+                ) : apiError && !apiLoaded ? (
+                  <ResourceErrorState testId="inbox-load-error" onRetry={retry} />
+                ) : filtered.length === 0 ? (
                   <motion.div
                     key="empty"
+                    data-testid="inbox-empty-state"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
@@ -546,29 +577,31 @@ export function InboxPage({ initialSearch = "" }: { initialSearch?: string }) {
                   >
                     <EmptyState
                       icon={Search}
-                      title={hasActiveFilters ? "Ничего не найдено" : "Диалогов пока нет"}
+                      title={hasActiveFilters ? t("ops.inbox.noResults") : t("ops.inbox.empty")}
                       description={
                         hasActiveFilters
-                          ? "Нет диалогов, соответствующих выбранным фильтрам или поисковому запросу."
+                          ? t("ops.inbox.noResultsDetail")
                           : apiLoaded
-                            ? "Когда клиенты напишут в подключённые каналы, новые диалоги появятся здесь."
+                            ? t("ops.inbox.emptyDetail")
                             : apiError
-                              ? "Не удалось загрузить диалоги. Обновите страницу или войдите снова."
-                              : "Загружаем диалоги..."
+                              ? t("ops.inbox.loadFailed")
+                              : t("ops.inbox.loading")
                       }
-                      action={hasActiveFilters ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setChannelFilter("all");
-                            setStageFilter("all");
-                            setSearch("");
-                          }}
-                        >
-                          Сбросить фильтры
-                        </Button>
-                      ) : undefined}
+                      action={
+                        hasActiveFilters ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setChannelFilter("all");
+                              setStageFilter("all");
+                              setSearch("");
+                            }}
+                          >
+                            {t("ops.inbox.resetFilters")}
+                          </Button>
+                        ) : undefined
+                      }
                     />
                   </motion.div>
                 ) : (
@@ -597,11 +630,19 @@ export function InboxPage({ initialSearch = "" }: { initialSearch?: string }) {
           <div className="hidden lg:flex flex-col min-h-0 px-5 py-5 overflow-y-auto bg-zinc-950/20">
             {selectedLead ? (
               <LeadSummary lead={selectedLead} />
+            ) : !apiLoaded && !apiError ? (
+              <div className="space-y-3" data-testid="inbox-detail-loading">
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-36 w-full" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+            ) : apiError && !apiLoaded ? (
+              <ResourceErrorState testId="inbox-detail-load-error" onRetry={retry} />
             ) : (
               <EmptyState
                 icon={MessageSquare}
-                title="Нет выбранного диалога"
-                description="Выберите диалог из списка или дождитесь нового входящего обращения."
+                title={t("ops.inbox.noneSelected")}
+                description={t("ops.inbox.noneSelectedDetail")}
               />
             )}
           </div>

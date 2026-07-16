@@ -4,7 +4,15 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { motion, AnimatePresence } from "motion/react";
-import { X, Loader2, Inbox, AlertTriangle, Check, ChevronDown, type LucideIcon } from "lucide-react";
+import {
+  X,
+  Loader2,
+  Inbox,
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  type LucideIcon,
+} from "lucide-react";
 import { cn } from "../lib/utils";
 import { useTheme } from "./theme";
 import { Button } from "../components/ui/Button";
@@ -44,7 +52,7 @@ export function Tip({
           className={cn(
             themeClass,
             "z-[100] rounded-xl border border-white/10 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-100 shadow-xl shadow-black/40",
-            "data-[state=delayed-open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95"
+            "data-[state=delayed-open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95",
           )}
         >
           {content}
@@ -81,7 +89,7 @@ export function Dropdown({
             themeClass,
             "z-[100] min-w-[220px] origin-[var(--radix-dropdown-menu-content-transform-origin)] rounded-2xl border border-white/10 bg-zinc-900 p-1.5 shadow-2xl shadow-black/50",
             "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
-            className
+            className,
           )}
         >
           {children}
@@ -114,7 +122,7 @@ export function DropdownItem({
         danger
           ? "text-rose-400 focus:bg-rose-500/10 data-[highlighted]:bg-rose-500/10"
           : "text-zinc-300 focus:bg-white/5 focus:text-zinc-50 data-[highlighted]:bg-white/5 data-[highlighted]:text-zinc-50",
-        className
+        className,
       )}
     >
       {Icon && <Icon className="w-4 h-4 opacity-80" />}
@@ -124,7 +132,11 @@ export function DropdownItem({
 }
 
 export function DropdownLabel({ children }: { children: React.ReactNode }) {
-  return <div className="px-3 pt-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{children}</div>;
+  return (
+    <div className="px-3 pt-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+      {children}
+    </div>
+  );
 }
 
 export function DropdownSeparator() {
@@ -147,6 +159,7 @@ export function Select({
   placeholder = "Выберите...",
   className,
   ariaLabel,
+  disabled = false,
 }: {
   value?: string;
   defaultValue?: string;
@@ -155,15 +168,21 @@ export function Select({
   placeholder?: string;
   className?: string;
   ariaLabel?: string;
+  disabled?: boolean;
 }) {
   const themeClass = useThemeClass();
   return (
-    <SelectPrimitive.Root value={value} defaultValue={defaultValue} onValueChange={onValueChange}>
+    <SelectPrimitive.Root
+      value={value}
+      defaultValue={defaultValue}
+      disabled={disabled}
+      onValueChange={onValueChange}
+    >
       <SelectPrimitive.Trigger
         aria-label={ariaLabel}
         className={cn(
-          "group flex h-11 w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-sm text-zinc-100 outline-none transition-colors hover:border-white/20 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 data-[placeholder]:text-zinc-500",
-          className
+          "group flex h-11 w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-sm text-zinc-100 outline-none transition-colors hover:border-white/20 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-zinc-500",
+          className,
         )}
       >
         <SelectPrimitive.Value placeholder={placeholder} />
@@ -178,7 +197,7 @@ export function Select({
           className={cn(
             themeClass,
             "z-[110] max-h-[300px] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 p-1.5 shadow-2xl shadow-black/50",
-            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95"
+            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
           )}
         >
           <SelectPrimitive.Viewport className="p-0">
@@ -211,6 +230,7 @@ export function Modal({
   description,
   ariaTitle,
   ariaDescription,
+  closeLabel = "Dismiss dialog",
   children,
   footer,
   className,
@@ -223,6 +243,7 @@ export function Modal({
   ariaTitle?: string;
   /** Accessible description used when no visible `description` is rendered. */
   ariaDescription?: string;
+  closeLabel?: string;
   children?: React.ReactNode;
   footer?: React.ReactNode;
   className?: string;
@@ -237,26 +258,41 @@ export function Modal({
             themeClass,
             "fixed left-1/2 top-1/2 z-[91] max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] min-w-0 max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-x-hidden overflow-y-auto rounded-3xl border border-white/10 bg-zinc-900 p-6 text-zinc-50 shadow-2xl shadow-black/60",
             "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
-            className
+            className,
           )}
         >
           <div className="relative min-w-0">
             {/* Always render an accessible title + description (Radix requirement).
                 Falls back to sr-only when no visible title/description is provided. */}
             {title ? (
-              <DialogPrimitive.Title className="text-xl font-bold tracking-tight text-zinc-50 mb-1.5 pr-8">{title}</DialogPrimitive.Title>
+              <DialogPrimitive.Title className="text-xl font-bold tracking-tight text-zinc-50 mb-1.5 pr-8">
+                {title}
+              </DialogPrimitive.Title>
             ) : (
-              <DialogPrimitive.Title className="sr-only">{ariaTitle ?? "Диалог"}</DialogPrimitive.Title>
+              <DialogPrimitive.Title className="sr-only">
+                {ariaTitle ?? "Dialog"}
+              </DialogPrimitive.Title>
             )}
             {description ? (
-              <DialogPrimitive.Description className="text-sm text-zinc-400 mb-5">{description}</DialogPrimitive.Description>
+              <DialogPrimitive.Description className="text-sm text-zinc-400 mb-5">
+                {description}
+              </DialogPrimitive.Description>
             ) : (
-              <DialogPrimitive.Description className="sr-only">{ariaDescription ?? "Диалоговое окно"}</DialogPrimitive.Description>
+              <DialogPrimitive.Description className="sr-only">
+                {ariaDescription ?? "Dialog content"}
+              </DialogPrimitive.Description>
             )}
             {children}
-            {footer && <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">{footer}</div>}
+            {footer && (
+              <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+                {footer}
+              </div>
+            )}
           </div>
-          <DialogPrimitive.Close className="absolute right-5 top-5 w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-white/5 transition-colors">
+          <DialogPrimitive.Close
+            aria-label={closeLabel}
+            className="absolute right-5 top-5 w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-white/5 transition-colors"
+          >
             <X className="w-4 h-4" />
           </DialogPrimitive.Close>
         </DialogPrimitive.Content>
@@ -273,8 +309,8 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = "Подтвердить",
-  cancelLabel = "Отмена",
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
   danger = false,
   onConfirm,
 }: {
@@ -285,32 +321,63 @@ export function ConfirmDialog({
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
-  onConfirm: () => void;
+  onConfirm: () => boolean | void | Promise<boolean | void>;
 }) {
+  const [pending, setPending] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open) setPending(false);
+  }, [open]);
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!pending) onOpenChange(nextOpen);
+  };
+
+  const handleConfirm = async () => {
+    if (pending) return;
+    setPending(true);
+    try {
+      const result = await onConfirm();
+      if (result !== false) onOpenChange(false);
+    } catch {
+      return;
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
     <Modal
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       ariaTitle={title}
       ariaDescription={description}
       className="max-w-md"
       footer={
         <>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>{cancelLabel}</Button>
+          <Button variant="outline" disabled={pending} onClick={() => onOpenChange(false)}>
+            {cancelLabel}
+          </Button>
           <Button
             className={danger ? "bg-rose-500 text-white hover:bg-rose-600" : ""}
-            onClick={() => {
-              onConfirm();
-              onOpenChange(false);
-            }}
+            disabled={pending}
+            aria-busy={pending}
+            data-testid="confirm-dialog-submit"
+            onClick={() => void handleConfirm()}
           >
+            {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {confirmLabel}
           </Button>
         </>
       }
     >
       <div className="flex gap-4">
-        <div className={cn("w-11 h-11 shrink-0 rounded-2xl flex items-center justify-center", danger ? "bg-rose-500/15 text-rose-400" : "bg-emerald-500/15 text-emerald-400")}>
+        <div
+          className={cn(
+            "w-11 h-11 shrink-0 rounded-2xl flex items-center justify-center",
+            danger ? "bg-rose-500/15 text-rose-400" : "bg-emerald-500/15 text-emerald-400",
+          )}
+        >
           <AlertTriangle className="w-5 h-5" />
         </div>
         <div>
@@ -394,7 +461,12 @@ export function StatusBadge({
   children: React.ReactNode;
 }) {
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium", statusStyles[status])}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
+        statusStyles[status],
+      )}
+    >
       {children}
     </span>
   );

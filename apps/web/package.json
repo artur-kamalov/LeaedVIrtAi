@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev --port 3001",
+    "dev": "node --max-old-space-size=8192 node_modules/next/dist/bin/next dev --port 3001",
     "build": "next build",
     "start": "next start --port 3001",
     "lint": "eslint .",

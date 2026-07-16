@@ -1,9 +1,12 @@
-import type { SettingsAccount } from "@leadvirt/types";
+import type { LegacyApiKeyCleanupSummary, SettingsAccount } from "@leadvirt/types";
 import { apiData, jsonBody } from "./client";
 
 export type TeamRole = "OWNER" | "ADMIN" | "MANAGER" | "AGENT" | "VIEWER";
-export type TeamMember = { id: string; role: TeamRole; user: { id: string; email: string; name?: string | null } };
-export type TeamPasswordReset = { membershipId: string; userId: string; temporaryPassword: string; revokedSessions: number };
+export type TeamMember = {
+  id: string;
+  role: TeamRole;
+  user: { id: string; email: string; name?: string | null };
+};
 export type NotificationsSettings = {
   new_lead: boolean;
   no_reply: boolean;
@@ -11,8 +14,6 @@ export type NotificationsSettings = {
   daily: boolean;
   tg_summary: boolean;
 };
-export type ApiKeySummary = { id: string; name: string; keyPrefix: string; createdAt: string; lastUsedAt?: string | null };
-export type ApiKeyCreated = ApiKeySummary & { secret: string };
 export type SecuritySession = {
   id: string;
   current: boolean;
@@ -36,14 +37,32 @@ export type SecuritySettings = {
   sessions: SecuritySession[];
 };
 export type TwoFactorSetup = { secret: string; otpauthUri: string };
-export type TwoFactorEnableResult = { twoFactor: SecuritySettings["twoFactor"]; recoveryCodes: string[] };
+export type TwoFactorEnableResult = {
+  twoFactor: SecuritySettings["twoFactor"];
+  recoveryCodes: string[];
+};
 
 export function getAccountSettings() {
   return apiData<SettingsAccount>("/settings/account");
 }
 
-export function updateAccountSettings(body: { businessName?: string; timezone?: string; businessType?: string; logoDataUrl?: string | null }) {
+export function updateAccountSettings(body: {
+  businessName?: string;
+  timezone?: string;
+  businessType?: string;
+  logoDataUrl?: string | null;
+  description?: string | null;
+  phone?: string | null;
+  website?: string | null;
+}) {
   return apiData<SettingsAccount>("/settings/account", { method: "PATCH", ...jsonBody(body) });
+}
+
+export function updateLocalePreference(locale: "en" | "es" | "fr" | "de" | "pt" | "ru") {
+  return apiData<{ locale: typeof locale }>("/settings/preferences/locale", {
+    method: "PATCH",
+    ...jsonBody({ locale }),
+  });
 }
 
 export function getTeamSettings() {
@@ -55,15 +74,16 @@ export function inviteTeamMember(body: { email: string; name?: string; role: Tea
 }
 
 export function updateTeamMemberRole(membershipId: string, role: TeamRole) {
-  return apiData<TeamMember>(`/settings/team/${membershipId}`, { method: "PATCH", ...jsonBody({ role }) });
+  return apiData<TeamMember>(`/settings/team/${membershipId}`, {
+    method: "PATCH",
+    ...jsonBody({ role }),
+  });
 }
 
 export function removeTeamMember(membershipId: string) {
-  return apiData<{ id: string; removed: boolean }>(`/settings/team/${membershipId}`, { method: "DELETE" });
-}
-
-export function resetTeamMemberPassword(membershipId: string) {
-  return apiData<TeamPasswordReset>(`/settings/team/${membershipId}/reset-password`, { method: "POST" });
+  return apiData<{ id: string; removed: boolean }>(`/settings/team/${membershipId}`, {
+    method: "DELETE",
+  });
 }
 
 export function getSecuritySettings() {
@@ -71,7 +91,10 @@ export function getSecuritySettings() {
 }
 
 export function changePassword(body: { currentPassword: string; newPassword: string }) {
-  return apiData<{ updated: boolean; revokedSessions: number }>("/settings/security/password", { method: "PATCH", ...jsonBody(body) });
+  return apiData<{ updated: boolean; revokedSessions: number }>("/settings/security/password", {
+    method: "PATCH",
+    ...jsonBody(body),
+  });
 }
 
 export function startTwoFactorSetup() {
@@ -79,23 +102,37 @@ export function startTwoFactorSetup() {
 }
 
 export function enableTwoFactor(body: { code: string }) {
-  return apiData<TwoFactorEnableResult>("/settings/security/2fa/enable", { method: "POST", ...jsonBody(body) });
+  return apiData<TwoFactorEnableResult>("/settings/security/2fa/enable", {
+    method: "POST",
+    ...jsonBody(body),
+  });
 }
 
 export function disableTwoFactor(body: { currentPassword: string }) {
-  return apiData<{ twoFactor: SecuritySettings["twoFactor"] }>("/settings/security/2fa/disable", { method: "POST", ...jsonBody(body) });
+  return apiData<{ twoFactor: SecuritySettings["twoFactor"] }>("/settings/security/2fa/disable", {
+    method: "POST",
+    ...jsonBody(body),
+  });
 }
 
 export function regenerateTwoFactorRecoveryCodes(body: { currentPassword: string }) {
-  return apiData<TwoFactorEnableResult>("/settings/security/2fa/recovery-codes", { method: "POST", ...jsonBody(body) });
+  return apiData<TwoFactorEnableResult>("/settings/security/2fa/recovery-codes", {
+    method: "POST",
+    ...jsonBody(body),
+  });
 }
 
 export function revokeSecuritySession(sessionId: string) {
-  return apiData<{ id: string; revoked: boolean; current: boolean }>(`/settings/security/sessions/${sessionId}`, { method: "DELETE" });
+  return apiData<{ id: string; revoked: boolean; current: boolean }>(
+    `/settings/security/sessions/${sessionId}`,
+    { method: "DELETE" },
+  );
 }
 
 export function revokeOtherSecuritySessions() {
-  return apiData<{ revoked: number }>("/settings/security/sessions/revoke-others", { method: "POST" });
+  return apiData<{ revoked: number }>("/settings/security/sessions/revoke-others", {
+    method: "POST",
+  });
 }
 
 export function getNotificationsSettings() {
@@ -103,20 +140,18 @@ export function getNotificationsSettings() {
 }
 
 export function updateNotificationsSettings(body: Partial<NotificationsSettings>) {
-  return apiData<NotificationsSettings>("/settings/notifications", { method: "PATCH", ...jsonBody(body) });
+  return apiData<NotificationsSettings>("/settings/notifications", {
+    method: "PATCH",
+    ...jsonBody(body),
+  });
 }
 
-export function getBillingSettings() {
-  return apiData<{
-    billingMode: string;
-    apiKeys: ApiKeySummary[];
-  }>("/settings/billing");
-}
-
-export function createApiKey(body: { name: string; scopes?: string }) {
-  return apiData<ApiKeyCreated>("/settings/api-keys", { method: "POST", ...jsonBody(body) });
+export function getLegacyApiKeys() {
+  return apiData<LegacyApiKeyCleanupSummary[]>("/settings/api-keys");
 }
 
 export function revokeApiKey(id: string) {
-  return apiData<{ id: string; revoked: boolean }>(`/settings/api-keys/${id}`, { method: "DELETE" });
+  return apiData<{ id: string; revoked: boolean }>(`/settings/api-keys/${id}`, {
+    method: "DELETE",
+  });
 }

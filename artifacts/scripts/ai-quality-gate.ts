@@ -3,12 +3,24 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { loadEnvFile } from "@leadvirt/config";
 import { prisma, type Prisma } from "@leadvirt/db";
+import { LegacyKnowledgePublisher, type KnowledgeRuntimeConfig } from "@leadvirt/knowledge";
 import { redactAndTagSensitiveData } from "@leadvirt/observability";
 import type { AiReplyJobData } from "@leadvirt/types";
 
 loadEnvFile();
 process.env.AI_PROVIDER = "mock";
 process.env.AI_ENABLE_REAL_PROVIDER = "false";
+process.env.RAG_RETRIEVAL_MODE = "database";
+
+const knowledgeConfig: KnowledgeRuntimeConfig = {
+  mode: "database",
+  qdrantUrl: process.env.RAG_QDRANT_URL ?? "http://localhost:6333",
+  qdrantCollection: process.env.RAG_QDRANT_COLLECTION ?? "leadvirt_knowledge",
+  qdrantTimeoutMs: 1000,
+  minScore: 0.05,
+  candidateLimit: 20,
+  targetKey: "workspace"
+};
 
 type ProcessLeadVirtJob = typeof import("../../apps/worker/src/processors/processor-registry.js").processLeadVirtJob;
 
@@ -127,13 +139,13 @@ async function retrievedContext(tenantId: string, metadata: Record<string, unkno
   const chunkIds = refs.map((item) => item.chunkId).filter((id): id is string => typeof id === "string");
   const rows =
     chunkIds.length > 0
-      ? await prisma.businessKnowledgeChunk.findMany({
+      ? await prisma.knowledgeRevisionChunk.findMany({
           where: { tenantId, id: { in: chunkIds } },
-          select: { content: true, source: { select: { title: true } } }
+          select: { content: true, revision: { select: { title: true } } }
         })
       : [];
 
-  const chunks = rows.map((chunk) => ({ title: chunk.source.title, content: chunk.content }));
+  const chunks = rows.map((chunk) => ({ title: chunk.revision.title, content: chunk.content }));
   return {
     text: [
       ...refs.map((item) => jsonString(item)),
@@ -180,10 +192,10 @@ function addCheck(failures: string[], condition: unknown, message: string) {
 async function seedKnowledge(tenantId: string, suffix: string, entries: GoldenKnowledge[]) {
   let index = 0;
   for (const entry of entries) {
-    const source = await prisma.businessKnowledgeSource.create({
+    await prisma.businessKnowledgeSource.create({
       data: {
         tenantId,
-        type: entry.type,
+        type: entry.type === "PROFILE" ? "BUSINESS_PROFILE" : entry.type,
         status: "ACTIVE",
         source: "golden-set",
         sourceKey: `golden:${suffix}:${index}`,
@@ -192,23 +204,12 @@ async function seedKnowledge(tenantId: string, suffix: string, entries: GoldenKn
         structuredData: { goldenSet: true }
       }
     });
-
-    await prisma.businessKnowledgeChunk.create({
-      data: {
-        tenantId,
-        sourceId: source.id,
-        sourceVersion: source.version,
-        chunkIndex: 0,
-        content: source.content,
-        contentHash: `golden-${suffix}-${index}`,
-        tokenEstimate: Math.max(8, Math.round(source.content.length / 4)),
-        embeddedAt: new Date(),
-        indexedAt: new Date(),
-        metadata: { goldenSet: true, sourceTitle: source.title }
-      }
-    });
     index += 1;
   }
+  await new LegacyKnowledgePublisher(prisma, knowledgeConfig).publish({
+    tenantId,
+    reason: `quality_gate:${suffix}`
+  });
 }
 
 async function runCase(processLeadVirtJob: ProcessLeadVirtJob, golden: GoldenSet, goldenCase: GoldenCase): Promise<CaseResult> {
@@ -277,16 +278,17 @@ async function runCase(processLeadVirtJob: ProcessLeadVirtJob, golden: GoldenSet
       tenantId: tenant.id,
       conversationId: conversation.id,
       triggerMessageId: inbound.id,
-      text: goldenCase.text,
-      businessName: tenant.name,
-      ...(tenant.businessType ? { businessType: tenant.businessType } : {}),
-      leadId: lead.id,
-      leadStatus: lead.status,
-      source: "worker-test",
-      receivedAt: inbound.createdAt.toISOString()
+      source: "worker-test"
     };
     const jobId = `ai-quality:${goldenCase.id}:${conversation.id}:${inbound.id}`;
-    const result = await processLeadVirtJob("ai.reply", { id: jobId, data } as Parameters<typeof processLeadVirtJob>[1]);
+    const result = await processLeadVirtJob("ai.reply", {
+      id: jobId,
+      data: {
+        ...data,
+        runtimeEventId: `c${"0".repeat(24)}`,
+        runtimeGeneration: 1,
+      },
+    } as Parameters<typeof processLeadVirtJob>[1]);
     assert(isRecord(result), `${goldenCase.id}: graph result is not an object`);
     assert(result.status === "processed", `${goldenCase.id}: expected processed result`);
     assert(typeof result.messageId === "string", `${goldenCase.id}: graph result has no message id`);
@@ -351,6 +353,14 @@ async function runCase(processLeadVirtJob: ProcessLeadVirtJob, golden: GoldenSet
     };
   } finally {
     if (tenantId) {
+      await prisma.externalOperation.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.runtimeInbox.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.runtimeOutbox.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.channelDeliveryOperation.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.aiReplyRun.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.activeKnowledgePublication.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.knowledgePublication.deleteMany({ where: { tenantId } }).catch(() => undefined);
+      await prisma.knowledgeIndexSnapshot.deleteMany({ where: { tenantId } }).catch(() => undefined);
       await prisma.tenant.delete({ where: { id: tenantId } }).catch(() => undefined);
     }
   }

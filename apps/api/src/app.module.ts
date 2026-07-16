@@ -23,6 +23,7 @@ import { KnowledgeModule } from "./modules/knowledge/knowledge.module.js";
 import { WidgetModule } from "./modules/widget/widget.module.js";
 import { TelegramModule } from "./modules/telegram/telegram.module.js";
 import { WebhookModule } from "./modules/webhook/webhook.module.js";
+import { OperatorOperationsModule } from "./modules/operator-operations/operator-operations.module.js";
 
 @Module({
   imports: [
@@ -49,7 +50,8 @@ import { WebhookModule } from "./modules/webhook/webhook.module.js";
     OnboardingModule,
     WidgetModule,
     TelegramModule,
-    WebhookModule
+    WebhookModule,
+    OperatorOperationsModule
   ]
 })
 export class AppModule {}

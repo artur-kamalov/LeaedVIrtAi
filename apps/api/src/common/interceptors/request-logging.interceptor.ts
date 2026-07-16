@@ -4,12 +4,22 @@ import type { Response } from "express";
 import { finalize, Observable, tap } from "rxjs";
 import { recordHttpRequest } from "../../modules/metrics/metrics.registry.js";
 
-function normalizeRoute(url: string) {
-  const path = url.split("?")[0] ?? url;
-  return path
-    .replace(/\/[0-9a-f]{24,}(?=\/|$)/gi, "/:id")
-    .replace(/\/[0-9a-f]{8}-[0-9a-f-]{27,}(?=\/|$)/gi, "/:id")
-    .replace(/\/\d{4,}(?=\/|$)/g, "/:id");
+interface RouteAwareRequest {
+  baseUrl?: string;
+  method: string;
+  route?: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function requestMetricRoute(request: Pick<RouteAwareRequest, "baseUrl" | "route">) {
+  const path = isRecord(request.route) ? request.route.path : undefined;
+  if (typeof path !== "string" || path.length === 0) return "/unmatched";
+
+  const route = `${request.baseUrl ?? ""}/${path}`.replace(/\/{2,}/g, "/");
+  return route.startsWith("/") ? route : `/${route}`;
 }
 
 function statusCodeForError(error: unknown) {
@@ -19,10 +29,10 @@ function statusCodeForError(error: unknown) {
 @Injectable()
 export class RequestLoggingInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const request = context.switchToHttp().getRequest<{ method: string; url: string }>();
+    const request = context.switchToHttp().getRequest<RouteAwareRequest>();
     const response = context.switchToHttp().getResponse<Response>();
     const startedAt = Date.now();
-    const route = normalizeRoute(request.url);
+    const route = requestMetricRoute(request);
     const span = startSpan(`HTTP ${request.method} ${route}`, {
       kind: SpanKind.SERVER,
       attributes: {

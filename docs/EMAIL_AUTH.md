@@ -1,6 +1,6 @@
-# Email OTP Authentication
+# Email Authentication
 
-LeadVirt supports passwordless email authentication alongside Telegram.
+LeadVirt supports passwordless email authentication alongside Telegram and provider-delivered password recovery for credential accounts.
 
 ## Flow
 
@@ -21,6 +21,7 @@ Beget SMTP is the active production path while the new domain is not eligible fo
 AUTH_EMAIL_OTP_ENABLED=true
 AUTH_EMAIL_OTP_PEPPER=<at-least-32-random-characters>
 EMAIL_OTP_PROVIDER=smtp
+EMAIL_PROVIDER=smtp
 EMAIL_FROM=LeadVirt.ai <noreply@leadvirt.com>
 SMTP_HOST=smtp.beget.com
 SMTP_PORT=465
@@ -41,6 +42,7 @@ The classic UniSender `sendEmail` API remains supported as a later fallback. It 
 AUTH_EMAIL_OTP_ENABLED=true
 AUTH_EMAIL_OTP_PEPPER=<at-least-32-random-characters>
 EMAIL_OTP_PROVIDER=unisender
+EMAIL_PROVIDER=unisender
 EMAIL_FROM=LeadVirt.ai <noreply@leadvirt.com>
 UNISENDER_API_KEY=<rotated-key>
 UNISENDER_LIST_ID=<authentication-list-id>
@@ -48,7 +50,20 @@ UNISENDER_SENDER_NAME=LeadVirt.ai
 UNISENDER_SENDER_EMAIL=noreply@leadvirt.com
 ```
 
-`EMAIL_OTP_PROVIDER` is separate from `EMAIL_PROVIDER`, which remains responsible for password-reset delivery. Supported OTP providers are `smtp`, `unisender`, and non-production `mock`.
+`EMAIL_OTP_PROVIDER` is separate from `EMAIL_PROVIDER`. Both support `smtp`, `unisender`, and non-production `mock`; production password reset rejects `mock`, `manual`, unsupported providers, and incomplete provider configuration before creating a usable token.
+
+## Password Reset
+
+- `POST /api/auth/password-reset/request` requires credential auth to be enabled and a ready SMTP or UniSender provider in production.
+- Reset tokens are stored only as hashes and staged as unusable while delivery is pending.
+- Provider acceptance can activate the token only while the captured password hash is still current. Activation, confirmation, and authenticated password changes share one PostgreSQL lock, so an in-flight delivery cannot activate after a completed password change.
+- Delivery failure returns the same generic response as an unknown account and leaves the staged token invalid. Delivery is still synchronous, so request duration can differ; durable queued delivery remains required to remove that timing oracle.
+- The request audit is attempted after activation. Audit failure is logged without URL/provider details and does not invalidate an already delivered link.
+- Production responses and logs never contain the reset URL. Non-production `EMAIL_PROVIDER=mock` retains the reset URL response and log for local QA.
+- Requests are limited to one per normalized recipient per minute and eight per hour, with an additional per-IP limit.
+- `POST /api/auth/password-reset/confirm` consumes the token once, changes the password, and revokes active sessions.
+
+In production, `APP_URL` and `NEXT_PUBLIC_APP_URL` must resolve to the same public HTTPS origin. Credentials, paths, queries, hashes, localhost, and mismatched hosts are rejected before token creation.
 
 Before enabling production:
 
@@ -65,5 +80,7 @@ UniSender enforces at least 60 seconds between emails to one recipient. The clas
 corepack pnpm run qa:auth:smtp-contract
 corepack pnpm run qa:auth:unisender-contract
 corepack pnpm run qa:auth:email-otp
+corepack pnpm run qa:auth:team-security
+corepack pnpm run qa:auth:staging-ready
 corepack pnpm dlx @playwright/test test artifacts/playwright/auth-flow.spec.ts --reporter=line --workers=1
 ```

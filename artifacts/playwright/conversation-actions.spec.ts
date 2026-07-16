@@ -5,7 +5,7 @@ const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
 
 test.beforeEach(async ({ page }) => {
-  await loginAsCleanUser(page, apiBase);
+  await loginAsCleanUser(page, apiBase, { locale: "ru" });
 });
 const conversationId = "pw-actions-conversation";
 const leadId = "lead-actions";
@@ -123,5 +123,69 @@ test("conversation side-panel actions call lead APIs with the API lead id", asyn
 
   await page.getByRole("button", { name: /Отметить квалифицированным/ }).click();
   await expect.poll(() => qualifiedStatus).toBe("QUALIFIED");
+});
+
+test("conversation transport failures stay distinct from a true not-found response", async ({
+  page,
+}) => {
+  let responseStatus = 503;
+
+  await page.route(`**/api/conversations/${conversationId}`, async (route) => {
+    await route.fulfill({
+      status: responseStatus,
+      json: {
+        error: {
+          code: responseStatus === 404 ? "NOT_FOUND" : "SERVICE_UNAVAILABLE",
+          message: responseStatus === 404 ? "Conversation not found" : "Temporary outage",
+        },
+      },
+    });
+  });
+
+  await page.goto(`${webBase}/app/inbox/${conversationId}`, { waitUntil: "networkidle" });
+
+  await expect(page.getByTestId("conversation-load-error")).toBeVisible();
+  await expect(page.getByTestId("conversation-not-found")).toHaveCount(0);
+  await page.screenshot({
+    path: "artifacts/playwright/conversation-load-error.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+
+  responseStatus = 404;
+  await page.getByTestId("conversation-load-error").getByRole("button").click();
+
+  await expect(page.getByTestId("conversation-not-found")).toBeVisible();
+  await expect(page.getByTestId("conversation-load-error")).toHaveCount(0);
+});
+
+test("conversation keeps its last successful detail when live refresh fails", async ({ page }) => {
+  let failRefresh = false;
+
+  await page.route(`**/api/conversations/${conversationId}`, async (route) => {
+    if (failRefresh) {
+      await route.fulfill({
+        status: 503,
+        json: { error: { code: "SERVICE_UNAVAILABLE", message: "Temporary refresh outage" } },
+      });
+      return;
+    }
+    await route.fulfill({ json: { data: conversation() } });
+  });
+
+  await page.goto(`${webBase}/app/inbox/${conversationId}`, { waitUntil: "networkidle" });
+  await expect(page.getByText("Action API Client")).toBeVisible();
+
+  failRefresh = true;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+
+  await expect(page.getByTestId("conversation-refresh-error")).toBeVisible();
+  await expect(page.getByText("Action API Client")).toBeVisible();
+
+  failRefresh = false;
+  await page.getByTestId("conversation-refresh-error").getByRole("button").click();
+
+  await expect(page.getByTestId("conversation-refresh-error")).toHaveCount(0);
+  await expect(page.getByText("Action API Client")).toBeVisible();
 });
 

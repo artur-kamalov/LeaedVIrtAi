@@ -5,9 +5,21 @@ import { expect, test, type Page } from "@playwright/test";
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
 
+async function selectLocale(page: Page, locale: string) {
+  const switcher = page.locator('[data-testid="language-switcher"]:visible').first();
+  if ((await switcher.getAttribute("data-locale")) !== locale) {
+    await switcher.click();
+    await page.getByTestId(`language-option-${locale}`).click();
+  }
+  await expect(switcher).toHaveAttribute("data-locale", locale);
+  await expect(page.locator("html")).toHaveAttribute("lang", locale);
+}
+
 test.beforeEach(async ({ page }) => {
-  await page.context().addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
-  await loginAsCleanUser(page, apiBase);
+  await page
+    .context()
+    .addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
+  await loginAsCleanUser(page, apiBase, { locale: "ru" });
 });
 
 const professionalPlan = {
@@ -198,7 +210,9 @@ async function mockBillingApi(page: Page) {
   });
 
   await page.route("**/api/settings/security", async (route) => {
-    await route.fulfill({ json: { data: { authMode: "demo", tenantScoped: true, currentRole: "OWNER" } } });
+    await route.fulfill({
+      json: { data: { authMode: "demo", tenantScoped: true, currentRole: "OWNER" } },
+    });
   });
 
   await page.route("**/api/settings/billing", async (route) => {
@@ -208,10 +222,13 @@ async function mockBillingApi(page: Page) {
   return billingRequests;
 }
 
-test("billing route renders API-backed plan and usage inside copied settings UI", async ({ page }) => {
+test("billing route renders API-backed plan and usage inside copied settings UI", async ({
+  page,
+}) => {
   const billingRequests = await mockBillingApi(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app/billing`, { waitUntil: "networkidle" });
+  await selectLocale(page, "ru");
 
   await expect(page.getByText("Биллинг и подписка")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Тариф «Профессиональный»" })).toBeVisible();
@@ -220,7 +237,7 @@ test("billing route renders API-backed plan and usage inside copied settings UI"
   await expect(page.getByText("321")).toBeVisible();
   await expect(page.getByText("1 000")).toBeVisible();
   await expect(page.getByText("Безналичный расчёт по счёту")).toBeVisible();
-  await expect(page.getByText("Manual billing")).toBeVisible();
+  await expect(page.getByText("Ручное выставление счетов")).toBeVisible();
   await expect(page.getByText("7 700 ₽").first()).toBeVisible();
 
   await page.getByRole("button", { name: "Запросить изменение" }).click();
@@ -259,9 +276,143 @@ test("billing sidebar link opens the billing route", async ({ page }) => {
   await mockBillingApi(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app/settings`, { waitUntil: "networkidle" });
+  await selectLocale(page, "ru");
 
   await page.getByRole("link", { name: /^(Выбрать тариф|Управлять тарифом)$/ }).click();
   await expect(page).toHaveURL(`${webBase}/app/billing`);
   await expect(page.getByText("Биллинг и подписка")).toBeVisible();
 });
 
+test("settings and billing localize six locales without mobile overflow", async ({ page }) => {
+  test.setTimeout(120_000);
+  await mockBillingApi(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  const locales = {
+    en: {
+      tag: "en-US",
+      profile: "Company profile",
+      team: "Team and roles",
+      billing: "Billing",
+      billingHeading: "Billing and subscription",
+    },
+    ru: {
+      tag: "ru-RU",
+      profile: "Профиль компании",
+      team: "Команда и роли",
+      billing: "Биллинг",
+      billingHeading: "Биллинг и подписка",
+    },
+    es: {
+      tag: "es-ES",
+      profile: "Perfil de empresa",
+      team: "Equipo y roles",
+      billing: "Facturación",
+      billingHeading: "Facturación y suscripción",
+    },
+    fr: {
+      tag: "fr-FR",
+      profile: "Profil de l’entreprise",
+      team: "Équipe et rôles",
+      billing: "Facturation",
+      billingHeading: "Facturation et abonnement",
+    },
+    de: {
+      tag: "de-DE",
+      profile: "Unternehmensprofil",
+      team: "Team und Rollen",
+      billing: "Abrechnung",
+      billingHeading: "Abrechnung und Abonnement",
+    },
+    pt: {
+      tag: "pt-BR",
+      profile: "Perfil da empresa",
+      team: "Equipe e funções",
+      billing: "Faturamento",
+      billingHeading: "Faturamento e assinatura",
+    },
+  } as const;
+
+  for (const [locale, copy] of Object.entries(locales)) {
+    await page.goto(`${webBase}/app/settings`, { waitUntil: "domcontentloaded" });
+    await selectLocale(page, locale);
+    await expect(page.getByRole("heading", { name: copy.profile })).toBeVisible();
+    await page.getByRole("main").getByRole("button", { name: copy.team, exact: true }).click();
+    await expect(page.getByRole("heading", { name: copy.team })).toBeVisible();
+    await page.getByRole("main").getByRole("button", { name: copy.billing, exact: true }).click();
+    await expect(page.getByRole("heading", { name: copy.billingHeading })).toBeVisible();
+
+    const currency = new Intl.NumberFormat(copy.tag, {
+      style: "currency",
+      currency: "RUB",
+      maximumFractionDigits: 0,
+    }).format(7700);
+    await expect(page.getByText(currency).first()).toBeVisible();
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${webBase}/app/billing`, { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: locales.pt.billingHeading })).toBeVisible({
+    timeout: 15_000,
+  });
+  const width = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(width.scroll).toBeLessThanOrEqual(width.viewport + 1);
+  await page.screenshot({
+    path: "artifacts/playwright/settings-billing-localized-mobile.png",
+    fullPage: true,
+  });
+});
+
+test("billing failure is actionable in the active locale", async ({ page }) => {
+  await mockBillingApi(page);
+  let allowRecovery = false;
+  await page.route("**/api/billing/current-subscription", async (route) => {
+    if (allowRecovery) {
+      await route.fulfill({
+        json: {
+          data: {
+            id: "sub-recovered",
+            status: "ACTIVE",
+            periodStart: "2026-06-01T00:00:00.000Z",
+            periodEnd: "2026-07-01T00:00:00.000Z",
+            plan: professionalPlan,
+          },
+        },
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 503,
+      json: { error: { code: "UNAVAILABLE", message: "billing offline" } },
+    });
+  });
+  await page.goto(`${webBase}/app/billing`, { waitUntil: "domcontentloaded" });
+  await selectLocale(page, "en");
+  const error = page.getByTestId("settings-billing-load-error");
+  await expect(error).toContainText("Data could not be loaded");
+  await expect(page.getByText(new Intl.NumberFormat("en", {
+    style: "currency",
+    currency: "RUB",
+    maximumFractionDigits: 0,
+  }).format(4900))).toHaveCount(0);
+  allowRecovery = true;
+  await error.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByRole("heading", { name: "Plan “Professional”" })).toBeVisible();
+});
+
+test("billing shows a truthful no-subscription state", async ({ page }) => {
+  await mockBillingApi(page);
+  await page.route("**/api/billing/current-subscription", async (route) => {
+    await route.fulfill({ json: { data: null } });
+  });
+
+  await page.goto(`${webBase}/app/billing`, { waitUntil: "domcontentloaded" });
+  await selectLocale(page, "en");
+  await expect(page.getByText("No active subscription")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose a plan to get started" })).toBeVisible();
+  await expect(page.getByText("Next charge:")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Plan “Professional”" })).toHaveCount(0);
+});

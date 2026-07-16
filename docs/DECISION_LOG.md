@@ -1,6 +1,765 @@
 # Decision Log
 
-## 2026-07-13: Keep Active Conversations Fresh With Visible Polling
+## 2026-07-15: Activate Password Reset Tokens Only After Delivery
+
+Decision: Production credential recovery uses only a ready SMTP or UniSender provider and a reset origin that exactly matches the deployed frontend origin. A token is staged as unusable, then activated only after provider acceptance and credential-state revalidation under the shared per-user PostgreSQL lock.
+
+Context: Returning a reset URL or treating mock/manual delivery as successful could expose production credentials. Creating a usable token before a provider attempt left an authentication artifact behind when delivery failed; concurrent accepted requests could leave multiple links active; and a delivery already in flight could activate after another reset or authenticated password change completed. Coupling the request audit to activation also made an already delivered link unusable when only the audit insert failed.
+
+Consequences:
+
+- Production mock, manual, unsupported, and incomplete providers fail before token creation. Non-production mock retains token-bearing responses and logs for local QA.
+- SMTP and UniSender send the reset link through the shared delivery abstraction. Provider errors are sanitized; the public response remains generic and the staged token remains unusable.
+- Activation, reset confirmation, and authenticated password changes take the same advisory and user-row lock. Activation reloads the user and requires the password hash captured before delivery to remain unchanged.
+- Accepted requests serialize activation per user, invalidate earlier active links, and activate exactly one token. The request audit is attempted after activation and cannot roll back an accepted link; a sanitized operational error records audit failure.
+- Production `APP_URL` and `NEXT_PUBLIC_APP_URL` must be matching public credential-free HTTPS origins without path, query, or hash. Production responses and logs contain no reset URL.
+- Reset requests have a normalized one-minute recipient cooldown, an eight-per-hour recipient limit, and a per-IP limit. Delivery remains synchronous, so generic wording and these limits do not remove the account/provider latency oracle; durable asynchronous delivery is tracked separately.
+
+## 2026-07-15: Give Each Frontend Resource One Mutation Owner
+
+Decision: Each mutable frontend resource has one in-browser owner that serializes conflicting writes and reconciles failures against the authoritative API response.
+
+Context: Overlapping optimistic locale, Pipeline, and Team requests could complete out of order. A stale failure rollback could overwrite a newer customer choice, while concurrent membership actions could bypass self-protection assumptions or leave the screen inconsistent with the server.
+
+Consequences:
+
+- Locale persistence coalesces queued changes to the latest selection while `CurrentUser` updates optimistically.
+- Pipeline updates serialize per lead, preserving concurrency between different leads. Team membership changes serialize across the roster and reject self-demotion or self-removal in the UI before submission.
+- A failed request re-fetches or applies authoritative state only while it still owns that resource; it never restores an older optimistic snapshot over a newer action.
+
+## 2026-07-15: Synchronize Development QA On Semantic Readiness
+
+Decision: Protected-route Playwright tests wait for `domcontentloaded` with a 45-second navigation ceiling, then wait on a route-specific semantic ready element with a 15-second baseline. Multi-route suites may raise their aggregate or semantic bound while keeping the same synchronization model.
+
+Context: Measured Next development cold compilation regularly exceeded Playwright's default five-second assertion window and occasionally approached the default navigation timeout. `networkidle` and loader text describe transport activity, not whether the tested product state is ready.
+
+Consequences:
+
+- Tests synchronize on stable product elements and keep assertions about the actual behavior under test.
+- Suites that intentionally visit several cold routes receive an explicit aggregate budget instead of inheriting a timeout that cannot cover their route count.
+- The web development command uses an 8 GB Node heap ceiling. Next 15 restarts the dev child at 80% of its heap limit; the default ceiling was reached during the full route suite even while the host still had ample free memory.
+- These development-only bounds absorb compilation variance; they are not a production navigation or performance budget.
+
+## 2026-07-15: Treat Telegram Bot Replacement As An Identity Cutover
+
+Decision: A replacement bot receives a fresh secret bound to its bot ID. Connect, disconnect, health, and the complete inbound pipeline share the same workspace/bot advisory-lock boundary; only the active secret may process updates.
+
+Context: Reusing one secret let a delayed update from the retired bot pass after the channel identity changed, minting evidence for the wrong bot. Accepting a staged secret also allowed traffic before credentials and bot identity were atomically promoted.
+
+Consequences:
+
+- Pending-secret traffic returns a retryable cutover response before claim or persistence. Retired and unknown secrets return unauthorized.
+- Active, pending, and retired bindings store explicit bot IDs. Incomplete or same-secret legacy retirement state fails closed until forced cleanup succeeds.
+- Retired bot webhooks are deleted with `drop_pending_updates=true` and are never restored; active disconnect retains its drain-aware behavior.
+- Webhook update and message identifiers include the active bot ID. Queue admission rejection completes the AI stage without a queued lead event or fallback enqueue.
+- Message recency is the deterministic `(createdAt, id)` tuple in Telegram writes, conversation history/previews, and lead previews.
+
+## 2026-07-15: Bind Knowledge Cutover To Snapshot And Runtime Policy Identity
+
+Decision: Legacy-to-structured cutover validates the exact raw content hash, inherited scope generation/hash, snapshot-specific authorization manifest, and approved runtime processor-policy versions. Publication capability evaluation runs only after index preparation.
+
+Context: Canonical content hashing could disagree with the migrated raw value; inherited scope was not fully represented in cutover validation; chunk point IDs were incorrectly compared with publication snapshot point IDs; and a pre-index capability baseline or hard-coded policy label could authorize a different runtime than the published one.
+
+Consequences:
+
+- The forward PostgreSQL migration enforces snapshot-specific cutover identities without weakening existing guards.
+- Publication and activation reject scope, authorization, retrieval-policy, or prompt-policy drift.
+- Final grounded citations and gate outcome populate the retrieval metadata used by acceptance and operational audit.
+- The coordinated clean migration/publication/cutover/grounded-delivery acceptance passes end to end.
+
+## 2026-07-15: Present One Operational Surface Per Channel
+
+Decision: Each live channel has one customer-facing connection authority. Telegram connection lifecycle lives in Integrations; Website and Webhook/API configuration lives in Settings > Channels; Webhook endpoint inspection may be repeated elsewhere but mutations may not be.
+
+Context: Settings offered a generic Telegram status toggle that could not register or remove the provider webhook. Integrations offered Webhook source, sync, and notes controls that the API intentionally discarded. Channel list failures also appeared as disconnected providers with active controls.
+
+Consequences:
+
+- Telegram rows link to Integrations and have no generic connection toggle. Dedicated automatic-reply activation remains available for an already connected channel.
+- Website and Webhook/API are the only Settings rows with direct connection toggles; non-live providers show coming-soon state without no-op controls.
+- Webhook endpoint details and internal sample remain visible in Integrations, while target, authentication, secret, and lifecycle changes route to Settings.
+- Loading and failed channel reads expose no connection actions; retry is explicit and stale absence is never presented as authoritative.
+
+## 2026-07-15: Resume Webhooks By Fenced Stage, Not Whole-Attempt Replay
+
+Decision: Webhook receipt evidence is immutable, processing ownership uses a separate expiring token, and Telegram retries resume durable intake, AI-dispatch, and workflow-dispatch stages. Message-triggered workflows use a unique event key and execute their supported database effects in one transaction.
+
+Context: A `FAILED` event restarted the whole Telegram handler, so a later workflow failure could replay an already queued AI reply. A long-running `RECEIVED` event also used its original receipt time as the stale-claim clock, allowing another request to steal an active attempt. A crash after a workflow commit but before webhook finalization could create a second workflow run, audit, lead event, and usage charge.
+
+Consequences:
+
+- `receivedAt` remains authentication evidence; `processingAttempt`, `leaseToken`, `leaseAcquiredAt`, and `leaseExpiresAt` govern ownership independently.
+- Stage completion renews the current lease, and every stage/final transition is conditional on its token. An expired owner may finish local work but cannot publish state.
+- Telegram inline AI sending is removed; intake persists the queue request, and a retry skips a completed AI stage.
+- Workflow retries return the existing terminal run for the same event/input. Supported workflow effects, events, audit, lead projection, usage, and terminal status commit atomically.
+
+## 2026-07-15: Keep Telegram State Inside One Managed Lifecycle Boundary
+
+Decision: Telegram connection state changes only through the integration connect, test, and disconnect lifecycle. Each operation is serialized first by workspace and then by sorted provider bot identities.
+
+Context: Generic channel mutations could mark Telegram active or disabled without registering or removing the provider webhook. Per-bot connect locking prevented two workspaces from claiming one bot, but did not serialize different-bot replacements in one workspace or a health repair racing disconnect. Managers could also change write-only Webhook/API outbound targets and credentials through the broader channel patch permission.
+
+Consequences:
+
+- Generic Telegram create and status/settings updates fail with guidance to use Integrations; harmless display-name updates and dedicated automatic-reply controls remain separate.
+- OWNER/ADMIN authorization is rechecked from the patch payload before any Webhook/API outbound target, authentication, timeout, or removal is persisted.
+- Telegram connect, replacement, cleanup, health repair, and disconnect hold one workspace lock and all relevant active, candidate, and retired bot locks across remote and local state changes.
+- A test queued behind a completed disconnect reports disconnected without calling Telegram or reviving retained reconnect credentials.
+
+## 2026-07-15: Treat Channels As Connection Authority And Expose Only Live Integrations
+
+Decision: Telegram and Webhook/API connection state comes from a fully configured active channel. Every other catalog provider is non-operational until it has a live provider adapter.
+
+Context: `IntegrationAccount.status` could drift from channel state, block a working Webhook sample, or claim success without an endpoint. Several request/coming-soon providers still accepted direct API calls that wrote or tested only local rows.
+
+Consequences:
+
+- Webhook connect and test reconcile against an active channel, samples ignore stale companion status, disconnect disables the channel, and incomplete public keys or secrets fail closed.
+- Integration metadata cannot mutate channel settings outside the channel update path that validates outbound configuration and fences automatic replies.
+- CRM, social, Email inbox, Calendar, commerce, and custom providers return stable non-retryable unavailability before persistence; legacy rows remain redacted for recovery.
+- Transactional email authentication remains a separate SMTP/UniSender subsystem.
+
+## 2026-07-15: Key Telegram Intake By Bot And Message Identity
+
+Decision: Telegram bot ownership is serialized globally by the provider bot ID, while inbound side effects are keyed by the channel-scoped update claim and normalized Telegram message ID.
+
+Context: Telegram may retry one update while its first request is still running, deliver an edit under a new update ID, or receive two simultaneous attempts to connect one bot to different workspaces. Prematurely acknowledging in-progress work can lose a later failure; treating every update ID as a new message can duplicate AI/workflow effects; and Telegram permits only one webhook per bot.
+
+Consequences:
+
+- An update claim still in `RECEIVED` returns a retryable service failure so Telegram keeps retrying; processed replays remain successful duplicates and stale/failed claims remain resumable.
+- A new update ID for an already persisted message cannot repeat AI or workflow effects. `edited_message` replaces that message's persisted text and raw evidence without producing a second reply.
+- Late message delivery preserves the greatest conversation/lead activity timestamp, and Inbox reply-needed state is derived from the latest message direction rather than any open status.
+- Per-bot database advisory locking makes the duplicate-workspace check and managed webhook lifecycle one serialized operation across API instances.
+
+## 2026-07-15: Derive Webhook Delivery State From Channels
+
+Decision: Webhook/API Settings reads and changes the actual `WEBHOOK` channel. Stored integration-account status is not evidence that an outgoing destination works.
+
+Context: The generic integration connection test can succeed from a persisted status alone. Customers need to configure, exercise, and disable outgoing webhook delivery without exposing stored URLs or credentials or disrupting inbound intake.
+
+Consequences:
+
+- Target and authentication badges come only from the redacted channel projection; target URL and secret replacement remain write-only.
+- A test creates one real sample lead through the webhook channel pipeline. Only `sent` is described as delivered; `queued`, `skipped`, `failed`, and request errors remain distinct retryable outcomes.
+- Disabling outgoing delivery removes its target and authentication through the channel patch API. The channel, inbound endpoint, and server-managed inbound secret stay active.
+
+## 2026-07-15: Fail Closed For Unimplemented Worker And AI Runtime Paths
+
+Decision: Every declared worker queue either runs a real processor or fails terminally. Production API and worker processes may not instantiate the deterministic mock AI provider.
+
+Context: Five reserved queues returned a successful `placeholder` result without doing work, malformed extraction jobs substituted demo identities, and a missing or disabled production AI configuration silently selected mock output.
+
+Consequences:
+
+- Reserved queues remain declared for contract compatibility but their jobs are dead-lettered as non-retryable until a processor is implemented.
+- Malformed AI reply, extraction, and channel-delivery payloads are permanent contract failures; no demo tenant, conversation, or text fallback is synthesized.
+- Production requires an enabled OpenAI provider with a configured key. The mock provider is available only when explicitly selected outside production.
+
+## 2026-07-15: Expose Email And Calendar Only With Live Adapters
+
+Decision: The customer Email inbox and Google Calendar remain visible as unavailable catalog entries until provider-backed connection, health, inbound/delivery, and booking implementations exist.
+
+Context: Both integrations could persist `CONNECTED`, successful tests, logs, and timestamps without contacting any external provider. The Email channel adapter was also a placeholder, and Calendar had no production adapter.
+
+Consequences:
+
+- Connect, disconnect, settings, test, and sample boundaries fail before database or provider access with `501/INTEGRATION_NOT_AVAILABLE` and provider-specific capability metadata.
+- Legacy rows remain stored for recovery but project as `COMING_SOON` without operational timestamps, logs, public settings, or credential state.
+- Email channel and Google Calendar adapter calls reject with a stable non-retryable unavailable error instead of inventing provider identifiers or success.
+- Transactional email OTP uses its separate SMTP/UniSender subsystem and is unchanged.
+
+## 2026-07-15: Preserve Legacy Telegram Webhook History
+
+Decision: A tenant's Telegram integration history reads both the current scoped provider key `telegram:<channelId>` and the historical tenant-scoped key `telegram`.
+
+Context: Webhook storage moved to channel-scoped provider keys, but prior successfully processed updates remained under `telegram` and disappeared from recent integration history.
+
+Consequences:
+
+- Telegram history queries and projections merge both keys under the tenant boundary.
+- Telegram webhook registration, verification, connection, and delivery behavior is unchanged.
+
+## 2026-07-15: Send Clients To The Verified Telegram Bot
+
+Decision: A successful Telegram connection keeps the setup dialog open and makes the provider-verified bot username a direct `t.me` action in both the dialog and connected integration card.
+
+Context: Telegram can only deliver messages addressed to the configured bot. Production records showed the reported manual updates were accepted and persisted, while the prior UI closed immediately and left users to find a bot independently, making wrong-bot testing indistinguishable from an inbound failure.
+
+Consequences:
+
+- The server-returned `botUsername` is the customer-facing identity; the submitted token is cleared and never rendered.
+- The direct chat target includes the exact username and a stable start parameter. Users no longer need to search Telegram or remember which bot token they connected.
+- Inbox remains visibility-aware and polls live data; Telegram health still validates and repairs the managed webhook separately from the direct chat action.
+
+## 2026-07-15: Reconcile Interrupted Deployments From A Durable Journal
+
+Decision: Production deployment records one versioned, fsync-safe journal before candidate preflight or drain. `precommit` recovery restores the recorded `current` path and exact prior container IDs/running states; `committed` recovery can only run the candidate migration and promotion path.
+
+Context: Shell traps do not run after `SIGKILL`, power loss, or host reboot. Losing in-memory phase and container state after writers or nginx stop could leave production unavailable, while guessing the phase after a possible migration could restart incompatible old code.
+
+Consequences:
+
+- The journal binds candidate SHA, release path/image tag, Compose project, env/public routing, exact prior link/path identity and backup, plus canonical API/worker/web/nginx IDs and running flags. Atomic replacement syncs the journal file and parent directory.
+- `current` and its parent are synced before an identity-fenced `precommit` to `committed` rewrite. No migration runs before that durable commit point, so recovery never guesses whether old-code rollback remains legal.
+- The same fail-closed reconciler runs at the start of every deploy and from an enabled systemd oneshot after Docker and the network start. Failed recovery retains the journal and holds nginx stopped.
+- Successful precommit recovery proves prior API, active worker, web, public health, root, and unauthenticated auth before clearing the journal. Committed recovery rechecks stateful dependencies, migration/key coverage, normal API, paused/activated worker, web, nginx, and public routes before clearing it.
+- Pruning recognizes only marker-valid managed releases. Current/journal paths, top-level symlink targets, and every stopped or running Compose container label are references; image tags remain while any journal, release marker, or container names them.
+- Local verification covers Bash syntax, static recovery/order assertions, mocked journal write and duplicate-attempt fencing, and mocked fail-closed pruning. A disposable Linux Docker/systemd `SIGKILL` and reboot matrix remains required before treating abrupt-process and host-loss recovery as operationally proven.
+
+## 2026-07-15: Snapshot Capability Configuration And Evaluation At Publication
+
+Decision: Every structured publication binds canonical capability-set and requirement-evaluation-set hashes and stores one immutable `KnowledgePublicationCapability` row for each enabled capability, linked to the exact validation and write-once requirement evaluations.
+
+Context: Mutable tenant capability settings cannot explain or authorize a historical answer after configuration, templates, evidence, or autonomy changes.
+
+Consequences:
+
+- Publication activation re-evaluates the candidate and rejects new blockers or configuration drift, plus any mismatch between the publication and its stored validation/evaluation identities.
+- Published capability type, autonomy, configuration hash, validation identity, and evaluation hash remain reproducible without reading current draft settings.
+- At least one capability must be enabled; disabled capabilities are not copied into the serving snapshot.
+
+## 2026-07-15: Separate Draft Capability Readiness From Serving Readiness
+
+Decision: Draft readiness is computed from current capability configuration and candidate evidence. Serving readiness is reconstructed only from the active publication's immutable capability and validation records.
+
+Context: Showing current draft settings as serving state would make an unpublished edit appear live and could hide what the runtime is actually authorized to do.
+
+Consequences:
+
+- Knowledge Overview presents published serving capabilities separately from editable draft controls.
+- A draft change can block validation and revoke automation, but it never mutates the active publication's historical readiness.
+- Runtime authority comes from the publication captured by the reply run, not from mutable capability rows.
+
+## 2026-07-15: Preserve Knowledge Validation Attempts As Immutable History
+
+Decision: Candidate/version/policy identity is an index, not a uniqueness boundary. Each validation attempt receives a new row, and its requirement evaluations are write-once for that validation.
+
+Context: Reusing or overwriting one validation row destroys evidence about prior capability configuration, evaluation results, actor, timing, and publication attempts.
+
+Consequences:
+
+- Pending and passed unpublished validations become `EXPIRED` when capability configuration changes; they are not rewritten into the new decision.
+- Publications retain an exact validation reference, while later attempts can evaluate the same candidate under newer capability or policy state.
+- Migration checks require the final nonunique history index and reject the former unique constraint or malformed partial state.
+
+## 2026-07-15: Revoke Automation When Capability Authority Changes
+
+Decision: A semantic capability change revokes automatic replies bound to the old capability set and fences affected queued/running work. Structured runtime classifies the customer intent against the captured publication; disabled capabilities and explicit handoff requests take the deterministic human-handoff path without retrieval or model execution.
+
+Context: Editing enablement or autonomy after channel activation must not let already-authorized work continue under stale business authority.
+
+Consequences:
+
+- Revocation clears channel publication/capability bindings, advances automation and conversation generations, supersedes affected runs, and dead-letters only affected-channel reply outbox work.
+- Admission, retry, and delivery require the same publication capability-set hash captured by the run.
+- V1 freezes allowed autonomy in the publication. Authoritative tool/permission evidence and action-by-action autonomy enforcement remain required before broader external actions can execute.
+
+## 2026-07-14: Commit Before Database Migration And Recover Forward
+
+Decision: Production deployment preflights a writer-free API, paused worker, and web while the prior stack remains live. It then drains exact prior writers, stops nginx, switches `current`, disarms old-code rollback, and only then runs migrations and retained-key coverage. Any later failure handled by the deployment process reruns those gates and promotes only the candidate release.
+
+Context: Restoring old code after a successful schema migration can make old writers corrupt or misinterpret the new database. Candidate boot checks after the drain also created avoidable downtime and left recovery unable to distinguish stopped canonical containers from containers stopped by the deployment.
+
+Consequences:
+
+- Existing releases recover their Compose project from a validated marker or an unambiguous stopped-or-running container label; the candidate persists the project marker and stateful services use `--no-recreate`.
+- PostgreSQL, Redis, Qdrant, and ClamAV readiness is proven before candidate preflight. Precommit rollback restores the exact prior path and only previously running containers, holds nginx until prior API/web readiness, and verifies public health, root, and unauthenticated auth.
+- Postcommit recovery reruns migration/key gates, force-recreates candidate API/paused worker/web, activates the worker only after the final key gate, validates nginx, and keeps nginx stopped unless public health, root, and auth all pass.
+- The 2026-07-15 durable journal decision above supplies the recovery mechanism; the disposable-host crash and reboot drill remains the operational proof gate.
+
+## 2026-07-14: Preserve Compose Identity In Standalone TLS Operations
+
+Decision: Each active release may identify its validated Compose project through `.leadvirt-compose-project`. Certificate renewal and active-nginx validation pass that project explicitly; marker absence retains the legacy lookup, while malformed markers fail closed. A first TLS cutover may bind a temporary nginx only when the ACME token is not already served.
+
+Context: Release directories no longer imply a stable Compose project name, and a first install has no nginx to serve Certbot's webroot. Out-of-band certificate scripts could target no container or fail before the initial certificate existed.
+
+Consequences:
+
+- The temporary server remains alive through certificate issuance and is removed by an exit trap. Existing port `80` listeners are never stopped or replaced.
+- Renewal targets the nginx service belonging to the active release instead of deriving project identity from its directory name.
+
+## 2026-07-14: Keep Candidate API Preflight Writer-Free
+
+Decision: The isolated candidate API starts with `API_DEPLOYMENT_PREFLIGHT=true`, which disables every API startup outbox, reconciliation, publication, review, and Test-run drain. Its health contract must report preflight mode before deployment can commit. Canonical Compose forces the flag to `false`, and promotion requires health to report normal mode.
+
+Context: Starting the candidate API after old writers drain but before the release commit could process shared PostgreSQL outboxes or publish queue jobs with candidate code. A successful HTTP boot alone did not prove writer isolation.
+
+Consequences:
+
+- Invalid preflight flag values fail startup. Release readiness inventories and classifies every API `OnModuleInit` hook so a new writer cannot silently bypass the guard.
+- Prisma connection and read-only dependency probes remain active for boot validation; no API background writer schedules or performs work in candidate mode.
+- Normal API behavior is unchanged, and the deployment-only override cannot leak into canonical services.
+
+## 2026-07-14: Bind Query Evidence To Tenant-Scoped HMAC Keys
+
+Decision: Structured original, processor, and Test query evidence uses domain-separated HMAC-SHA256 bound to tenant, purpose, version, and key ID. One active key writes new hashes; prior configured keys are verify-only. An immutable database registry binds each key ID to its version and non-secret key check.
+
+Context: Raw unsalted query hashes permit offline dictionary matching and cross-tenant correlation. Rotation also becomes unsafe if a retained record can be relabeled with missing or changed key material.
+
+Consequences:
+
+- Query-hash metadata persists and is revalidated across retrieval, grounding, live tools, precommit, and delivery. Legacy versions and mismatches fail closed.
+- A key ID and its material are immutable. Rotation adds a uniquely named active key while retaining every old verifier required by persisted records.
+- The drained-writer deployment gate rejects legacy rows without HMAC metadata, missing retained verifiers, key material that disagrees with the registry, and referenced but unregistered IDs. It registers only configured keys that have no retained references, preventing silent first-use adoption.
+- Query-hash columns remain nullable during the expand phase for old-writer rollback compatibility. After those writers are permanently retired and legacy rows are explicitly remediated, a contract migration will require key ID and version metadata.
+
+## 2026-07-14: Serialize Custom Migrations And Preserve The Query-HMAC Expand Phase
+
+Decision: The custom migration runner acquires one PostgreSQL advisory transaction lock in the maintenance database, keyed by target database, before database creation, state checks, or DDL. Query-HMAC metadata state requires the exact eight nullable, default-free text columns and the exact validated check constraint on each intended table.
+
+Context: Separate manual entrypoints could both observe an absent migration and race into the same DDL. Name counts also accepted weakened constraints or a same-named constraint attached to the wrong table. The metadata columns must remain nullable during rolling compatibility with old writers.
+
+Consequences:
+
+- Concurrent runner processes serialize; the first applies and later processes re-evaluate state and skip.
+- Partial or altered query-HMAC metadata fails closed instead of being skipped or replayed.
+- This is the expand phase only. After old writers are permanently retired, a later contract migration must remediate legacy rows and reject missing key ID/version metadata.
+
+## 2026-07-13: Bind Snapshot Authorization Before Query Time
+
+Decision: Every new structured READY index snapshot stores a strict versioned authorization manifest and canonical hash covering its exact tenant, snapshot, document revisions, source permission partitions, membership, schema, and point count. Publication activation binds that manifest, while runtime validates current source permission state with one bounded partition query and retains row-backed candidate hydration.
+
+Context: Reconstructing permission partitions by scanning every snapshot item on every request was safe but linear in corpus size. Trusting Qdrant payloads or a preparation-time check alone would make permission revocation, snapshot reuse, and concurrent activation unsafe.
+
+Consequences:
+
+- Canonical identity uses locale-independent code-unit ordering. A v1 manifest allows at most 512 source partitions and 100,000 points, rejects unknown or noncanonical fields, and binds exact revision and membership hashes.
+- Index preparation rebuilds the manifest under locked source/revision/chunk fences before READY. READY and publication-referenced snapshot authorization/membership are immutable in PostgreSQL, and publication attachment rechecks a locked READY parent.
+- Activation requires exact document revisions and current source permission version/fingerprint. Runtime permits source-generation advance but denies regression, permission drift, deletion, tombstone, malformed identity, or revision mismatch before Qdrant access.
+- Runtime performs one snapshot-readiness query and one bounded source query, then preserves exact snapshot-row hydration before and after reranking plus final evidence revalidation.
+- Legacy null-version snapshots are not reused and fail closed. The contract migration requires old index writers to be drained unless deployment is split into an explicit expand/deploy/contract sequence.
+- Deterministic 512-partition tests prove bounded authorization query count. Real PostgreSQL/Qdrant latency at the 100,000-point ceiling remains a separate release benchmark.
+
+## 2026-07-13: Version Tenant-Default Knowledge Scope
+
+Decision: Knowledge v2 stores an optional canonical tenant-default scope with a monotonic generation and policy-specific hash. Null-scoped fact and guidance versions inherit that policy; explicit versions must contain a nonempty audience and do not depend on it.
+
+Context: Facts and guidance previously failed closed when their scope was null because no persisted tenant default existed. Treating null as public would create an implicit authorization wildcard and make later policy changes impossible to fence reliably.
+
+Consequences:
+
+- Existing tenants remain unset and receive no `PUBLIC` backfill. Owners/admins choose the default audience through client-safe settings controls.
+- Publication materializes inherited effective scope and binds the default generation, hash, and authorization fingerprint. Runtime, evidence revalidation, and delivery require those pins to match the current policy.
+- A semantic default change increments the generation and immediately makes inherited active items unavailable until a new publication activates. Explicitly scoped items retain their existing authorization identity.
+- Empty or malformed explicit/default audiences fail closed. Legacy unbound inherited items cannot serve.
+- Document scope behavior is unchanged because document audience, classification, revision scope, and source permission are independently enforced.
+
+## 2026-07-13: Authenticate Customer Identity At Telegram Ingress
+
+Decision: Customer-personal authorization requires a versioned, immutable ingress attestation. Telegram can create it only after managed-secret verification for a real private bot chat whose safe numeric `message.from.id` equals `message.chat.id` and whose sender is not a bot.
+
+Context: Lead and conversation records are mutable CRM state, Telegram group chat IDs identify a room rather than a person, and internal samples use synthetic private-shaped updates. None of those values can prove who is asking for an order or booking status.
+
+Consequences:
+
+- Internal samples, groups, supergroups, malformed senders, mismatched private chats, and channels without a verified bot ID remain non-personal without blocking Inbox ingestion. A contact phone is accepted only when `contact.user_id` matches the authenticated sender.
+- One create-only `AuthenticatedCustomerIdentity` binds the exact tenant, channel, conversation, inbound message, WebhookEvent, processed payload, receipt time, HMAC subject, and attestation. Queue data carries only its opaque ID, version, and hashes; the raw Telegram subject is not added to the job contract.
+- Webhook retries preserve the original receipt time and reuse the same identity. `CUSTOMER_IDENTITY_HMAC_KEY` must remain stable across API and worker deployments; rotation requires a versioned migration.
+- Live-tool policy v2 requires the exact proof and revalidates the stored Telegram payload, channel binding, run fence, permission generation, encrypted ledger result, and proof again before commit or resolution. Rows created without identity cannot resolve.
+- The worker remains PUBLIC even when the queue contains a valid proof. Customer-personal execution is a separate activation task requiring approved query processing, processed-event ordering, and end-to-end revocation proof.
+- AI reply run creation follows `KnowledgeCorpusSelector`, capturing `workspace-v2` for structured tenants and `workspace` for legacy tenants.
+
+## 2026-07-13: Use Shared Structured Retrieval For Search Diagnostics
+
+Decision: `GET /knowledge/sources/search` captures the exact active `workspace-v2` publication and calls the shared structured runtime. The legacy retriever, corpus selector, SQL/hash fallback, and legacy source/chunk response are not part of this endpoint.
+
+Context: API diagnostics still queried the legacy `workspace` target and could fall back to database retrieval even after live replies, Test runs, and evaluations had moved to Knowledge v2. That produced different evidence and authorization behavior from production.
+
+Consequences:
+
+- Owner/Admin diagnostics use an INTERNAL audience with PUBLIC, INTERNAL, and SENSITIVE evidence classifications. Manager/Agent diagnostics are PUBLIC-only; Viewer is denied. No customer-personal identity, arbitrary scope simulation, or live-tool execution context is inferred.
+- Free-form diagnostic text is always classified `SECRET` for query-processor admission because role and evidence visibility do not classify user-entered data. Document retrieval therefore requires explicit tenant and deployment approval for `SECRET` query processing; otherwise exact local evidence may degrade safely and document-only diagnostics fail closed.
+- The response exposes only bounded authorized fact, guidance, document, conflict, and diagnostic projections. Insufficient grounding is explicit; unavailable dependencies and changed targets/evidence fail closed with stable content-free errors.
+- Evidence and the exact current conflict set are revalidated before return, and responses are private and non-cacheable. The shared runtime deletes newly created restricted query artifacts on every post-storage failure until it transfers a trace cleanup handle; the endpoint then cleans transferred artifacts on grounded, insufficient, and unavailable paths. The existing `limit` query parameter caps only the response projection because structured retrieval depth is policy-owned.
+- This supersedes the 2026-07-05 decision that allowed `/api/knowledge/sources/search` to fall back to database vector similarity and the earlier implicit Viewer access to this diagnostic action.
+
+## 2026-07-13: Make Managed Telegram Health Self-Healing
+
+Decision: Telegram connection health uses `getMe` and `getWebhookInfo`, evaluates the registered relay URL, pending backlog, and delivery errors, and attempts one managed `setWebhook` repair before reporting readiness. Synthetic Inbox samples remain available but are explicitly identified as internal processing checks.
+
+Context: The internal sample bypassed Telegram, TLS, the FR relay, and public ingress. A matching webhook URL was previously reported as healthy even while Telegram accumulated timed-out updates. Bot replacement also persisted a new secret before external registration succeeded, which could invalidate the still-active bot after a failed replacement.
+
+Consequences:
+
+- Stale URLs, delivery failures, missing secrets, and exact `message`/`edited_message` subscription drift are repaired with the server-owned secret and allowed-update policy, then verified again; a remaining backlog, error, or policy mismatch reports failure. Candidate secrets are row-locked, credential-fenced, and accepted alongside the active secret before `setWebhook`, so Telegram can immediately drain queued updates without receiving `401`.
+- Telegram webhook ingestion denies channels without a managed secret. Clients still enter only the BotFather token.
+- Ordinary bot replacement reuses the active webhook secret and does not change stored credentials until channel activation succeeds. The retired bot credential remains encrypted and redacted until health confirms its queue is empty and Telegram confirms webhook deletion; historical `last_error_*` fields describe the most recent error and do not block cleanup once pending updates reach zero. Disconnect checks the queue before deletion, confirms it remains empty afterward, and restores the active webhook if an update races with removal. Failed cleanup stays visible and retryable. Staged secret rotation remains available for explicit recovery.
+- The public FR relay applies a per-IP `50` requests/second limit with a burst of `100`; API-side secret verification remains authoritative and relay request logging remains disabled.
+- Production and staging route outbound Bot API calls and inbound webhooks through the FR gateway. Deployment rejects persistent-env drift and probes the external relay before completing. The Telegram readiness action is a live health check; synthetic traffic is labeled as an internal sample.
+
+## 2026-07-13: Fail Closed on Persisted Knowledge Authorization
+
+Decision: Persisted Knowledge v2 scopes, document audiences, and delivery authorization filters are parsed as bounded typed policy. Malformed policy denies access. Facts and guidance cannot use a null tenant-default scope until that policy is stored and versioned; documents may omit additional scope only because tenant, classification, and audience remain independently enforced.
+
+Context: Lossy JSON parsing converted malformed arrays and fields into empty wildcard policy. Chunk scope was mutable without being tied to its revision, permission partitions stopped after 513 rows rather than 512 unique partitions, and API-valid scope values could fail only after content reached the embedding boundary.
+
+Consequences:
+
+- Explicit scopes reject unknown fields, mixed values, duplicates, reserved wildcard values, excessive cardinality, and invalid IDs, segments, audiences, channels, or locales. API, trace, and Qdrant limits share the same contract.
+- Publication, index preparation, hydration, and delivery require each chunk and manifest scope to equal the revision/document scope. Document audience and locale payload filters must be at least as restrictive as that scope.
+- Permission partitions are derived by deterministic paging across every snapshot row and fail closed above 512 unique partitions. Invalid metadata is rejected before processor admission or embedding.
+- Existing null-scoped facts and guidance stop serving and require an explicit audience. A later tenant-default feature must be persisted, versioned, included in fingerprints, and revalidated rather than reintroducing implicit wildcards.
+
+## 2026-07-13: Resolve Authoritative Evidence Before Document Retrieval
+
+Decision: Structured facts, guidance, and authorized read-only live tools resolve before document embedding, Qdrant search, and reranking. A document dependency failure cannot erase valid authoritative evidence, and missing mandatory live evidence stops before document query disclosure.
+
+Context: The retriever previously queried documents first. Embedding, processor-policy, sparse, Qdrant, or reranker failure could block a valid order or booking lookup, while a live-required query with no usable tool result was still sent to document processors even though static text could not answer it.
+
+Consequences:
+
+- Exact local and live evidence may continue through grounding with a stable degraded dependency reason; document-only questions still fail closed without SQL or lexical fallback.
+- Live-tool authorization, immutable ledger resolution, expiry, precommit revalidation, and delivery revalidation remain unchanged and mandatory.
+- The worker reports a grounded answer with document degradation as `degraded`, not `empty`; persisted retrieval filters retain the content-free degradation code for audit.
+
+## 2026-07-13: Bind Operational Answers To Immutable Live Evidence
+
+Decision: Operational answers may use only server-owned read tools whose result is committed to an encrypted, immutable PostgreSQL ledger after a serializable authorization recheck. No generic client-callable tool endpoint is exposed.
+
+Context: Static knowledge cannot prove current order, booking, availability, inventory, or account state. Opaque caller-provided references were insufficient because authorization, connector permissions, conversation identity, and payload integrity could change before commit or delivery.
+
+Consequences:
+
+- Ledger rows contain hashes, policy identities, authorization generations, object metadata, and exact runtime bindings; values and answer content remain encrypted in object storage.
+- Authorization generations advance on tenant, membership, channel, and integration permission changes and cannot be rolled back or directly deleted. Old evidence can never become valid again.
+- The resolver uses its server clock and rechecks the exact tenant, run, attempt, conversation fence/status, lead, channel, permission generation, connector version, expiry, ciphertext, and envelope before every use. Final commit/delivery checks take share locks through the caller transaction so revocation cannot commit across the provider boundary.
+- Only authenticated-customer internal order and booking readers are currently registered. Public or unsupported requests hand off until authoritative identity and provider adapters exist.
+
+## 2026-07-13: Localize Settings Chrome Without Rewriting Stored Content
+
+Decision: Settings and Billing localize LeadVirt-owned labels, actions, validation, statuses, and formatting in the web client. Tenant-authored widget content and provider-authored plan descriptions/features remain verbatim.
+
+Context: The shared Settings component mixed hardcoded Russian with API values. Translating stored business content in the browser would silently change what operators review or later persist.
+
+Consequences:
+
+- EN/ES/FR/DE/PT/RU use one typed Settings catalog and locale-aware date, number, RUB, usage, session, API-key, and invoice formatting.
+- Stable billing modes/statuses and the manual-invoice workflow map to client-owned copy; plan and tenant content remain API data.
+- Locale changes do not alter Settings API payloads, subscriptions, channel configuration, security actions, or downloaded invoice identities.
+
+## 2026-07-13: Keep Public Widget Chrome Separate From Tenant Content
+
+Decision: Localize LeadVirt-owned public widget controls from the tenant's configured widget locale while rendering tenant-authored chat content and branding verbatim.
+
+Context: The public widget mixed Russian control text with configurable tenant content. Browser language is not authoritative when a tenant embeds one configured widget across customer sites.
+
+Consequences:
+
+- EN/ES/FR/DE/PT/RU and their BCP-47 tags select typed widget chrome; invalid tags fall back to English.
+- Tenant title, subtitle, welcome message, suggested replies, consent, colors, position, and powered-by text are never machine-translated in the browser.
+- The standalone demo page chrome and missing-key frame use the browser locale; the widget inside the demo still follows its fetched tenant configuration.
+
+## 2026-07-13: Keep Dashboard API Labels Locale-Neutral
+
+Decision: Dashboard summary returns stable audit action codes and Monday-based weekday indices. The web client owns display labels and weekday formatting for all six product locales.
+
+Context: The API previously embedded Russian activity prose and weekday abbreviations, forcing other locales to reverse-map server text.
+
+Consequences:
+
+- Known Dashboard activity is localized from action codes; optional legacy titles remain a compatibility fallback for older or mocked responses.
+- Trend points carry weekday indices, so clients format them with their own locale rather than translating Russian abbreviations.
+- Additional workflow, billing, integration, and event prose will move to the same stable code/value pattern separately.
+
+## 2026-07-13: Return Analytics Insight Codes Instead Of Fixed Prose
+
+Decision: Analytics overview returns bounded insight codes. The web maps those codes to six-language recommendations and accepts optional legacy free text only for compatibility.
+
+Context: Four deterministic recommendations were emitted as Russian sentences, so non-Russian interfaces displayed server-owned Russian content.
+
+Consequences:
+
+- API responses are locale-neutral and bounded to four documented insight codes.
+- The client controls translated display text without changing analytics calculations or CSV behavior.
+- Unknown future codes degrade to a readable code label rather than silently selecting another locale.
+
+## 2026-07-13: Persist Explicit User Locale Without Overriding Legacy Browser Choice
+
+Decision: Store a nullable six-language locale on the user. A signed-in saved preference overrides the browser cookie; a null preference preserves the current cookie until the user explicitly chooses a language.
+
+Context: Cookie-only localization did not follow users across browsers. Defaulting every existing user to English would unexpectedly replace their current browser language on the first authenticated load.
+
+Consequences:
+
+- The language switch updates the browser immediately and persists the authenticated preference on a best-effort API call.
+- `/auth/me` returns the saved preference so the product shell can apply it on another browser.
+- The API allowlist and database constraint accept only EN/ES/FR/DE/PT/RU, and each successful change writes a tenant-scoped audit entry.
+
+## 2026-07-13: Bulk Resolve Only Exact Homogeneous Low-Risk Review Sets
+
+Decision: Bulk Review resolution is limited to owner/admin-selected sets of 1-50 exact LOW-risk items sharing one READY source, reason, suggested action, and target schema. A private/no-store preview issues a five-minute actor/tenant-bound, domain-separated HMAC over every ID, generation, and ETag.
+
+Context: Query-wide or heterogeneous bulk actions could silently include newly arrived, restricted, higher-risk, conflicting, or incompatible work and leave partial terminal state when a later follow-up failed.
+
+Consequences:
+
+- Conflict-linked, restricted, unsupported, stale, cross-tenant, mixed-source/reason/schema, and non-LOW items never receive an executable preview.
+- Execute requires the explicit selected IDs, every ETag, preview hash/expiry, and an Idempotency-Key. It reauthorizes the current actor and locks all rows in stable order.
+- Review terminal states, hashed audits, metadata-only jobs, and outbox events commit in one transaction. Any stale item or enqueue failure rolls back the full batch; replay reuses the receipt without duplicating follow-up work.
+- The UI offers only explicit visible-row selection to owners/admins, retains selection while reloading rejected or stale state, and never presents optimistic or partial terminal success.
+
+## 2026-07-13: Separate Real Knowledge Quality From Deterministic CI
+
+Decision: run multilingual real-provider Knowledge v2 quality only as a manually approved staging workflow, while PR/main CI verifies the same slice and privacy contract with deterministic observations.
+
+Context: the existing real-provider evaluator uses the legacy corpus and can use database retrieval. The production Knowledge gate must prove normal structured-v2 ingestion, an immutable Qdrant hybrid snapshot, the shared PUBLICATION evaluator, real processor admission, and grounded answers without making ordinary CI depend on external credentials or fabricating a local pass.
+
+Consequences:
+
+- A dedicated staging tenant owns reviewed multilingual sources and an exact pinned test-case-set hash.
+- The protected runner re-syncs sources and evaluates a DRAFT but never publishes it.
+- Missing credentials, processor consent, Qdrant reconciliation, locales, behaviors, hashes, or per-locale floors fail closed.
+- Reports expose only safe identities, hashes, aggregates, latency, and usage/cost; raw questions, evidence, answers, tenant/source IDs, and credentials remain protected.
+- Global and English aggregates cannot mask a failed locale, and tenant-critical pass rate is fixed at 100%.
+
+## 2026-07-13: Hydrate Conflict Values Only At Authorized Detail And Execution Boundaries
+
+Decision: Restricted conflict candidate values are decrypted only for authenticated private/no-store conflict detail and immediately before a value-selecting decision executes. Lists and durable operations retain hashes and opaque metadata only.
+
+Context: Candidate selection was unavailable when a protected replacement value existed because no reader could safely connect its encrypted object to current tenant, actor, source, revision, evidence, permission, audience, classification, and deletion state.
+
+Consequences:
+
+- Managers remain limited to claimed low/medium-risk public or internal material; owners and admins retain elevated-risk access. Present malformed audience policy denies every role instead of falling back.
+- Resolution admission validates every candidate. The queued target stores an authorization hash plus exact generation/content pins, never plaintext or an object reference.
+- Execution reauthorizes the actor, rehydrates the selected object, and compares the exact authorization hash before creating an immutable fact successor. Missing, corrupt, stale, revoked, or changed material fails closed.
+
+## 2026-07-13: Commit Onboarding And Selected-Corpus Projection Atomically
+
+Decision: Serialize onboarding mutations, migration/cutover, public legacy writes, and legacy activation with one tenant-scoped PostgreSQL corpus-transition lock. Onboarding state, tenant identity, legacy compatibility sources, structured draft projection, outbox events, and audits commit in one transaction. Migration start backfills the current onboarding state and enables structured dual-write through failed or stale replacement attempts and after cutover. Generated onboarding compatibility sources remain one-way legacy transport/UI data: public update/archive is rejected and they never become structured document evidence; typed facts and guidance are the structured authority. Cutover recomputes the current legacy manifest, requires the active structured validation generation to match the current draft, and rejects unresolved onboarding ownership reviews or retired onboarding documents. After `STRUCTURED_V2` is selected, public legacy mutations are read-only and delayed legacy publications terminate without pointer activation. Structured onboarding drafts never auto-publish. Dispatch begins only after commit. A successful authenticated launch opens `/app/knowledge?welcome=1` for review, testing, and explicit publication; demo launch still opens Dashboard.
+
+Context: The previous request path committed onboarding state before updating the tenant, knowledge sources, outbox, and audit. After structured cutover it also continued updating only the inactive legacy corpus, so onboarding edits were invisible to runtime retrieval. The Dashboard handoff hid the required structured review, test, and publish steps. Concurrent API replicas could also overwrite disjoint onboarding patches.
+
+Consequences:
+
+- Concurrent patches read and merge only after acquiring the same tenant lock, so separate answers are retained.
+- Deterministic semantic keys append successors only when onboarding-owned material or exact projection evidence is stale. Explicit content-free onboarding and editor provenance prevents later onboarding saves from overwriting manual successors; same-text scope, risk, condition, or priority differences create HIGH-risk, actionable review items and block cutover until resolved.
+- Empty values archive or disable successors, already-current saves create no work, and stale projection policy repairs idempotently. Free-text catalog content remains HIGH/PUBLIC and operational availability HIGH/INTERNAL, so a manager cannot approve arbitrary price, discount, refund, guarantee, or availability claims.
+- Direct public update/archive of exact generated compatibility rows fails with `KNOWLEDGE_CONFLICT_ONBOARDING_SOURCE_MANAGED`; ordinary manual legacy sources retain their pre-cutover behavior.
+- Exact generated onboarding compatibility sources are excluded from migration and candidates. Stale `LEGACY_ONBOARDING` documents block cutover, while runtime hydration, evidence revalidation, and persisted-reply revalidation reject any pre-fix active item.
+- Any selected-corpus projection or audit failure rolls back the full mutation and cannot dispatch an uncommitted event.
+- A post-commit dispatcher failure leaves the durable outbox and complete business state available for bounded retry. Exhaustion/deadline terminalization conditionally owns a claimable or expired lease and completes related inbox, job, and attempt state without overwriting a concurrent success.
+- Unrelated later draft generations do not invalidate valid reconciliation work; exact resource generation/version/hash still rejects same-resource predecessors.
+- Exactly one corpus remains live. Post-cutover legacy CRUD/reindex fails with `KNOWLEDGE_CONFLICT_LEGACY_WRITES_AFTER_CUTOVER`; queued legacy activation is cancelled and dead-lettered with `KNOWLEDGE_PUBLICATION_LEGACY_CORPUS_INACTIVE`.
+- Manifest drift, unresolved review work, or a stale validation generation blocks cutover; structured onboarding changes stay reviewable until the normal explicit publication gate advances the active pointer.
+
+## 2026-07-13: Gate History Publishing On The Exact Evaluation Target
+
+Decision: History enables its explicit publish confirmation only when a server-issued validation ID and a recovered `PUBLICATION` evaluation match the current draft candidate ID, version, manifest hash, and evaluation test-set hash. A completed run is sufficient only when every critical result passed.
+
+Context: Evaluation execution success does not mean quality success, and candidate or saved-test changes can make an otherwise successful run stale. Component-local state also disappears during navigation while the server-owned run continues.
+
+Consequences:
+
+- Exact runs are recovered newest-first through the evaluation list API before new work is created; nonterminal details use one visible, bounded, non-overlapping poller.
+- Failed, cancelled, critical-failure, and stale results remain visible with aggregate diagnostics and Test/Review actions, but never authorize publishing.
+- The final publish confirmation remains explicit, and the server publication gate remains the concurrent-change fence.
+
+## 2026-07-13: Recover Knowledge Work From Server Job State
+
+Decision: Knowledge publication history and source views reconstruct tracked work only from matching `PUBLICATION` or `SOURCE` references in the loaded readiness and overview job state. Polling stays visible, bounded, and single-job, while monotonic status merging prevents stale parent snapshots from downgrading newer observations.
+
+Context: Component-local job state disappeared on navigation, hiding accepted work and terminal failures even though the server still owned the operation.
+
+Consequences:
+
+- Nonterminal jobs resume bounded polling after remount without starting a duplicate poller.
+- Terminal failures retain their server error and open the existing guarded retry flow; the UI never infers success from disappearance or elapsed time.
+- Dismissal remains local to the mounted view, while future server-authoritative work can be rediscovered.
+
+## 2026-07-13: Export Knowledge Health Without Tenant Or Content Labels
+
+Decision: The API metrics scrape refreshes global Knowledge v2 health gauges from PostgreSQL using only bounded lifecycle, risk, reason, category, subsystem, and source-kind labels. Tenant, user, source identity, URLs, prompts, messages, and error text are excluded.
+
+Context: Durable jobs, reviews, conflicts, publications, feedback, answer gates, freshness, and deletion lag were persisted but not visible to operations. High-cardinality or content-bearing Prometheus labels would create disclosure and reliability risks.
+
+Consequences:
+
+- Each successful refresh replaces the previous gauge series from one repeatable-read snapshot so resolved work does not remain visible as stale state.
+- Scrapes share one bounded cached refresh. PostgreSQL failure sets explicit stale/age/last-success gauges, increments a content-free failure counter, and returns existing metrics instead of blocking the scrape path.
+- Tenant-specific diagnosis remains in authorized product/audit views; Prometheus receives only global operational aggregates.
+- Grafana provisions a dedicated Knowledge health dashboard for the bounded operational signals; restricted diagnosis remains in product and audit surfaces.
+
+## 2026-07-13: Execute Review Decisions As Fenced Follow-Up Work
+
+Decision: A terminal Knowledge v2 Review or Conflict decision atomically enqueues a versioned job and outbox event. The dispatcher reauthorizes the deciding actor, fences the decision generation and exact target version, and invokes an idempotent domain mutation. It never publishes knowledge directly.
+
+Context: Closing a review without producing its separately validated outcome loses operator intent, while embedding values in queue payloads or mutating inline would weaken authorization, retry, and restricted-data boundaries.
+
+Consequences:
+
+- Approve/reject and conflict choices create immutable fact or guidance successors; source correction, retry, exclusion, and permission checks enqueue their existing durable source workflows.
+- Unanswerable and handoff decisions create explicit draft guidance policies. Protected replacement values use the later authorized detail/execution hydration boundary and otherwise fail closed.
+- Duplicate, late, stale, failed, and crash-redriven events reconcile through downstream idempotency records or exact source job keys without duplicating outcomes.
+
+## 2026-07-13: Pin Feedback To Exact Knowledge Outcomes
+
+Decision: Knowledge v2 feedback records exact tenant-scoped response, retrieval trace, evaluation result/run, and publication references whenever those links exist. Only cited or evaluated evidence can be attached, notes live in encrypted restricted storage, and risk is the maximum of category, referenced content, document classification, and the client-supplied level.
+
+Context: Unpinned or client-classified feedback could diagnose a different knowledge snapshot, attach cross-tenant evidence, leak free text through retries/audits, or down-classify sensitive failures.
+
+Consequences:
+
+- Current membership is checked before preparation and again in the final transaction; viewers and removed members are denied.
+- Idempotent responses are role-independent and redact non-public evidence. Newly prepared note objects are removed when the final transaction fails, while reused deterministic objects are retained.
+- Feedback remains review input only. It never mutates or publishes knowledge directly.
+
+## 2026-07-12: Pin Runtime Retrieval To Tenant Consent And Physical Snapshot Identity
+
+Decision: Structured-v2 retrieval captures one immutable publication or validation and uses it only when the exact Qdrant collection, canonical index schema, embedding/sparse identities, and tenant retrieval-processor policy match the configured runtime. Missing, revoked, rotated, or classification-incompatible processing fails before query disclosure.
+
+Context: A historical publication could otherwise query a newer physical collection or send customer text to globally configured providers without current tenant consent.
+
+Consequences:
+
+- Query embedding and reranking reauthorize exact provider, deployment, model, version, region, policy hash, classification, and process ceiling immediately before each external call.
+- Knowledge Test runs pin the validation and nullable snapshot identity, reauthorize role/target before decrypt and commit, and fence success/failure by the current attempt lease.
+- Fact-only targets carry a null snapshot and never query Qdrant. Structured-v2 generation remains fail-closed until a separate tenant model-processor policy and shared grounded claim gate are implemented.
+
+## 2026-07-12: Prepare Exact Knowledge Snapshots Before Publication
+
+Decision: Safe source ingestion ends with a non-queryable `CHUNKING` draft and a successful ingestion job. Candidate validation prepares the exact immutable dense+sparse snapshot, reconciles its snapshot-only Qdrant partition, then atomically marks chunks/revisions/sources ready. Publication and rollback cannot become `READY` until that exact snapshot is attached.
+
+Context: Treating chunk persistence as an indexing failure produced false failed jobs, while reusing mutable vectors or publishing before reconciliation could expose stale permissions or a different document set.
+
+Consequences:
+
+- Qdrant point identity includes workspace, snapshot, chunk, and index schema; READY reuse verifies stored point fingerprints without calling the provider, and missing/corrupt partitions rebuild only after exact membership comparison.
+- External indexing and retrieval processors are nullable, tenant-approved, exact deployment policies with environment classification ceilings. Consent is rechecked immediately before every external batch and durable cache/index write.
+- Embeddings are encrypted in object storage; PostgreSQL stores metadata only. Cache identity includes tenant, content, locale, deployment/schema, and policy, with immutable first-writer-wins publication and expiry independent of source references.
+- Idempotency records use a short renewable `IN_PROGRESS` lease and extend to response retention only after a terminal result, so crashed preparation can be taken over safely.
+
+## 2026-07-12: Keep Knowledge Test Results Server-Authoritative
+
+Decision: The Knowledge Test browser submits either a question or saved-test identifier against one exact published or draft target, then renders only the server run result. It does not infer draft readiness, reconstruct evidence, or convert a failed or incomplete run into a successful answer.
+
+Context: A client-computed preview could disagree with the live retrieval and delivery gates, expose restricted test input, or imply that an unready draft is safe to serve.
+
+Consequences:
+
+- Active runs poll only while the page is visible and focused, with one request in flight and the server delay clamped to 2-15 seconds.
+- Protected test input is hydrated only through its authorized no-store endpoint; conditional mutation reloads preserve dirty input without exposing it elsewhere.
+- Stable result, stage, reason, and support codes are localized in the browser. Stored strings remain text, and only validated public HTTPS anchors become links.
+
+## 2026-07-12: Deny Framing Except For The Public Widget
+
+Decision: LeadVirt web responses use an allowlisted Content Security Policy and baseline browser security headers. Product, auth, and marketing routes deny framing; `/widget/frame` is the only route that permits embedding by customer sites.
+
+Context: Imported knowledge, model output, connector metadata, and source anchors are untrusted display data. React escaping remains required, but browser policy must also constrain script execution, active objects, framing, network destinations, and external media if a rendering defect occurs.
+
+Consequences:
+
+- Telegram Login Widget scripts/frames, the configured API origin, local development sockets, self-hosted assets, and the existing Unsplash images remain explicitly allowed.
+- Inline event attributes and plugins/objects are blocked. Normal routes use `frame-ancestors 'none'`; the public widget frame uses `frame-ancestors *` and does not receive `X-Frame-Options`.
+- Stored-XSS, unsafe-link, and CSP-console checks remain required in Knowledge source/Test browser acceptance; headers do not replace text escaping and URL validation.
+
+## 2026-07-12: Gate Qdrant With Protocol And Real-Service Tests
+
+Decision: Hybrid index changes must pass both a deterministic Qdrant v1.15 protocol suite and an isolated smoke against the pinned real Qdrant service.
+
+Context: A mocked transport proves request structure, retries, and malformed-response handling, but cannot prove that collection schema, strict mode, named dense/sparse vectors, RRF queries, or payload indexes are accepted by the actual server.
+
+Consequences:
+
+- CI runs `qdrant/qdrant:v1.15.5` and exercises physical collection creation, acknowledged upsert, exact reconciliation, authorization-filtered hybrid query, and partition cleanup.
+- The real smoke uses a unique workspace/publication/snapshot partition and removes it after the assertion path.
+- Broader retained-snapshot, archive deletion, outage, and staging-isolation acceptance remains a separate required gate.
+
+## 2026-07-12: Treat Review Resolution As An Audited Decision
+
+Decision: Review and conflict endpoints record a scoped decision and terminal queue state; they do not directly edit facts, guidance, sources, index snapshots, or publications. Resolution actions must match the review reason and target, while unresolved linked conflicts close their review items only through one atomic conflict decision.
+
+Context: A review action such as correcting a source or choosing a conflicting value can require separate versioned content work. Treating a queue click as that content mutation would bypass its own validation, evidence, publication, and rollback controls.
+
+Consequences:
+
+- Managers must claim low/medium-risk work before resolving it. High/critical decisions require an owner or administrator.
+- Strong ETags, tenant-scoped idempotency, row locks, generation increments, and audit rows make concurrent claims and terminal outcomes deterministic.
+- Raw payloads, rationales, restricted references, and unavailable candidate values are not returned or copied into audits. Value-selecting conflict outcomes fail closed unless an authorized safe display value exists.
+- Bulk resolution uses the later exact homogeneous LOW-risk preview/execute contract; all other selections remain single-item only.
+
+## 2026-07-12: Keep Test Questions In Server-Managed Restricted Storage
+
+Decision: Knowledge v2 test-case mutations accept question text and optional restricted expected values, but the API immediately hashes and encrypts them under deterministic tenant/idempotency object keys. Only hashes and opaque references enter immutable versions; responses, idempotency records, and audits exclude both plaintext and references.
+
+Context: Requiring browser clients to manufacture encrypted object references would expose storage internals and leave no usable customer flow. Storing raw questions in test-case, audit, or retry records would leak realistic customer prompts and expected answers.
+
+Consequences:
+
+- Owner/admin can manage tenant test cases; managers have read access and lower roles are denied.
+- Repeated idempotency keys reuse the same encrypted object only when plaintext hashes match; conflicting restricted input fails closed.
+- Test-case versions and expectations are immutable, while metadata uses conditional ETags and archive state.
+- Playground runs remain unavailable until they can execute through the shared structured retriever against an explicitly pinned publication or draft target.
+
+## 2026-07-12: Fence Website Ingestion At Durable Worker And Source Generations
+
+Decision: `knowledge.ingest` reloads the runtime event, tenant, source, durable job, and requesting owner/admin before work, then checks the source generation again before database output. BullMQ delivery and retries transport work; PostgreSQL job attempts, source generations, immutable lineage, and deletion ledgers decide what may commit.
+
+Context: A timed-out fetch, duplicate delivery, revoked actor, permission change, or cleanup retry must not publish stale content, duplicate artifacts, resurrect denied chunks, or erase an active publication. Queue payloads also cannot carry website content, URLs, or credentials.
+
+Consequences:
+
+- Import/sync uses pinned HTTPS acquisition, isolated parsing, content quarantine, encrypted deterministic raw/extracted objects, and one transaction for artifact/document/revision/element/chunk draft lineage.
+- Successful acquisition and chunking do not imply queryability: safe drafts stay `CHUNKING` while the ingestion job succeeds. Exact candidate validation prepares and reconciles the immutable snapshot before readiness or publication can advance.
+- Reconciliation never fetches the source; it denies old permission generations and creates reindex-pending immutable successors.
+- Deletion is tombstone-first and ledger-driven. Missing object storage or required Qdrant cleanup remains failed/retryable instead of being reported complete, while hashes, manifests, and deletion evidence remain.
+- Runtime expiry, final DLQ state, audits, logs, and metrics use stable codes and opaque identifiers only; active publication pointers are never changed by ingestion or cleanup failures.
+
+## 2026-07-12: Separate Source Ingestion From Permission Reconciliation
+
+Decision: Source import and explicit sync use ingestion jobs, while scope, classification, locale, and revision-exclusion changes use `RECONCILE` jobs. Permission versions and tombstones deny stale content immediately; vector/cache ledger rows preserve cleanup proof until reconciliation completes.
+
+Context: Policy changes and exclusions must not refetch a website or depend on external egress and object-store readiness. Reusing `SYNC` would make urgent permission narrowing fail when acquisition is disabled and would blur generation-fencing semantics.
+
+Consequences:
+
+- Website URL/config admission runs before database transactions; workers repeat admission before network access.
+- Material policy changes increment source permission and generation values in the same transaction as ledger, job, outbox, and audit records.
+- Internal source classification requires an explicit internal audience in both create and partial-update paths; the browser cannot widen this invariant.
+- Paused sources defer background work in `NEEDS_REVIEW` but still record the immediate deny and pending cleanup proof.
+- Revision exclusion rejects the revision and chunks immediately, then queues reconciliation without fetching external content.
+
+## 2026-07-12: Keep Website Imports Disabled Until Every Acquisition Gate Is Ready
+
+Decision: Website source jobs are accepted only when application enablement, restricted-egress readiness, an absolute artifact store, and a valid artifact encryption key are all configured. API admission and workers share the same public-address and redirect policy. Workers connect to an admitted IP directly while preserving TLS SNI and hostname verification.
+
+Context: URL syntax checks alone do not prevent DNS rebinding, redirect pivots, metadata access, decompression abuse, parser exhaustion, hidden prompt injection, or raw-content leakage. A partially configured import feature would create jobs that cannot finish safely.
+
+Consequences:
+
+- Only HTTPS on the standard port is admitted; userinfo, internal destinations, query-bearing root or redirect URLs in the first slice, unsafe redirects, compressed bodies, unsupported MIME, and oversized responses fail closed.
+- HTML parsing runs in a memory-limited worker thread with a hard deadline and no script execution. Hidden content is excluded from evidence but retained as bounded security-review signal.
+- Secret, sensitive, and prompt-injection findings scan bounded visible text, hidden text, and decoded link metadata; they store codes and counts, not snippets, and quarantine content before publication.
+- Raw and extracted artifacts use opaque tenant/source keys and AES-256-GCM atomic storage; queues, logs, audit payloads, and public errors never carry content or raw URLs.
+- Production remains disabled until the host/network egress policy, encryption secret, dense+sparse indexing, immutable snapshot preparation, and publication gates are provisioned and verified.
+
+## 2026-07-12: Bind Structured Source Lineage And Snapshot Corpus In PostgreSQL
+
+Decision: Structured sources, artifacts, documents, immutable revisions, elements, chunks, snapshot memberships, jobs, and deletion entries use separate v2 records with composite tenant lineage. Index snapshots and their item tables carry `corpusKind`, and publications reference snapshots through tenant, snapshot, and corpus together.
+
+Context: ID-only relations could associate a child with the wrong tenant/source/document, and a structured publication could otherwise point to a legacy index snapshot even while its manifest contained v2 facts and rules.
+
+Consequences:
+
+- Database constraints reject cross-tenant/source/document/revision associations and mixed-corpus snapshots.
+- Publication document items bind the exact v2 revision content hash.
+- Legacy source and revision relations remain intact during migration; v2 jobs use separate source/revision fields.
+- Source deletion is tombstone-first. Its deletion ledger uses `NO ACTION`, so physical cleanup cannot erase the proof needed for reconciliation and audit.
+
+## 2026-07-12: Derive Fact Authority From Provenance And Verification
+
+Decision: Client-created facts always begin with `MANUAL` authority. Authority cannot be edited directly. Owner or admin verification creates an immutable successor with `OWNER_VERIFIED` authority; source ingestion will assign imported authority from server-owned provenance.
+
+Context: Accepting authority from a browser would let an editor bypass the publication gates for trusted and high-risk knowledge. Risk, expiry, evidence, and verification still remain separate controls.
+
+Consequences:
+
+- Explicit attempts to create or update a fact with a stronger authority fail with `KNOWLEDGE_VALIDATION_AUTHORITY_READ_ONLY`.
+- High and critical facts require owner/admin verification, derived owner authority, evidence, and a future expiry before publication.
+- Authority changes remain reproducible in immutable fact history rather than mutating an existing version.
+
+## 2026-07-12: Keep Active Conversations Fresh With Visible Polling
 
 Decision: The Inbox and open conversation refresh every four seconds while the document is visible and refresh immediately when the window regains focus. Refreshes keep the last successful state after transient failures, never apply responses made stale by a concurrent mutation, and do not disturb a manager reading message history.
 
@@ -10,8 +769,65 @@ Consequences:
 
 - New inbound messages appear without a full page reload.
 - Hidden tabs stop polling, and overlapping requests are suppressed.
-- Concurrent sends and actions take precedence over older poll responses.
-- Managers reading earlier messages keep their scroll position when a poll completes.
+- Locale changes preserve existing Inbox data when their first refresh fails.
+- Unchanged message data keeps the existing array, while changed data auto-scrolls only when the manager was already near the bottom.
+- Sends and conversation or lead actions advance a mutation epoch; older poll responses are discarded.
+- This is the bounded pilot transport until a shared server-push channel is justified.
+
+## 2026-07-12 - Isolate Structured Knowledge v2 From the Legacy Corpus
+
+**Decision:** Add immutable typed facts, guidance, evidence, validation, and publications as `STRUCTURED_V2` while retaining the Phase 0 onboarding corpus as `LEGACY_V1`. Structured candidates publish explicitly to `workspace-v2`; legacy automatic publication continues only through its compatibility adapter. Runtime selection will capture one corpus and publication at graph start and never merge both.
+
+**Context:** Changing the existing `/knowledge/sources` contract or reusing its automatic publisher would make a v2 publish mean "whatever is current" and could expose partially migrated data. The new client also needs durable idempotency, conditional writes, exact manifests, and rollback without directly reactivating stale permissions.
+
+**Consequences:** Publication rows and items carry a database-enforced corpus discriminator and typed hash-bound references. Public and manual v2 writes require `Idempotency-Key`; existing resources require `If-Match`. The internal onboarding projection is tenant-serialized, uses deterministic semantic keys, and queues its own reconciliation idempotency key. The first v2 publication is explicit, rollback creates and validates a new sequence, and the legacy live path remains unchanged until a separate audited cutover passes retrieval, isolation, quality, and rollback gates.
+
+## 2026-07-12: Separate Business Truth And Publish Immutable Knowledge Snapshots
+
+Decision: LeadVirt Knowledge separates verified structured facts, versioned documents, behavioral guidance, live operational tools, and conversation context. PostgreSQL is authoritative, object storage preserves immutable artifacts, and Qdrant stores rebuildable immutable index snapshots referenced by an atomic active publication.
+
+Context: The prototype stores profile, catalog, availability, FAQ, policy, and escalation as mutable source text. Onboarding does not index it automatically, live replies bypass Qdrant, old vectors can remain searchable, and a source edit cannot be reproduced reliably. Exact prices, policies, and current availability also need different authority and freshness rules from semantic documents.
+
+Consequences:
+
+- Product UI is called Knowledge and reports deterministic readiness per enabled capability instead of one opaque confidence score.
+- Typed facts, rules, source evidence, authority, risk, locale, scope, effective dates, conflicts, and immutable revisions replace arbitrary JSON/text as the long-term truth model.
+- A draft or failed import never replaces the current publication. Activation is a compare-and-swap of `ActiveKnowledgePublication` after its manifest and index snapshot pass reconciliation and quality gates.
+- Rollback creates and validates a new publication from an older manifest; it cannot reactivate revoked, deleted, expired, or incompatible content directly.
+- Dynamic availability, inventory, order, and customer state come from authorized tools at response time and are not embedded as authoritative truth.
+- Answer reproducibility is guaranteed within the configured audit-retention period; lawful erasure and retention expiry retain only permitted hashes, manifest metadata, and deletion evidence.
+- `docs/BUSINESS_KNOWLEDGE_SYSTEM_DESIGN.md` is the implementation contract and rollout sequence for this system.
+
+## 2026-07-12: Use One Shared Retrieval Path And Deterministic Worker Boundaries
+
+Decision: LangGraph, preview, diagnostics, and evaluation use one tenant-aware retrieval service. Production document retrieval uses Qdrant multilingual dense+sparse fusion, grouping, reranking, and PostgreSQL authorization hydration against one immutable index snapshot. LangGraph orchestrates response decisions and human review; deterministic ingestion remains idempotent BullMQ workers. AutoGen and FAISS remain offline research/evaluation tools.
+
+Context: API search can currently call Qdrant, while the production reply worker scans 40 SQL chunks using token overlap and returns arbitrary chunks on no match. Create/update/onboarding do not enqueue indexing. Retry timeout does not cancel work, tools execute before final persistence, and the current audit/DLQ path is not enough to prevent duplicate side effects.
+
+Consequences:
+
+- Silent fallback to an unrelated lexical corpus is prohibited. Document-dependent answers hand off when the evaluated retrieval path is unavailable or insufficient.
+- Read-only live lookup tools run before drafting; state-changing tools run after recorded confirmation, refreshed preconditions, deterministic operation idempotency, and authorization.
+- Business mutation/outbox and consumer result/inbox/next-outbox commit atomically. Generation fencing, per-conversation ordering, durable DLQ, and explicit `unknown` external outcomes handle at-least-once delivery.
+- Minimum SSRF, upload, parser sandbox, post-parse PII/secret/injection, provider-admission, permission, and deletion controls precede any website/file/model exposure.
+- Evaluation uses production-k per-language/risk slices, hard zero-tolerance isolation/security cases, tenant critical cases, and human-calibrated semantic judges.
+- OpenTelemetry/Prometheus/Grafana record bounded metadata by default; prompt, document, and customer content capture remains disabled unless separately authorized.
+- Phase 0 must establish minimal revisions, publication/index snapshot, outbox, shared retrieval, and side-effect fencing before any live cutover.
+
+## 2026-07-12: Make PostgreSQL Authoritative Across Reply Queue Boundaries
+
+Decision: AI reply intake, manual channel sends, worker consumption, internal tool effects, and channel delivery use PostgreSQL outbox/inbox records, deterministic operation identities, deadlines, and conversation generation/sequence fences. Redis/BullMQ transports work but does not decide whether work exists or may execute.
+
+Context: Direct Redis publishing, synchronous fallback, retryable graph execution, and external provider timeouts could lose a committed inbound message, duplicate a side effect, send an old reply after newer customer input, or silently replay an ambiguous provider outcome.
+
+Consequences:
+
+- In queue mode, inbound message, reply run, captured publication, reply sequence/fence, and outbox event commit together; Redis outage never triggers an unfenced synchronous reply.
+- Consumers authorize the exact persisted queue envelope, suppress duplicate execution through an inbox lease/result, enforce event deadlines, and dead-letter poison or exhausted work while updating the related reply/message terminal state.
+- Conversation creation and inbound processing are serialized by external identity. Tenant/conversation/message/channel relationships are also enforced by composite database references and an active external-conversation uniqueness constraint.
+- Final AI channel delivery holds the same conversation row lock used by inbound intake while rechecking the reply fence and starting the provider call.
+- Tool and channel operations in `STARTED` or `UNKNOWN` are not resent automatically. An operator reconciliation/redrive path is required before those outcomes can continue.
+- This provides at-least-once processing with deterministic suppression; it does not claim exactly-once semantics from Telegram, webhooks, or other external providers.
 
 ## 2026-07-11: Route Telegram Through The Restricted FR Gateway
 
@@ -48,7 +864,7 @@ Consequences:
 
 - `POST /integrations/TELEGRAM/connect` validates the token with `getMe`, prevents active cross-workspace bot reuse, creates or reuses the tenant channel, calls `setWebhook`, and verifies the exact URL with `getWebhookInfo`.
 - Bot tokens are AES-256-GCM encrypted in `Channel.encryptedCredentials`; Telegram webhook secrets remain server-managed and are redacted from channel and integration responses.
-- Reconnecting without a token reuses stored credentials. Replacing a bot rotates the webhook secret before activation so the previous webhook is invalid immediately.
+- Reconnecting without a token reuses stored credentials. Superseding the original rotation behavior, ordinary bot replacement reuses the active webhook secret so queued updates from the retired bot remain valid; its encrypted cleanup credential is retained until the queue drains and webhook deletion is confirmed.
 - Telegram delivery uses the real Bot API when encrypted credentials exist; demo/sample traffic retains deterministic simulated delivery.
 - Standard Telegram bots still need to be created in BotFather, but no Telegram infrastructure knowledge is required from the client after token creation.
 
@@ -343,6 +1159,7 @@ Consequences:
 - Catalog integrations like Instagram can be connected from the UI without pre-seeded DB rows.
 - Settings, disconnect, test, and sample endpoints still require an existing integration account.
 - `qa:integrations:connect-missing` covers the missing-row connect path.
+- Superseded for amoCRM, Bitrix24, and RetailCRM on 2026-07-15: the compatibility QA name now runs the fail-closed CRM truthful-state contract, and those providers cannot create missing rows until live implementations exist.
 
 ## 2026-07-08: Drop Telegram Account Switching From Public Login
 
@@ -2142,3 +2959,566 @@ Consequences:
 - Auth login/signup audit rows are not user-facing Dashboard activity.
 - API-offline visual fallback should not be reused for authenticated product screens without an explicit design-preview mode.
 - Remaining copied demo fallbacks on other pages should be audited under the same rule.
+
+## 2026-07-13: Cut Knowledge Runtime Over Once Per Tenant And Graph
+
+Decision: Legacy knowledge migrates one-way into immutable `legacy_snapshot` revisions, while each tenant selects either `LEGACY_V1` or `STRUCTURED_V2` and every AI graph pins one exact publication at creation.
+
+Context: Mixing legacy and structured results would make answers non-reproducible. Current onboarding, tenant, and settings observations can also disagree even when no legacy knowledge source exists.
+
+Consequences:
+
+- Migration snapshots current source versions only; it never expands the old version counter into invented revision history.
+- A system observable snapshot covers zero-legacy tenants, and disagreements create Review/Conflict blockers before publication or cutover.
+- Cutover requires a READY migration, an exact active publication, current permissions, reconciled PostgreSQL snapshot membership, and successful physical index verification.
+- The selector is one-way, and existing AI runs keep their captured publication through concurrent cutover.
+
+## 2026-07-13: Ground Knowledge Test Answers With Server-Owned Evidence Gates
+
+Decision: Knowledge v2 Test answers use a vendor-neutral structured provider contract, but the server assembles final text only from validated ordered claims and permits auto-send only for exact authoritative support.
+
+Context: Provider citations and prose are untrusted. Tenant consent, evidence membership, current permissions, exact values, guidance, and generation policy can change between retrieval, generation, and commit.
+
+Consequences:
+
+- Every external generation or single repair call requires the current tenant model-processor policy and exact configured provider/model/version/region/classification ceiling.
+- Document claims must be exact normalized spans; fact, guidance, and live-tool claims must preserve authoritative content. High-risk document-only support is denied.
+- Evidence and processor policy are revalidated in the result transaction; failed gates produce no answer or validated citations.
+- Evaluation result JSON and final answer are encrypted separately. `responseHash` identifies final answer text, while `restrictedResultHash` verifies the UI result artifact.
+- Provider/model/prompt/policy, provider-output, gate-input, and gate-result hashes are persisted for audit and replay analysis.
+
+## 2026-07-13: Use The Shared Grounded Gate For Live Structured Replies
+
+Decision: Live `STRUCTURED_V2` worker replies use the same grounded-answer service and output gate as Knowledge Test; the legacy provider path remains separate.
+
+Context: Provider prose and citations cannot authorize themselves, and evidence or tenant processor consent can change after generation or persistence.
+
+Consequences:
+
+- Structured generation requires the tenant-selected corpus and exact provider/model/version/region policy before each provider call.
+- Structured tools are default-denied, and operational answers require a fresh authorized live-result handoff.
+- Evidence, policy, answer, provider-output, gate, and citation hashes are revalidated in the fenced commit and immediately before channel delivery.
+- Revocation, mixed corpus, unsupported claims, expired live evidence, or missing audit identity produces handoff/skip without a channel provider call.
+
+## 2026-07-13: Bound Live Knowledge Metrics To Stable Safety Labels
+
+Decision: Live `STRUCTURED_V2` retrieval and answer metrics expose only fixed corpus, backend, outcome, reason, risk, result, and canonical locale buckets.
+
+Context: Retrieval quality and answer safety need operational visibility, but tenant, conversation, evidence, content, URL, provider output, and raw locale labels would leak data or create unbounded Prometheus cardinality.
+
+Consequences:
+
+- Locale is reduced to `en`, `fr`, `de`, `es`, `pt`, `ru`, or `other`; unknown reasons and label values map to fixed fallbacks.
+- Retrieval metrics report duration, candidate/selected counts, and grounded/empty/degraded/blocked outcomes.
+- Answer metrics report pass/block reason, bounded risk, validated citation count, and evidence-reference coverage.
+- Grafana aggregates only these stable labels; deterministic smoke coverage rejects tenant, conversation, evidence, question, answer, provider/model, and raw-locale markers.
+
+## 2026-07-13: Measure Queryability At Durable Publication Boundaries
+
+Decision: Knowledge v2 publication telemetry records success only after the activation outbox transitions from `PUBLISHING` to `PUBLISHED`, and records failure only on the first durable `DEAD_LETTER` transition.
+
+Context: Activation may be retried, replayed, or reconciled after the publication pointer already committed. Measuring service calls or retry attempts would double count and would not represent when content became queryable.
+
+Consequences:
+
+- Published replay and committed-activation reconciliation do not emit another success observation; nonterminal retries do not emit failed outcomes.
+- Time-to-queryable measures candidate validation, publication creation, and each immutable fact/guidance/document version against the committed activation time.
+- Publication outcomes and durations use only fixed `result`, `operation`, `item_kind`, and `source_kind` labels; source kind is `website`, `manual`, or `other`.
+- Tenant, publication, job, content, URL, error-code, and raw source identifiers never appear in labels or dashboard dimensions.
+
+## 2026-07-13: Gate Publication On Exact Critical Evaluation Runs
+
+Decision: Publication activation requires a completed `PUBLICATION` evaluation run against the exact validated draft candidate, with every current critical saved test-case version passed. Tenants with no critical cases are not blocked.
+
+Context: Validation blockers protect manifest integrity, but they do not prove that the current critical behavioral cases still pass through the production retriever and grounded-answer gate.
+
+Consequences:
+
+- MANUAL and PUBLICATION batches reuse the same retriever, evidence revalidation, grounded generation, result persistence, and lease/redrive path as Test playground runs.
+- Runs capture the complete ordered ACTIVE test-case version set and exact target identity; target, requester role, or current-version changes fail closed.
+- Activation checks the current test-set hash and exact candidate tuple inside the publication transaction before pointer mutation.
+- Aggregate APIs expose deterministic safe metadata only; questions, answers, and restricted storage references remain encrypted and redacted.
+
+## 2026-07-13: Evaluate Critical Knowledge Per Locale Before Activation
+
+Decision: Evaluation aggregates publish canonical locale, immutable risk, and pinned critical-status slices, and activation requires every current critical case to pass within its locale. Publish and rollback activation both wait for a durable exact-candidate PUBLICATION evaluation.
+
+Context: A strong global pass rate can hide a failed language. Rollback candidates are generated server-side and therefore also need a server-owned evaluation stage rather than an impossible client preflight or a gate exemption.
+
+Consequences:
+
+- Slice and manifest hashes sort immutable result signatures, so database order cannot change historical aggregate identity.
+- Readiness exposes candidate manifest, validation, and current test-set hashes for safe UI recovery; the activation transaction remains the final freshness fence.
+- Pending evaluation does not consume publication activation attempts. Failed critical evaluation leaves the active pointer unchanged.
+- Mock-provider EN/FR/DE/ES/PT/RU contract coverage is not evidence of real-provider multilingual dense/sparse quality; measured locale floors remain open.
+
+## 2026-07-13: Reconcile Every Manual Content Version Durably
+
+Decision: Every successful manual fact or guidance mutation creates one content-free validation/reconciliation job and outbox event in the same idempotent transaction as its immutable version.
+
+Context: Draft generation changes were durable, but manual edits had no leased processing record proving that the exact new head version was reauthorized and reconciled after commit.
+
+Consequences:
+
+- Queue data contains IDs, hashes, generations, action, actor identity/role, deadline, and an idempotency hash only.
+- The dispatcher fails closed when the actor, head version, resource generation, action status, or tenant draft generation changes.
+- Leases, attempts, heartbeats, cancellation, expiry, and redrive use the existing Job/Outbox/Inbox tables; no schema change is required.
+- Reconciliation jobs appear in Overview and never mutate the active publication pointer or auto-publish content.
+
+## 2026-07-13: Admit Files Before Persistence And Fail Closed Without A Scanner
+
+Decision: File bytes must pass one reusable streaming admission contract before artifact persistence. Production rejects admission unless a production-approved scanner returns CLEAN within the configured deadline.
+
+Context: Persisting first and scanning later creates an avoidable malicious-object window. Filename, MIME, active-content, polyglot, macro, archive, and decompression attacks also require deterministic local gates even when a malware scanner is healthy.
+
+Consequences:
+
+- Only bounded text, CSV, and passive PDF inputs are currently allowlisted; extension, declared MIME, and detected content must agree.
+- Rejected files receive stable safe error codes but no SHA/provenance metadata, filename log field, or content-bearing audit field.
+- The deterministic scanner is test-only and is rejected by production-mode admission.
+- No public upload or FILE source API is added. Signed upload/storage lifecycle, real scanner provisioning, and provider ACL integration remain required before file import can ship.
+
+## 2026-07-13: Exercise The Fresh-Owner Knowledge Path Without Seeding Internals
+
+Decision: The required fresh-owner acceptance gate uses public OWNER APIs, the production website ingestion and publication path, real PostgreSQL and Qdrant, and deterministic acceptance-only network providers. It never seeds chunks, snapshots, vectors, review rows, or publication state.
+
+Context: CI needs a stable end-to-end signal without depending on public DNS, internet content, or paid model providers. Production SSRF rules correctly reject localhost and private addresses.
+
+Consequences:
+
+- A fixed HTTPS URL is resolved to a synthetic public address and served by a pinned transport only when both `APP_ENV=acceptance` and `KNOWLEDGE_ACCEPTANCE_WEBSITE_FIXTURE_ENABLED=true` are set.
+- Local embedding, reranking, and grounded-answer HTTP fixtures are consumed through the production provider clients; Qdrant remains a real service.
+- Safe website content completes in `CHUNKING` with inspectable evidence and an empty review queue; the test does not fabricate review work that the production path did not create.
+- CI fails on Qdrant or SQL cleanup errors and removes the dedicated encrypted object-store directory after the acceptance processes stop.
+
+## 2026-07-13: Probe Knowledge Dependencies Outside User Traffic
+
+Decision: Dependency health uses fixed-name, cached, single-flight background probes with hard deadlines. Prometheus scrapes both the API cache and OpenTelemetry Collector internal metrics; user requests never wait for dependency probes.
+
+Context: Knowledge availability depends on PostgreSQL, Redis, Qdrant, object storage, configured model endpoints, and trace export. Running synchronous probes per request or scrape would amplify outages, while writing an object per scrape would mutate production state.
+
+Consequences:
+
+- Probe labels are limited to a fixed dependency enum and failure class; tenant, content, endpoint, provider, model, and region values are excluded.
+- Object-storage health uses read-only path access and metadata checks. Network probes are bounded, cached, and reused while a refresh is in flight.
+- Probe age and stale gauges distinguish a recent failure from an unobserved dependency; last-known values remain available during refresh.
+- OTLP traffic routes through the Collector before Tempo, and Prometheus alerts on Collector exporter send/enqueue failures without exposing Collector or API metrics publicly.
+
+## 2026-07-13: Reconcile Unknown Effects Through Read-Only Evidence
+
+Decision: Owner/admin reconciliation may transition an `UNKNOWN` external, tool, or channel operation only after an adapter read returns authoritative success or failure. Redrive is separate and limited to explicitly proven pre-execution internal work.
+
+Context: Repeating a send or tool mutation after an ambiguous response can duplicate a customer-visible effect. Existing operation ledgers and outboxes already retain the durable state needed for a schema-free operator surface.
+
+Consequences:
+
+- Unsupported, unavailable, pending, or ambiguous provider reads leave the operation `UNKNOWN`; the operator path never calls adapter send/mutation methods.
+- Mutations reauthorize the current membership and lock exact tenant, row version, status, and generation behind ETag and idempotency fences.
+- External/tool/channel `UNKNOWN` records cannot be redriven. Only allowlisted internal outbox work with a proven-not-executed code creates a new immutable generation; source history is unchanged.
+- Responses and audits omit payloads, provider references, request hashes, recipient/channel keys, raw errors, and reasons. Audits retain actor, opaque IDs, stable codes, and hashes only.
+
+## 2026-07-13: Establish The Tenant Transaction Boundary Before RLS
+
+Decision: Tenant-scoped PostgreSQL work will use one validated interactive transaction that applies tenant, user, role, and request/job source through transaction-local `set_config` on the exact Prisma connection. The callback receives only an active scoped transaction client. RLS policies remain disabled.
+
+Context: Prisma root-client queries can use different pooled connections, while session settings can leak across pool reuse. Enabling RLS before all tenant work enters a same-connection boundary would produce inconsistent failures or unsafe bypasses. Current deployment credentials also own tenant tables and local/CI roles are superusers with `BYPASSRLS`.
+
+Consequences:
+
+- Invalid context, nested transactions, and expired scoped-client reuse fail before another transaction or query begins.
+- Commit and rollback clear context through PostgreSQL transaction semantics; no session-scoped cleanup query is trusted.
+- API requests and background jobs use explicit adapters and always carry tenant, actor user, membership role, and source. Admin role is explicit rather than an implicit bypass.
+- Service filters, authorization, membership revalidation, and composite tenant constraints remain mandatory.
+- Every tenant-bearing service phase must migrate, external I/O must stay outside bounded DB transactions, and a non-owner `NOBYPASSRLS` runtime role must pass staging posture checks before reviewed policies can be enabled and forced.
+
+## 2026-07-13: Promote One Encrypted Upload Object Into A FILE Artifact
+
+Decision: A FILE upload uses a durable tenant intent, purpose-separated signed bearer token, and one encrypted quarantine object. After exact admission, the same object key becomes the immutable artifact in the atomic source/job commit; the system does not create a second pre-transaction copy.
+
+Context: Local object storage is the deployed capability. Copying admitted bytes to a second final key before the database transaction can leave an unreferenced object when quota, role, lease, or database checks fail. Persisting a raw filename/path or token in a queue/idempotency record would also expand the secret and traversal surface.
+
+Consequences:
+
+- Upload policy pins one allowlisted MIME, exact byte length, 10 MiB platform ceiling, deadline, one-time use, and an opaque server-owned key. Tokens stay in an Authorization header and are never stored in plaintext.
+- Receipt state and audit commit together. Scanner/storage preparation stays outside the DB transaction; mutation failure restores the still-referenced encrypted intent object for a new idempotency key.
+- Final source, CLEAN/VALID artifact, content-free job/outbox, tenant-composite references, completion state, and audit commit atomically. Worker and deletion fences apply unchanged.
+- Only UTF-8 TXT and CSV ship. PDF admission capability does not imply parsing support; the API returns the sandbox-required error before upload intent persistence.
+- Production remains disabled until the FILE enable flag, valid encrypted store, and explicitly approved ClamAV endpoint are all configured. Provider ACL/webhook ingestion is not part of this decision.
+
+## 2026-07-13: Upload Knowledge Files Directly And Track Server Work
+
+Decision: Knowledge Sources sends FILE bytes from the browser directly to the exact API URL issued by the upload intent, then moves finalization into the existing persisted job tracker.
+
+Context: Routing file bytes through Next would add an unnecessary buffering and credential boundary. Client-generated progress would also misrepresent scanning and ingestion that continue on the server.
+
+Consequences:
+
+- The client accepts only the issued same-origin FILE upload path, method, authorization, MIME, and exact byte policy; the native request omits ambient credentials.
+- The UI reports discrete preparing, uploading, scanning, and processing states without percentages. Durable job status remains server-authoritative and survives navigation.
+- Retryable scanner failures repeat finalization against the uploaded intent. Expired, consumed, ambiguous, or rejected uploads request a new one-time intent while retaining the selected local file.
+- TXT/CSV limits and PDF unavailability are visible before selection in every supported locale; PUBLIC is the default classification and audience.
+
+## 2026-07-13: Trust Only Server-Resolved Evidence For Operational Answers
+
+Decision: Operational current-state questions fail closed unless every material claim is supported by a fresh live-tool execution resolved from a trusted server ledger. Callers provide only opaque execution IDs, never result payloads.
+
+Context: Static corpus text and caller-supplied tool results could otherwise answer availability, booking, inventory, order, or account questions without proving current state, authorization, or provenance. Multilingual and legacy paths must follow the same rule.
+
+Consequences:
+
+- One EN/RU/ES/FR/DE/PT classifier governs structured retrieval, legacy handoff, worker intent, grounding, commit revalidation, and delivery revalidation.
+- Accepted evidence is bound to tenant, canonical query, operational category, execution context, authorization scope and decision, permission and connector generations, typed value/content hashes, tool policy, and a maximum five-minute lifetime.
+- Every material operational claim must cite exact `LIVE_TOOL` support; unrelated live evidence cannot unlock static claims.
+- Superseded by the later immutable-live-evidence decision above: the ledger, gateway, and resolver are implemented, while production remains handoff-only until inbound customer identity and approved `CUSTOMER_PERSONAL` processor policies are available.
+
+## 2026-07-13: Terminalize Known Publication Evaluation Failures Immediately
+
+Decision: A publication whose critical evaluation is already `FAILED` becomes terminal immediately, even when its activation outbox delivery is deferred.
+
+Context: Waiting for a future outbox attempt left a known-ineligible publication pending and made the publication contract depend on queue timing.
+
+Consequences:
+
+- The dispatcher records the stable `KNOWLEDGE_PUBLICATION_CRITICAL_EVALUATION_REQUIRED` terminal failure without claiming a deferred activation.
+- Activation remains impossible and deterministic evaluation/publication tests do not depend on an outbox retry window.
+
+## 2026-07-13: Bind Processor Queries To A Revalidated Admission
+
+Decision: Every structured external query boundary uses one versioned, content-free admission. Retrieval, generation, commit, and delivery bind and rederive the same decision; a mismatch or policy change fails closed.
+
+Context: Verified Telegram identity makes scoped customer-personal reads possible, but the raw inbound question previously reached embedding, reranking, and grounded generation without a shared minimization contract. Persisted delivery also revalidated against the latest conversation message instead of the exact trigger.
+
+Consequences:
+
+- Credentials and `SECRET` queries are blocked. PUBLIC/INTERNAL queries containing personal identifiers are denied instead of silently downgraded.
+- CUSTOMER_PERSONAL and SENSITIVE queries retain their classification. Operational questions use identifier-free canonical templates; safe static questions pass through, and detected email, phone, UUID, labeled reference, and long numeric identifiers become typed placeholders only when useful text remains.
+- The evidence bundle and retrieval filters store only version, decision/mode, original and processor hashes, and the admission hash. Raw and processor text are excluded.
+- Embedding, sparse encoding, reranking, grounded generation, precommit, and persisted delivery use or rederive the admitted processor query. Retrieval processor policy version/hash drift or revocation invalidates delivery.
+- The worker becomes AUTHENTICATED_CUSTOMER only with the exact verified Telegram identity reference. Otherwise its audience and query classification remain PUBLIC.
+- Structured delivery loads the exact tenant/conversation CUSTOMER inbound `triggerMessageId`, binds it to the AI run, and revalidates that text even when a newer inbound exists.
+- At this point raw text still existed in the AI queue/outbox payload. The later exact-inbound hydration decision removes it from new jobs; legacy queue cleanup, tenant-keyed query HMACs, server-owned processor approval/consent, destination-bound output DLP, and restricted-artifact retention GC remain required.
+
+## 2026-07-13: Hydrate AI Reply Content From The Exact Inbound Reference
+
+Decision: Raw inbound text and rehydratable business context exist only in the producer request and PostgreSQL message relation. Durable `ai.reply` outbox and BullMQ jobs carry an exact message reference plus opaque routing, identity, actor, and RuntimeOutbox metadata.
+
+Context: The previous queue contract copied customer text, tenant name, lead state, and receipt data into RuntimeOutbox and Redis. That expanded retention and allowed queue values to drift from the authoritative inbound row.
+
+Consequences:
+
+- Queue creation locks the exact tenant/conversation INBOUND message, compares producer text, derives any authenticated-customer identity from that relation, and explicitly projects the persisted job.
+- Generic RuntimeOutbox creation and parsing enforce the same exact content-free `ai.reply` envelope. Alternate fields, legacy `text`, malformed identity attachments, and mismatched event metadata fail before persistence or publication.
+- The worker accepts only RuntimeOutbox-backed jobs, verifies the signed-by-storage envelope through RuntimeInbox, locks and hydrates the exact input, and uses that transaction snapshot for the graph.
+- Recovery cannot create a run for an inbound that already has a newer message. Commit fencing rechecks the run input hash and exact inbound text hash, so post-hydration edits cancel the reply.
+- Existing content-bearing RuntimeOutbox rows and Redis jobs are intentionally incompatible. They must be drained or scrubbed before deploying this worker; mixed old/new rolling deployment is not supported.
+- Tenant-keyed query HMACs, server-owned processor approval/consent, destination-bound output DLP, and retention garbage collection remain separate production privacy work.
+
+## 2026-07-14: Separate Channel Connection From Automatic Replies
+
+Decision: A connected channel receives and persists inbound messages but cannot generate automatic replies until an owner or admin explicitly activates it against the current structured knowledge publication and current channel fingerprint.
+
+Context: Treating a successful Telegram/webhook/widget connection as AI authorization allowed seeded defaults or later configuration drift to start replies without proving that the channel and knowledge snapshot were still ready.
+
+Consequences:
+
+- Existing and new channels default to automatic replies disabled; the migration also fences active conversations, reply runs, and queued reply outbox work.
+- Activation stores the exact tenant publication id/etag and a fingerprint that includes channel routing/settings plus a digest of encrypted credentials, never the secret itself.
+- Admission is rechecked at intake, queue creation, worker retry, and immediately before AI delivery. Channel changes, publication changes, closure, handoff, or deactivation fail closed.
+- Final delivery admission and the bounded provider call share the transaction that holds conversation, channel, publication, capability, and permission transition locks. A human action or revocation that commits first prevents the send; a send that acquires the locks first completes before the conflicting transition.
+- Inbound message persistence and manual `USER` delivery remain independent, so disconnecting automation does not hide customer messages or prevent an agent response.
+- Settings exposes readiness and explicit activation only for supported Website, Telegram, and Webhook/API channels. Server-owned scenario capability requirements and exact published/runtime bindings now participate in readiness.
+
+## 2026-07-14: Keep Review Decisions Nonterminal Until Their Effects Commit
+
+Decision: Accepting a Knowledge v2 review or conflict decision moves it to `IN_REVIEW`. Only the decision worker may write its terminal status, in the same transaction that completes the durable decision records and any exact pinned linked reviews.
+
+Context: Terminalizing a review or conflict before its selected successor existed removed publication blockers during the asynchronous execution window. Failed or unsupported work could therefore leave a publishable draft without the approved effect.
+
+Consequences:
+
+- Publication remains blocked during execution, retry, stale-target failure, and dead-letter handling.
+- A committed downstream effect is reconciled idempotently before terminal settlement; settlement failure cannot publish the outbox or partially close linked reviews.
+- Conflict settlement pins the exact active linked review IDs and generations. Concurrent additions or changes fail closed.
+- `MERGE` and `SPLIT_SCOPE` are persisted historical enum values only. The API request contract and UI do not expose them, and direct service calls reject them before creating a job or outbox event.
+
+## 2026-07-15: Bind Runtime Capability Authority To Operational Generations
+
+Decision: Capability readiness and automatic-reply authorization bind the exact server-owned tool registry, supported executor set, tenant permission generation, relevant provider capabilities, publication generation, and channel generation. Every runtime boundary fails closed when that binding changes.
+
+Context: A publication-level capability decision was insufficient when tool availability, connector permissions, or channel state could change after validation. Volatile observation timestamps and unrelated providers also must not revoke otherwise identical authority.
+
+Consequences:
+
+- Publication and channel activation persist stable operational dependency and binding hashes derived only from supported executors and their relevant providers.
+- Capability changes, permission-generation changes, publication changes, and channel changes serialize through the same transition locks and fence queued/running replies.
+- Planning and execution share one autonomy policy. The product exposes only `ANSWER_ONLY`, `COLLECT_INFORMATION`, and `PROPOSE_ACTION`; state-changing tools remain denied until server-owned confirmation or autonomous-action proof exists.
+- Production reply mode is queue-only, removing the synchronous delivery path from valid configuration.
+
+## 2026-07-15: Persist Reply Disposition Before Delivery
+
+Decision: Every successful publication-bound AI reply run records an immutable disposition and content hash before delivery. Handoffs also record the exact versioned localized server template.
+
+Context: Delivery could not safely infer whether content was an automatic grounded answer or a fail-closed handoff from mutable message metadata or capability classification alone. Human takeover and authorization revocation also needed a final external-effect fence.
+
+Consequences:
+
+- `AUTO_SEND` delivery requires the exact persisted content plus the complete grounded-answer audit.
+- `HANDOFF` delivery may bypass grounding only when the run's immutable disposition, content hash, and server template all match.
+- Final authorization revalidation and the bounded provider send occur in one transaction while publication, capability, channel, conversation, and permission transition locks are held.
+- Human send, assignment, status change, or handoff atomically supersedes active runs, dead-letters pending reply outboxes, and advances the conversation AI fence before committing the human action.
+
+## 2026-07-15: Expose Generic Webhook Secrets Only Once
+
+Decision: Telegram and generic webhook secrets are server-managed and removed by one shared channel-settings projection. A generic webhook secret is exposed only as `oneTimeSecret` when its channel is created or when an OWNER/ADMIN explicitly rotates it.
+
+Context: Channel lists and conversation details previously returned stored settings directly, exposing inbound authentication material to every workspace role. Shallow settings updates could also erase hidden nested secrets, while secretless generic webhooks authenticated successfully.
+
+Consequences:
+
+- Channel lists, channel mutations, conversation previews/details, and integration fallbacks never return stored Telegram or webhook secrets.
+- Generic webhook intake rejects missing stored secrets and accepts credentials only through supported headers, never query parameters.
+- Generic channel updates cannot rotate secrets implicitly. Partial updates preserve valid secrets and repair malformed state; explicit rotation is audited and disables stale automatic-reply authorization.
+- Operators must capture the creation or rotation value immediately. Later reads expose only `secretConfigured`; provisioning rotates explicitly when no known operator-supplied secret is available.
+
+## 2026-07-15: Keep User Credentials Outside Workspace Administration
+
+Decision: Workspace team administration can manage memberships only. OWNER and ADMIN may invite, change roles, and remove members, but ADMIN cannot grant or manage OWNER, and no workspace role can generate or replace another user's global password.
+
+Context: A membership-scoped password-reset endpoint changed the shared `User.passwordHash`, returned the temporary credential to a workspace member, and revoked sessions only in that workspace. Together with unrestricted team mutations and invite upserts, this allowed privilege escalation and cross-workspace account takeover.
+
+Consequences:
+
+- Team mutations reauthorize the current actor from the database inside a workspace-locked transaction; controller metadata is defense in depth.
+- Role checks, final-owner checks, membership changes, and audit writes commit atomically. Concurrent owner changes cannot remove the final owner.
+- ADMIN cannot invite, promote, demote, or remove OWNER. Reinviting an existing member is rejected instead of changing their role.
+- Inviting an existing global user adds only the membership and does not update their name, password, or other profile data.
+- The team temporary-password API, product UI, demo handler, API client type, and localized copy are removed. Users recover credentials through self-service password reset.
+- Password-reset confirmation conditionally consumes the exact unexpired token before changing credentials, so concurrent reuse has one winner.
+
+## 2026-07-15: Test Telegram Through the Real Bot Chat
+
+Decision: Customer-facing Telegram verification opens the connected bot with a `/start` deep link. The synthetic inbound generator remains an internal QA boundary and is not shown as a Telegram delivery test.
+
+Context: The synthetic action called the inbound service directly, so it could succeed while bypassing Telegram, the public webhook, TLS, and the relay. This made an internal processing fixture look like end-to-end proof.
+
+Consequences:
+
+- Connected customers are sent to the exact bot chat to produce a real Telegram update.
+- After a successful connection, the dialog remains on the verified bot identity, clears the submitted token, and makes the real chat the primary next action.
+- Telegram menus no longer offer the synthetic sample action.
+- Connection health still validates bot identity, webhook registration, allowed updates, backlog, and delivery errors without inventing inbound traffic.
+- Automated tests may keep using the internal sample endpoint for deterministic processing coverage, but it is not evidence that Telegram delivered a message.
+
+## 2026-07-15: Channel Adapters Fail Closed Without A Provider
+
+Decision: Production channel adapters may report `queued` or `sent` only after a real provider contract accepts the operation. Missing credentials, unimplemented channels, and internal samples cannot use a synthetic adapter result.
+
+Context: The shared stub adapter generated message IDs and `queued` results without contacting a provider. Telegram inherited that behavior when credentials were missing or sample metadata was present, and the worker exempted `demo-*` channel keys from credential checks. A queued message could therefore be committed as delivered even though Telegram was never called.
+
+Consequences:
+
+- Telegram rejects missing bot credentials, and an absent webhook secret never verifies.
+- The delivery worker decrypts and validates credentials before creating or starting the provider operation. Missing or invalid credentials mark the message failed without invoking an adapter.
+- Public-key naming is not a security or capability signal; `demo-*` channels receive no production bypass.
+- Website and Email adapter placeholders reject unsupported runtime calls. Deterministic tests must inject explicit fake adapters at their test boundary.
+
+## 2026-07-15: Expose CRM Providers Only After Live Implementations Exist
+
+Decision: amoCRM, Bitrix24, and RetailCRM remain visible as unavailable catalog entries, but no customer or internal product boundary may configure, connect, test, disconnect, or synchronize through them until a real provider implementation is shipped.
+
+Context: The previous CRM adapters generated synthetic external IDs and demo URLs. Connect and test actions persisted `CONNECTED`, successful logs, timestamps, and usage without contacting a provider, so the product reported external effects that never occurred.
+
+Consequences:
+
+- Every CRM mutation, test, sample, and lead-sync boundary returns HTTP `501` with stable code `INTEGRATION_NOT_AVAILABLE` before database or provider access.
+- Existing CRM rows are retained for audit/recovery but API responses project them as `COMING_SOON`, clear operational timestamps and synthetic logs, and expose only unavailable metadata.
+- The production UI has no CRM credential, connect, test, or disconnect controls. It shows non-editable planning requirements and a clear unavailable explanation.
+- Synthetic CRM adapter exports are removed. Re-enabling a provider requires a live adapter, authoritative connection verification, provider-backed sync tests, and an explicit catalog capability change.
+- Telegram and Webhook/API behavior is unchanged.
+
+## 2026-07-15: Deliver Generic Webhooks Only To Explicit Pinned Targets
+
+Decision: Generic Webhook/API outbound messages are sent only when the channel has an explicit `settings.webhook.outbound.targetUrl` that passes the public HTTPS policy. The adapter may never synthesize a queued or sent provider result.
+
+Context: `WebhookAdapter` inherited the stub sender, so manual and AI replies appeared delivered without a destination or HTTP request. The same channel settings also contain inbound secrets and raw webhook metadata, which cannot be copied into outbound requests or API responses.
+
+Consequences:
+
+- Outbound targets require HTTPS on port 443, no URL credentials or fragments, an allowed public hostname, and DNS answers that are all public. The transport connects to a verified address, preserves TLS hostname verification, and rejects remote-address drift and redirects.
+- The versioned outbound body contains only routing identifiers, reply text, and bounded attachments. Raw inbound payloads, stored settings, and credentials are excluded.
+- Every request carries a stable delivery/idempotency key. Retryable webhook delivery is at-least-once, so receivers must deduplicate by that key. Optional authentication is a validated `Authorization` or `X-*` header whose secret is moved into the AES-GCM channel credential field and removed from stored settings/projections; target paths and queries are also hidden behind configured-state booleans.
+- Missing/invalid configuration and terminal HTTP rejection settle as failed without synthetic success. DNS/connect failures and `408`/`425`/`429`/selected `5xx` responses retry within the queue attempt budget; a post-send timeout or transport failure becomes `UNKNOWN` and is not sent again automatically.
+- Response headers and bodies are bounded. A `2xx` remains successful even when its response body is oversized or not JSON; LeadVirt uses the stable fallback provider id instead of reversing an accepted delivery.
+- Manual Webhook/API sends validate the local contract before creating a message/outbox event, and automatic-reply readiness requires the same contract. Customer-facing target configuration UI remains follow-up work.
+
+## 2026-07-15: Separate Runtime Liveness From Dependency Readiness
+
+Decision: Redis URLs are parsed once through the shared config/runtime-queue boundary, and process liveness is separate from dependency-backed readiness. The API requires PostgreSQL and Redis; a processor-enabled worker requires the same two dependencies.
+
+Context: Production consumers independently parsed `REDIS_URL`, several defaulted a missing port to the local host mapping `6380`, and some ignored `rediss://` TLS or the database path. API readiness reported only that environment variables existed, while worker health could remain positive after a dependency outage. Redis documents `6379` as its default port and `rediss://` as the TLS URI scheme; TLS deployments that use `6380` or another provider port must state it explicitly.
+
+Consequences:
+
+- Both Redis schemes default to `6379`; explicit ports, ACL credentials, database indices, IPv6 hosts, and TLS intent are preserved consistently for BullMQ.
+- `GET /health` is a no-store liveness check. `GET /health/ready` returns `503` unless the required PostgreSQL and Redis probes succeed, without returning URLs, credentials, or failure details.
+- Worker readiness permits a connected deployment-paused worker but requires both dependencies; processor-disabled workers mark them `not_required`.
+- Probes have hard deadlines and single-flight behavior. API results are cached for one second to bound public readiness amplification.
+- Docker Compose, CI acceptance, rollback, promotion, and public cutover gates use readiness instead of liveness.
+
+## 2026-07-15: Derive Product Mutation UI From Authenticated Role
+
+Decision: Authenticated product routes expose one shared current-user and permission source derived from `/auth/me`. UI mutation controls mirror the backend role matrix, while routes without authenticated identity default to VIEWER and remain read-only.
+
+Context: The API rejected unauthorized mutations, but the product still displayed controls that could never succeed and fetched the same identity more than once. This made lower-role workflows confusing and created avoidable identity drift between layout and pages.
+
+Consequences:
+
+- VIEWER can inspect product data but cannot mutate it. AGENT can operate leads and conversations.
+- MANAGER can manage workflows, account settings, channels, and integration tests. OWNER and ADMIN retain team, secret, integration configuration, and billing controls.
+- Navigation and page controls are hidden or disabled before an impossible action is offered, and mutation handlers keep defensive permission checks.
+- Backend authorization remains authoritative; frontend permissions are an interaction model, not a security boundary.
+
+## 2026-07-15: Fail Closed For Inactive Tenants
+
+Decision: `TRIALING` and `ACTIVE` tenants may use normal workspace and public channel runtime paths. `SUSPENDED` and `CANCELLED` tenants fail with HTTP `403` and stable code `TENANT_INACTIVE`, based on the current tenant row rather than session-time claims.
+
+Context: Credential sessions remained valid after a tenant became inactive, and Website, Telegram, and generic Webhook/API channel loaders required only a non-deleted tenant. A suspended workspace could therefore keep reading, mutating, and accepting public traffic.
+
+Consequences:
+
+- Inactive sessions retain `/auth/me`, `/me`, `/current-tenant`, logout, locale preference, credential and 2FA security, session revocation, billing reads, payment-method recovery requests, and subscription plan recovery. Billing cancellation and all unrelated workspace routes remain blocked.
+- The auth guard reloads the session, membership, user, and tenant on every request before applying the lifecycle policy, so changing status invalidates normal access without rotating the session token.
+- Website config/messages, Telegram webhooks, and generic webhook events validate the tenant before authentication parsing, event claims, lead creation, workflows, AI queueing, or other runtime writes. Widget config is unavailable while the tenant is inactive.
+- Credential login and self-service password reset remain available because they do not depend on an active workspace session.
+- Liveness, readiness, and metrics routes remain outside workspace authorization.
+
+## 2026-07-15: Keep Tenant API Keys Inert Until A Machine API Exists
+
+Decision: LeadVirt does not mint or authenticate tenant API keys until an explicit versioned external API, machine principal, and scope contract exist. Existing rows are retained only as inert history that OWNER or ADMIN may inspect and revoke.
+
+Context: Settings generated hashed secrets and stored arbitrary scopes, but no request guard or endpoint consumed them. The product therefore created credentials that could not work. Retrofitting them into `WorkspaceAuthGuard` would also expose user-oriented workspace routes without a valid user or role principal and could activate old keys created under weaker authorization.
+
+Consequences:
+
+- Authorized creation fails before database or random-secret access with HTTP `501`, stable code `API_KEYS_NOT_AVAILABLE`, and non-retryable capability metadata.
+- Billing no longer lists dormant key rows. A separate cleanup read and revoke boundary is restricted to OWNER/ADMIN; revocation reloads the actor membership inside a tenant-locked transaction and writes an audit record without hash, scopes, or secret material.
+- Legacy rows remain tenant-isolated and are marked `INERT`/cleanup-only in reads. Revocation retains the row as history rather than deleting it.
+- The production seed no longer inserts an unusable demo key.
+- Settings states plainly that API-key authentication is unavailable. OWNER/ADMIN may remove inert history, while creation, secret-copy, usage, integration-impact, and non-admin navigation claims are absent; demo mode follows the same contract.
+- A future machine API must use dedicated versioned routes and a separate API-key principal/scope guard. It must revoke legacy rows and require deliberate reissuance instead of silently activating them through `WorkspaceAuthGuard`.
+
+## 2026-07-15: Keep Product Read Failures Distinct From Empty Data
+
+Decision: Product pages track loading, successful data, transport failure, and domain not-found as separate states. A failed initial request exposes retry instead of rendering zero, empty, template, disconnected, or not-found content; a failed refresh keeps the last successful data visible.
+
+Context: Automation, Pipeline, Conversation, and Integrations converted rejected requests into empty arrays or `null`. Operators could not distinguish a real empty workspace or missing conversation from an unavailable API, and periodic or post-connect refreshes could erase usable state.
+
+Consequences:
+
+- Automation workflows and archives, Pipeline summaries, and both Integrations resources render explicit retryable errors until a successful response establishes data.
+- Conversation renders not-found only for an actual HTTP `404`; network and `5xx` failures remain retryable errors.
+- Pipeline conversation-ID enrichment, locale changes, conversation polling, and post-connect channel refreshes retain the last successful data when their refresh request fails.
+- Settings tabs expose loading and retry before rendering account, team, security, or notification controls. Billing loads its required plan, subscription, usage, payment, and invoice snapshot atomically and never substitutes copied prices, dates, quotas, plans, or subscriptions.
+- A successful empty billing response remains a real no-subscription/no-plan state. Later refresh failures keep the last successful snapshot visible with an explicit retry.
+- Dashboard, Analytics, and AI audit hide metrics until their first successful response. Missing comparison deltas and per-event measurements remain absent rather than becoming zero, while Analytics keeps each retained snapshot bound to its successful period.
+- Inbox and Onboarding do not present zero conversations or a fresh first step before hydration succeeds. Product-shell activity is shown as recent activity without invented unread counts because the API has no read-state contract.
+- Focused Playwright coverage verifies failure, retry, empty/not-found separation, retained refresh data, and the rendered outage states.
+
+## 2026-07-15: Present The Live Webhook Without API-Key Claims
+
+Decision: The `WEBHOOK_API` provider is presented to customers as an inbound Webhook integration. Integrations does not advertise API keys or link to API-key settings while tenant API keys remain inert.
+
+Context: The same integration surface exposed a real signed webhook endpoint and an unrelated “Open API keys” action. No request authenticates with tenant API keys, so combining them implied a machine API capability that does not exist.
+
+Consequences:
+
+- Webhook endpoint URL, public key, secret header, sample payload, configuration, and internal processing sample remain available.
+- Customer-facing card, readiness, modal, status, and section copy refer only to Webhook.
+- Reintroducing API-key navigation requires the separate versioned machine API and principal/scope contract recorded above.
+
+## 2026-07-15: Serialize Tenant Settings JSON Updates
+
+Decision: Every partial write to tenant-owned Settings JSON must lock the tenant row, reload the current JSON inside the same transaction, merge only the requested fields, and commit the mutation with its audit record.
+
+Context: Account profile and notification preferences share `Tenant.settings`. Independent read-modify-write calls could start from stale JSON and erase each other's fields or unrelated settings. Profile values also include private contact data that should not be copied into audit payloads.
+
+Consequences:
+
+- Account and notification updates serialize on the tenant row and preserve unknown top-level, profile, and notification fields.
+- Account reads project the current tenant row instead of session-time tenant claims.
+- Account audits record only which private profile fields changed; they do not store the submitted description, phone, website, or logo value.
+- Future writers to `Tenant.settings` must use the same locked merge boundary rather than a detached root-client read followed by a whole-object overwrite.
+
+## 2026-07-15: Never Adopt An Existing Identity During Credentials Signup
+
+Decision: Public credentials signup may create only a new globally unique User. It never assigns a password to, resurrects, or adds a workspace for an existing identity.
+
+Context: Team invitations create passwordless users with immediate memberships. The old signup path reused those users, assigned the submitted password, and retained their memberships, allowing an unverified caller to claim an invited account.
+
+Consequences:
+
+- User creation is the first signup transaction write and uses PostgreSQL uniqueness as the atomic concurrency decision.
+- A duplicate email or phone returns conflict with no profile, password, session, membership, audit, onboarding, or workspace side effect, including for deleted users.
+- Deliberate identity linking remains limited to a separately verified recovery or email-code path. Production credentials signup stays disabled until unused-email ownership is also proven.
+
+## 2026-07-15: Isolate Public And Candidate Deployment Processes
+
+Decision: Only secret-bearing runtime services receive the production env file. Release-candidate app containers share dependency networking without claiming canonical service aliases, and certificate/env mutations serialize with deployment state.
+
+Context: The public Next container inherited the full secrets file through a shared Compose anchor. Candidate API/Web preflights also used live `api` and `web` aliases before migration commit, while certificate renewal could reload nginx during a deployment and HTTPS setup rewrote the secrets file in place.
+
+Consequences:
+
+- Migration, API, and worker containers receive the secret env file; Web receives only explicit public build/runtime configuration.
+- Preflight API, worker, and Web containers remain reachable through `docker exec` but cannot enter live nginx service discovery.
+- Certificate renewal waits on the same host deployment lock used by releases.
+- HTTPS env changes write a mode-`0600` temporary file, fsync it, atomically replace the target, and fsync the parent directory.
+
+## 2026-07-15: Hold The Channel Fence Across Provider Delivery
+
+Decision: Outbound delivery locks the current Conversation and Channel in that order, reloads current routing and credentials, revalidates all delivery fences, and holds those locks until the provider attempt returns.
+
+Context: The worker loaded Channel before its final Conversation lock. If disconnect committed first, the worker could acquire the Conversation lock afterward and send with the stale active Channel snapshot. Disconnect already used Conversation-then-Channel ordering, so the missing current-state reload was the unsafe gap.
+
+Consequences:
+
+- A disconnect, route change, provider-account change, settings change, credential rotation, deletion, or type change that commits first reconciles the claimed operation as skipped without provider access.
+- A provider call that owns the locks finishes before disconnect can commit; it cannot appear after a successful disconnect response.
+- The delivery operation retains one-provider-attempt semantics, and unknown provider outcomes remain non-retryable without reconciliation.
+
+## 2026-07-15: Admit Generic Webhook AI Work Once
+
+Decision: Generic webhook inbound persistence and AI outbox admission occur in one database transaction. The committed outbox id is dispatched after commit and is the only queue truth used for the response.
+
+Context: The inbound transaction created an AI outbox event, then the handler called queue admission again. Dedupe rejected the second creation, so the API and audit reported `skipped` while durable work was actually queued.
+
+Consequences:
+
+- Accepted admission reports `queued` using the deterministic job id; policy rejection alone reports `skipped` with its reason in the audit.
+- Redis failure or a process crash after commit does not change the accepted result; periodic outbox drain recovers the event.
+- Webhook retries reuse the existing dedupe-bound outbox and never re-run admission for already accepted work.
+- The queued lead activity record commits with the inbound message and outbox event.
+
+## 2026-07-15: Scope Conversation Async State By Route Generation
+
+Decision: Every Conversation request and mutation captures the conversation id plus a monotonically increasing route generation. State updates, rollback, toasts, and pending cleanup apply only while that scope remains current.
+
+Context: A delayed send or AI draft from one chat could resolve after navigation and restore its text, attachments, messages, or pending flags into another customer conversation. An old mutation count could also block the new chat load.
+
+Consequences:
+
+- Route changes invalidate old loads, sends, drafts, attachment reads, conversation actions, lead actions, and polling, including an A-to-B-to-A navigation sequence.
+- Old completions cannot decrement or clear the new conversation's pending state.
+- Locale/effect refreshes no longer clear pending attachments when the conversation id is unchanged.
+
+## 2026-07-15: Keep Browser Auth State Cookie-Only
+
+Decision: The HttpOnly session cookie and `/auth/me` are the browser authentication authority. Auth completion removes any legacy `leadvirt.auth.session` localStorage value and does not persist identity data there.
+
+Context: Login stored email, phone, name, tenant, role, auth mode, and expiry in localStorage, but no application path read it. This unnecessarily exposed durable personal data to same-origin scripts. The email-OTP config request also collapsed network failure into a confirmed disabled state and silently switched methods.
+
+Consequences:
+
+- Successful email and Telegram auth leave no identity/session payload in localStorage; logout still removes legacy values.
+- Email-OTP configuration now has loading, enabled, disabled, and retryable error states.
+- A transient config failure keeps Email selected, presents retry, and never claims that the server disabled the method.

@@ -1,5 +1,19 @@
-import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify } from "node:crypto";
-import { BadRequestException, ConflictException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import {
+  createHash,
+  createHmac,
+  createPublicKey,
+  randomBytes,
+  timingSafeEqual,
+  verify,
+} from "node:crypto";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import type { Request, Response } from "express";
 import type { MembershipRole, Prisma } from "@leadvirt/db";
 import type { RequestContext } from "../../common/request-context.js";
@@ -13,9 +27,18 @@ import type { TelegramOidcAuthDto } from "./dto/telegram-oidc-auth.dto.js";
 import type { EmailOtpLocale, RequestEmailOtpDto } from "./dto/request-email-otp.dto.js";
 import type { VerifyEmailOtpDto } from "./dto/verify-email-otp.dto.js";
 import { EmailOtpChallengeService } from "./email-otp-challenge.service.js";
+import { EmailOtpDeliveryService } from "./email-otp-delivery.service.js";
 import { authIdentifierWhere, parseAuthIdentifier } from "./auth-identifier.js";
+import { passwordResetOrigin } from "./password-reset-origin.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
-import { decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, generateTotpSecret, totpAuthUri, verifyTotpCode } from "./totp.js";
+import {
+  decryptTotpSecret,
+  encryptTotpSecret,
+  generateRecoveryCodes,
+  generateTotpSecret,
+  totpAuthUri,
+  verifyTotpCode,
+} from "./totp.js";
 
 const sessionCookieName = "leadvirt_session";
 const sessionTtlMs = 30 * 24 * 60 * 60 * 1000;
@@ -34,6 +57,7 @@ type AuthUser = {
   passwordChangeRequired: boolean;
   name: string | null;
   avatarUrl: string | null;
+  locale: string | null;
 };
 
 type AuthTenant = {
@@ -85,7 +109,12 @@ function normalizeEmail(email: string) {
 }
 
 function emailNameSeed(email: string) {
-  return email.split("@")[0]?.replace(/[._-]+/g, " ").trim() || "LeadVirt";
+  return (
+    email
+      .split("@")[0]
+      ?.replace(/[._-]+/g, " ")
+      .trim() || "LeadVirt"
+  );
 }
 
 function hashSecret(secret: string) {
@@ -154,7 +183,9 @@ function baseSlug(value: string) {
 }
 
 function recoveryCodeHashes(value: Prisma.JsonValue | null | undefined) {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function normalizeRecoveryCode(code: string) {
@@ -165,12 +196,15 @@ function appBaseUrl() {
   return (process.env.APP_URL ?? "http://localhost:3001").replace(/\/$/, "");
 }
 
-function resetDeliveryMode() {
-  return process.env.EMAIL_PROVIDER?.trim() || "mock";
-}
-
-function canExposeResetUrl() {
-  return process.env.NODE_ENV !== "production" || resetDeliveryMode() === "mock";
+async function lockPasswordCredential(tx: Prisma.TransactionClient, userId: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`auth-password:${userId}`}, 0))`;
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT "id"
+    FROM "User"
+    WHERE "id" = ${userId}
+    FOR UPDATE
+  `;
+  return rows.length === 1;
 }
 
 function credentialsAuthEnabled() {
@@ -189,7 +223,13 @@ function telegramBotId() {
 }
 
 function telegramBotUsername() {
-  const configured = (process.env.TELEGRAM_LOGIN_BOT_USERNAME || process.env.NEXT_PUBLIC_TELEGRAM_LOGIN_BOT || "").trim().replace(/^@/, "");
+  const configured = (
+    process.env.TELEGRAM_LOGIN_BOT_USERNAME ||
+    process.env.NEXT_PUBLIC_TELEGRAM_LOGIN_BOT ||
+    ""
+  )
+    .trim()
+    .replace(/^@/, "");
   return /^[a-zA-Z][a-zA-Z0-9_]{3,31}$/.test(configured) ? configured : null;
 }
 
@@ -198,13 +238,19 @@ function technicalTelegramEmail(telegramId: number) {
 }
 
 function cleanTelegramName(dto: TelegramAuthDto) {
-  const fullName = [dto.first_name, dto.last_name].map((value) => value?.trim()).filter(Boolean).join(" ").trim();
+  const fullName = [dto.first_name, dto.last_name]
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .join(" ")
+    .trim();
   return fullName || dto.username?.trim() || `Telegram ${dto.id}`;
 }
 
 function telegramDataCheckString(dto: TelegramAuthDto) {
   return Object.entries(dto)
-    .filter(([key, value]) => key !== "hash" && value !== undefined && value !== null && value !== "")
+    .filter(
+      ([key, value]) => key !== "hash" && value !== undefined && value !== null && value !== "",
+    )
     .map(([key, value]) => [key, String(value)] as const)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${key}=${value}`)
@@ -227,7 +273,10 @@ function verifyTelegramHash(dto: TelegramAuthDto) {
   const expectedBuffer = Buffer.from(expected, "hex");
   const actualBuffer = Buffer.from(dto.hash, "hex");
 
-  if (expectedBuffer.length !== actualBuffer.length || !timingSafeEqual(expectedBuffer, actualBuffer)) {
+  if (
+    expectedBuffer.length !== actualBuffer.length ||
+    !timingSafeEqual(expectedBuffer, actualBuffer)
+  ) {
     throw new UnauthorizedException("Telegram login payload is invalid.");
   }
 }
@@ -267,7 +316,9 @@ async function telegramJwks() {
   }
 
   const body = (await response.json()) as { keys?: unknown };
-  const keys = Array.isArray(body.keys) ? body.keys.filter((key): key is TelegramJwk => typeof key === "object" && key !== null) : [];
+  const keys = Array.isArray(body.keys)
+    ? body.keys.filter((key): key is TelegramJwk => typeof key === "object" && key !== null)
+    : [];
   telegramJwksCache = { keys, expiresAt: Date.now() + 60 * 60 * 1000 };
   return keys;
 }
@@ -290,13 +341,20 @@ async function verifyTelegramOidcToken(dto: TelegramOidcAuthDto): Promise<Telegr
     throw new UnauthorizedException("Telegram OIDC token algorithm is unsupported.");
   }
 
-  const key = (await telegramJwks()).find((item) => item.kid === header.kid && item.kty === "RSA" && item.alg === "RS256");
+  const key = (await telegramJwks()).find(
+    (item) => item.kid === header.kid && item.kty === "RSA" && item.alg === "RS256",
+  );
   if (!key) {
     throw new UnauthorizedException("Telegram OIDC key was not found.");
   }
 
   const publicKey = createPublicKey({ key, format: "jwk" });
-  const verified = verify("RSA-SHA256", Buffer.from(`${encodedHeader}.${encodedClaims}`), publicKey, base64UrlDecode(encodedSignature));
+  const verified = verify(
+    "RSA-SHA256",
+    Buffer.from(`${encodedHeader}.${encodedClaims}`),
+    publicKey,
+    base64UrlDecode(encodedSignature),
+  );
   if (!verified) {
     throw new UnauthorizedException("Telegram OIDC token signature is invalid.");
   }
@@ -304,8 +362,17 @@ async function verifyTelegramOidcToken(dto: TelegramOidcAuthDto): Promise<Telegr
   const now = Math.floor(Date.now() / 1000);
   const exp = numberClaim(claims.exp);
   const iat = numberClaim(claims.iat);
-  const audiences = (Array.isArray(claims.aud) ? claims.aud : [claims.aud]).map((value) => String(value));
-  if (claims.iss !== "https://oauth.telegram.org" || !audiences.includes(botId) || !exp || exp <= now || !iat || iat > now + 60) {
+  const audiences = (Array.isArray(claims.aud) ? claims.aud : [claims.aud]).map((value) =>
+    String(value),
+  );
+  if (
+    claims.iss !== "https://oauth.telegram.org" ||
+    !audiences.includes(botId) ||
+    !exp ||
+    exp <= now ||
+    !iat ||
+    iat > now + 60
+  ) {
     throw new UnauthorizedException("Telegram OIDC token claims are invalid.");
   }
 
@@ -321,6 +388,7 @@ export class AuthService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(EmailOtpChallengeService) private readonly emailOtpChallenges: EmailOtpChallengeService,
+    @Inject(EmailOtpDeliveryService) private readonly emailDelivery: EmailOtpDeliveryService,
   ) {}
 
   readSessionToken(request: Request) {
@@ -328,7 +396,10 @@ export class AuthService {
   }
 
   setSessionCookie(response: Response, token: string) {
-    response.setHeader("Set-Cookie", `${sessionCookieName}=${encodeURIComponent(token)}; ${cookieOptions(sessionTtlMs / 1000)}`);
+    response.setHeader(
+      "Set-Cookie",
+      `${sessionCookieName}=${encodeURIComponent(token)}; ${cookieOptions(sessionTtlMs / 1000)}`,
+    );
   }
 
   clearSessionCookie(response: Response) {
@@ -341,12 +412,34 @@ export class AuthService {
       where: {
         tokenHash: hashSecret(token),
         revokedAt: null,
-        expiresAt: { gt: now }
+        expiresAt: { gt: now },
       },
       include: {
-        user: { select: { id: true, email: true, phone: true, name: true, avatarUrl: true, passwordChangeRequired: true, externalAuthId: true, deletedAt: true } },
-        tenant: { select: { id: true, name: true, slug: true, status: true, businessType: true, timezone: true, deletedAt: true } }
-      }
+        user: {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            name: true,
+            avatarUrl: true,
+            locale: true,
+            passwordChangeRequired: true,
+            externalAuthId: true,
+            deletedAt: true,
+          },
+        },
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            status: true,
+            businessType: true,
+            timezone: true,
+            deletedAt: true,
+          },
+        },
+      },
     });
 
     if (!session || session.user.deletedAt || session.tenant.deletedAt) {
@@ -355,7 +448,7 @@ export class AuthService {
 
     const membership = await this.prisma.membership.findUnique({
       where: { tenantId_userId: { tenantId: session.tenantId, userId: session.userId } },
-      select: { role: true }
+      select: { role: true },
     });
     if (!membership) {
       return null;
@@ -363,7 +456,7 @@ export class AuthService {
 
     await this.prisma.authSession.update({
       where: { id: session.id },
-      data: { lastUsedAt: now }
+      data: { lastUsedAt: now },
     });
 
     const authMode = sessionAuthMode(session.authMode, session.user.externalAuthId);
@@ -380,7 +473,7 @@ export class AuthService {
         slug: session.tenant.slug,
         status: session.tenant.status,
         businessType: session.tenant.businessType,
-        timezone: session.tenant.timezone
+        timezone: session.tenant.timezone,
       },
       user: {
         id: session.user.id,
@@ -388,8 +481,9 @@ export class AuthService {
         phone: session.user.phone,
         name: session.user.name,
         avatarUrl: session.user.avatarUrl,
-        passwordChangeRequired: session.user.passwordChangeRequired
-      }
+        locale: session.user.locale,
+        passwordChangeRequired: session.user.passwordChangeRequired,
+      },
     };
   }
 
@@ -407,6 +501,7 @@ export class AuthService {
         phone: true,
         name: true,
         avatarUrl: true,
+        locale: true,
         passwordChangeRequired: true,
         passwordHash: true,
         twoFactorEnabled: true,
@@ -415,10 +510,20 @@ export class AuthService {
         memberships: {
           orderBy: { createdAt: "asc" },
           include: {
-            tenant: { select: { id: true, name: true, slug: true, status: true, businessType: true, timezone: true, deletedAt: true } }
-          }
-        }
-      }
+            tenant: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                status: true,
+                businessType: true,
+                timezone: true,
+                deletedAt: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!user || !verifyPassword(dto.password, user.passwordHash)) {
@@ -435,10 +540,10 @@ export class AuthService {
         {
           id: user.id,
           twoFactorSecretEncrypted: user.twoFactorSecretEncrypted,
-          twoFactorRecoveryCodes: user.twoFactorRecoveryCodes
+          twoFactorRecoveryCodes: user.twoFactorRecoveryCodes,
         },
         dto.twoFactorCode,
-        membership.tenant.id
+        membership.tenant.id,
       );
     }
 
@@ -449,11 +554,12 @@ export class AuthService {
         phone: user.phone,
         name: user.name,
         avatarUrl: user.avatarUrl,
-        passwordChangeRequired: user.passwordChangeRequired
+        locale: user.locale,
+        passwordChangeRequired: user.passwordChangeRequired,
       },
       membership.tenant,
       membership.role,
-      meta
+      meta,
     );
   }
 
@@ -463,22 +569,36 @@ export class AuthService {
     }
 
     const identifier = parseAuthIdentifier(dto.email);
-    const existing = await this.prisma.user.findFirst({
-      where: authIdentifierWhere(identifier),
-      select: { id: true, email: true, phone: true, name: true, avatarUrl: true, passwordChangeRequired: true, passwordHash: true, deletedAt: true }
-    });
-
-    if (existing?.passwordHash && !existing.deletedAt) {
-      throw new ConflictException("A user with this login already exists.");
-    }
-
     const email = identifier.storageEmail;
     const companyName = dto.companyName?.trim() || `${identifier.nameSeed} workspace`;
-    const ownerName = dto.name?.trim() || existing?.name || identifier.nameSeed;
+    const ownerName = dto.name?.trim() || identifier.nameSeed;
     const passwordHash = hashPassword(dto.password);
     const slug = await this.uniqueTenantSlug(companyName);
 
     const created = await this.prisma.$transaction(async (tx) => {
+      const [user] = await tx.user.createManyAndReturn({
+        data: {
+          email,
+          phone: identifier.phone,
+          name: ownerName,
+          passwordHash,
+          passwordChangeRequired: false,
+        },
+        skipDuplicates: true,
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          name: true,
+          avatarUrl: true,
+          locale: true,
+          passwordChangeRequired: true,
+        },
+      });
+      if (!user) {
+        throw new ConflictException("A user with this login already exists.");
+      }
+
       const tenant = await tx.tenant.create({
         data: {
           name: companyName,
@@ -489,26 +609,22 @@ export class AuthService {
           settings: {
             productName: "LeadVirt.ai",
             locale: "ru-RU",
-            signupSource: "credentials"
-          } satisfies Prisma.InputJsonObject
+            signupSource: "credentials",
+          } satisfies Prisma.InputJsonObject,
         },
-        select: { id: true, name: true, slug: true, status: true, businessType: true, timezone: true }
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          businessType: true,
+          timezone: true,
+        },
       });
-
-      const user = existing
-        ? await tx.user.update({
-            where: { id: existing.id },
-            data: { email, phone: identifier.phone, name: ownerName, passwordHash, passwordChangeRequired: false, deletedAt: null },
-            select: { id: true, email: true, phone: true, name: true, avatarUrl: true, passwordChangeRequired: true }
-          })
-        : await tx.user.create({
-            data: { email, phone: identifier.phone, name: ownerName, passwordHash, passwordChangeRequired: false },
-            select: { id: true, email: true, phone: true, name: true, avatarUrl: true, passwordChangeRequired: true }
-          });
 
       const membership = await tx.membership.create({
         data: { tenantId: tenant.id, userId: user.id, role: "OWNER" },
-        select: { role: true }
+        select: { role: true },
       });
 
       await tx.onboardingState.create({
@@ -516,8 +632,8 @@ export class AuthService {
           tenantId: tenant.id,
           currentStep: "business",
           completedSteps: [],
-          data: { companyName } satisfies Prisma.InputJsonObject
-        }
+          data: { companyName } satisfies Prisma.InputJsonObject,
+        },
       });
 
       await tx.auditLog.create({
@@ -533,9 +649,9 @@ export class AuthService {
             identifierKind: identifier.kind,
             identifier: identifier.publicIdentifier,
             email: user.email,
-            phone: user.phone
-          } satisfies Prisma.InputJsonObject
-        }
+            phone: user.phone,
+          } satisfies Prisma.InputJsonObject,
+        },
       });
 
       return { user, tenant, role: membership.role };
@@ -555,10 +671,10 @@ export class AuthService {
         avatarUrl: dto.photo_url?.trim() || null,
         auditPayload: {
           telegramId: dto.id,
-          username: dto.username ?? null
-        } satisfies Prisma.InputJsonObject
+          username: dto.username ?? null,
+        } satisfies Prisma.InputJsonObject,
       },
-      meta
+      meta,
     );
   }
 
@@ -571,7 +687,10 @@ export class AuthService {
 
     const displayName =
       stringClaim(claims.name) ||
-      [stringClaim(claims.given_name), stringClaim(claims.family_name)].filter(Boolean).join(" ").trim() ||
+      [stringClaim(claims.given_name), stringClaim(claims.family_name)]
+        .filter(Boolean)
+        .join(" ")
+        .trim() ||
       stringClaim(claims.preferred_username) ||
       `Telegram ${telegramId}`;
 
@@ -584,10 +703,10 @@ export class AuthService {
         auditPayload: {
           telegramId,
           username: stringClaim(claims.preferred_username),
-          oidcSub: stringClaim(claims.sub)
-        } satisfies Prisma.InputJsonObject
+          oidcSub: stringClaim(claims.sub),
+        } satisfies Prisma.InputJsonObject,
       },
-      meta
+      meta,
     );
   }
 
@@ -614,14 +733,25 @@ export class AuthService {
         phone: true,
         name: true,
         avatarUrl: true,
+        locale: true,
         passwordChangeRequired: true,
         memberships: {
           orderBy: { createdAt: "asc" },
           include: {
-            tenant: { select: { id: true, name: true, slug: true, status: true, businessType: true, timezone: true, deletedAt: true } }
-          }
-        }
-      }
+            tenant: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                status: true,
+                businessType: true,
+                timezone: true,
+                deletedAt: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (existing) {
@@ -633,9 +763,23 @@ export class AuthService {
       const user = await this.prisma.user.update({
         where: { id: existing.id },
         data: { name: displayName, avatarUrl },
-        select: { id: true, email: true, phone: true, name: true, avatarUrl: true, passwordChangeRequired: true }
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          name: true,
+          avatarUrl: true,
+          locale: true,
+          passwordChangeRequired: true,
+        },
       });
-      const session = await this.issueSession(user, membership.tenant, membership.role, meta, "telegram");
+      const session = await this.issueSession(
+        user,
+        membership.tenant,
+        membership.role,
+        meta,
+        "telegram",
+      );
       return { ...session, data: { ...session.data, isNewUser } };
     }
 
@@ -652,10 +796,17 @@ export class AuthService {
           settings: {
             productName: "LeadVirt.ai",
             locale: "ru-RU",
-            signupSource: "telegram"
-          } satisfies Prisma.InputJsonObject
+            signupSource: "telegram",
+          } satisfies Prisma.InputJsonObject,
         },
-        select: { id: true, name: true, slug: true, status: true, businessType: true, timezone: true }
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          businessType: true,
+          timezone: true,
+        },
       });
 
       const user = await tx.user.create({
@@ -664,14 +815,22 @@ export class AuthService {
           email,
           name: displayName,
           avatarUrl,
-          passwordChangeRequired: false
+          passwordChangeRequired: false,
         },
-        select: { id: true, email: true, phone: true, name: true, avatarUrl: true, passwordChangeRequired: true }
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          name: true,
+          avatarUrl: true,
+          locale: true,
+          passwordChangeRequired: true,
+        },
       });
 
       const membership = await tx.membership.create({
         data: { tenantId: tenant.id, userId: user.id, role: "OWNER" },
-        select: { role: true }
+        select: { role: true },
       });
 
       await tx.onboardingState.create({
@@ -679,8 +838,8 @@ export class AuthService {
           tenantId: tenant.id,
           currentStep: "business",
           completedSteps: [],
-          data: { companyName, authProvider: "telegram" } satisfies Prisma.InputJsonObject
-        }
+          data: { companyName, authProvider: "telegram" } satisfies Prisma.InputJsonObject,
+        },
       });
 
       await tx.auditLog.create({
@@ -692,15 +851,21 @@ export class AuthService {
           entityId: tenant.id,
           ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
           ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
-          payload: identity.auditPayload
-        }
+          payload: identity.auditPayload,
+        },
       });
 
       return { user, tenant, role: membership.role };
     });
 
     isNewUser = true;
-    const session = await this.issueSession(created.user, created.tenant, created.role, meta, "telegram");
+    const session = await this.issueSession(
+      created.user,
+      created.tenant,
+      created.role,
+      meta,
+      "telegram",
+    );
     return { ...session, data: { ...session.data, isNewUser } };
   }
 
@@ -724,13 +889,22 @@ export class AuthService {
           phone: true,
           name: true,
           avatarUrl: true,
+          locale: true,
           passwordChangeRequired: true,
           deletedAt: true,
           memberships: {
             orderBy: { createdAt: "asc" },
             include: {
               tenant: {
-                select: { id: true, name: true, slug: true, status: true, businessType: true, timezone: true, deletedAt: true },
+                select: {
+                  id: true,
+                  name: true,
+                  slug: true,
+                  status: true,
+                  businessType: true,
+                  timezone: true,
+                  deletedAt: true,
+                },
               },
             },
           },
@@ -749,7 +923,15 @@ export class AuthService {
         user = await tx.user.update({
           where: { id: existing.id },
           data: existing.passwordChangeRequired ? { passwordChangeRequired: false } : {},
-          select: { id: true, email: true, phone: true, name: true, avatarUrl: true, passwordChangeRequired: true },
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            name: true,
+            avatarUrl: true,
+            locale: true,
+            passwordChangeRequired: true,
+          },
         });
         tenant = activeMembership.tenant;
         role = activeMembership.role;
@@ -770,18 +952,41 @@ export class AuthService {
               signupSource: "email_otp",
             } satisfies Prisma.InputJsonObject,
           },
-          select: { id: true, name: true, slug: true, status: true, businessType: true, timezone: true },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            status: true,
+            businessType: true,
+            timezone: true,
+          },
         });
 
         user = existing
           ? await tx.user.update({
               where: { id: existing.id },
               data: { name: displayName, deletedAt: null, passwordChangeRequired: false },
-              select: { id: true, email: true, phone: true, name: true, avatarUrl: true, passwordChangeRequired: true },
+              select: {
+                id: true,
+                email: true,
+                phone: true,
+                name: true,
+                avatarUrl: true,
+                locale: true,
+                passwordChangeRequired: true,
+              },
             })
           : await tx.user.create({
               data: { email: challenge.email, name: displayName, passwordChangeRequired: false },
-              select: { id: true, email: true, phone: true, name: true, avatarUrl: true, passwordChangeRequired: true },
+              select: {
+                id: true,
+                email: true,
+                phone: true,
+                name: true,
+                avatarUrl: true,
+                locale: true,
+                passwordChangeRequired: true,
+              },
             });
 
         const membership = await tx.membership.create({
@@ -806,7 +1011,10 @@ export class AuthService {
             entityId: tenant.id,
             ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
             ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
-            payload: { email: user.email, deliveryMode: challenge.deliveryMode } satisfies Prisma.InputJsonObject,
+            payload: {
+              email: user.email,
+              deliveryMode: challenge.deliveryMode,
+            } satisfies Prisma.InputJsonObject,
           },
         });
         isNewUser = true;
@@ -831,7 +1039,11 @@ export class AuthService {
           entityType: "auth_session",
           ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
           ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
-          payload: { email: user.email, phone: user.phone, authMode: "email" } satisfies Prisma.InputJsonObject,
+          payload: {
+            email: user.email,
+            phone: user.phone,
+            authMode: "email",
+          } satisfies Prisma.InputJsonObject,
         },
       });
 
@@ -847,7 +1059,7 @@ export class AuthService {
     if (!token) return { loggedOut: true };
     await this.prisma.authSession.updateMany({
       where: { tokenHash: hashSecret(token), revokedAt: null },
-      data: { revokedAt: new Date() }
+      data: { revokedAt: new Date() },
     });
     return { loggedOut: true };
   }
@@ -857,49 +1069,113 @@ export class AuthService {
       throw new BadRequestException("Password reset is disabled. Use Telegram login.");
     }
 
+    const delivery = this.emailDelivery.requirePasswordResetDelivery();
+    const resetOrigin = passwordResetOrigin();
     const email = normalizeEmail(dto.email);
     const user = await this.prisma.user.findFirst({
       where: { email, deletedAt: null, passwordHash: { not: null } },
       select: {
         id: true,
         email: true,
+        passwordHash: true,
         memberships: {
           orderBy: { createdAt: "asc" },
-          select: { tenantId: true }
-        }
-      }
+          select: { tenantId: true },
+        },
+      },
     });
 
-    if (!user) {
-      return { sent: true, deliveryMode: resetDeliveryMode() };
+    if (!user?.passwordHash) {
+      return { sent: true, deliveryMode: delivery.deliveryMode };
     }
 
     const token = randomBytes(32).toString("base64url");
+    const tokenHash = hashSecret(token);
     const expiresAt = new Date(Date.now() + passwordResetTtlMs);
-    const deliveryMode = resetDeliveryMode();
+    const stagedAt = new Date();
 
-    await this.prisma.$transaction(async (tx) => {
+    const resetToken = await this.prisma.authPasswordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash,
+        deliveryMode: delivery.deliveryMode,
+        expiresAt,
+        usedAt: stagedAt,
+      },
+      select: { id: true },
+    });
+
+    const resetUrl = `${resetOrigin}/reset-password?token=${encodeURIComponent(token)}`;
+    let delivered: { providerMessageId: string };
+    try {
+      delivered = await this.emailDelivery.sendPasswordReset({
+        resetId: resetToken.id,
+        email: user.email,
+        resetUrl,
+      });
+    } catch {
+      console.error(JSON.stringify({ module: "auth", action: "password_reset_delivery_failed" }));
+      return { sent: true, deliveryMode: delivery.deliveryMode };
+    }
+
+    const activation = await this.prisma.$transaction(async (tx) => {
+      const userExists = await lockPasswordCredential(tx, user.id);
+      const activatedAt = new Date();
+      if (!userExists) return { activated: false } as const;
+
+      const currentUser = await tx.user.findUnique({
+        where: { id: user.id },
+        select: { deletedAt: true, passwordHash: true },
+      });
+      if (
+        currentUser?.deletedAt ||
+        !currentUser?.passwordHash ||
+        currentUser.passwordHash !== user.passwordHash
+      ) {
+        return { activated: false } as const;
+      }
+
+      const stagedToken = await tx.authPasswordResetToken.findFirst({
+        where: {
+          id: resetToken.id,
+          userId: user.id,
+          tokenHash,
+          usedAt: stagedAt,
+          expiresAt: { gt: activatedAt },
+        },
+        select: { id: true },
+      });
+      if (!stagedToken) return { activated: false } as const;
+
       await tx.authPasswordResetToken.updateMany({
         where: {
           userId: user.id,
+          id: { not: resetToken.id },
           usedAt: null,
-          expiresAt: { gt: new Date() }
         },
-        data: { usedAt: new Date() }
+        data: { usedAt: activatedAt },
       });
 
-      await tx.authPasswordResetToken.create({
-        data: {
-          userId: user.id,
-          tokenHash: hashSecret(token),
-          deliveryMode,
-          expiresAt
-        }
+      const activated = await tx.authPasswordResetToken.updateMany({
+        where: {
+          id: resetToken.id,
+          tokenHash,
+          usedAt: stagedAt,
+          expiresAt: { gt: activatedAt },
+        },
+        data: { usedAt: null },
       });
+      if (activated.count !== 1) {
+        throw new ServiceUnavailableException("Password reset email could not be finalized.");
+      }
 
-      const tenantId = user.memberships[0]?.tenantId;
-      if (tenantId) {
-        await tx.auditLog.create({
+      return { activated: true } as const;
+    });
+
+    const tenantId = user.memberships[0]?.tenantId;
+    if (activation.activated && tenantId) {
+      try {
+        await this.prisma.auditLog.create({
           data: {
             tenantId,
             actorUserId: user.id,
@@ -908,75 +1184,114 @@ export class AuthService {
             entityId: user.id,
             ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
             ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
-            payload: { email: user.email, deliveryMode } satisfies Prisma.InputJsonObject
-          }
+            payload: {
+              email: user.email,
+              deliveryMode: delivery.deliveryMode,
+              providerMessageId: delivered.providerMessageId,
+            } satisfies Prisma.InputJsonObject,
+          },
         });
+      } catch {
+        console.error(
+          JSON.stringify({ module: "auth", action: "password_reset_request_audit_failed" }),
+        );
       }
-    });
+    }
 
-    const resetUrl = `${appBaseUrl()}/reset-password?token=${encodeURIComponent(token)}`;
-    if (canExposeResetUrl()) {
-      console.log(JSON.stringify({ module: "auth", action: "password_reset_mock_delivery", email: user.email, resetUrl, expiresAt: expiresAt.toISOString() }));
+    if (activation.activated && delivery.exposeResetUrl) {
+      console.log(
+        JSON.stringify({
+          module: "auth",
+          action: "password_reset_mock_delivery",
+          email: user.email,
+          resetUrl,
+          expiresAt: expiresAt.toISOString(),
+        }),
+      );
     }
 
     return {
       sent: true,
-      deliveryMode,
-      expiresAt: expiresAt.toISOString(),
-      ...(canExposeResetUrl() ? { resetUrl } : {})
+      deliveryMode: delivery.deliveryMode,
+      ...(activation.activated && delivery.exposeResetUrl
+        ? { expiresAt: expiresAt.toISOString(), resetUrl }
+        : {}),
     };
   }
 
   async confirmPasswordReset(dto: ConfirmPasswordResetDto, meta: AuthMeta = {}) {
-    const now = new Date();
-    const resetToken = await this.prisma.authPasswordResetToken.findFirst({
-      where: {
-        tokenHash: hashSecret(dto.token),
-        usedAt: null,
-        expiresAt: { gt: now }
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            deletedAt: true,
-            memberships: {
-              orderBy: { createdAt: "asc" },
-              select: { tenantId: true }
-            }
-          }
-        }
-      }
-    });
-
-    if (!resetToken || resetToken.user.deletedAt) {
-      throw new UnauthorizedException("Password reset link is invalid or expired.");
-    }
-
+    const tokenHash = hashSecret(dto.token);
+    const passwordHash = hashPassword(dto.newPassword);
     const revoked = await this.prisma.$transaction(async (tx) => {
+      const candidate = await tx.authPasswordResetToken.findFirst({
+        where: { tokenHash, usedAt: null },
+        select: { userId: true },
+      });
+      if (!candidate || !(await lockPasswordCredential(tx, candidate.userId))) {
+        throw new UnauthorizedException("Password reset link is invalid or expired.");
+      }
+
+      const now = new Date();
+      const resetToken = await tx.authPasswordResetToken.findFirst({
+        where: {
+          tokenHash,
+          usedAt: null,
+          expiresAt: { gt: now },
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              deletedAt: true,
+              memberships: {
+                orderBy: { createdAt: "asc" },
+                select: { tenantId: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (!resetToken || resetToken.user.deletedAt) {
+        throw new UnauthorizedException("Password reset link is invalid or expired.");
+      }
+
+      const consumed = await tx.authPasswordResetToken.updateMany({
+        where: {
+          id: resetToken.id,
+          usedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { usedAt: now },
+      });
+      if (consumed.count !== 1) {
+        throw new UnauthorizedException("Password reset link is invalid or expired.");
+      }
+
       await tx.authPasswordResetToken.updateMany({
         where: {
           userId: resetToken.userId,
-          usedAt: null
+          id: { not: resetToken.id },
+          usedAt: null,
         },
-        data: { usedAt: now }
+        data: { usedAt: now },
       });
 
       await tx.user.update({
         where: { id: resetToken.userId },
         data: {
-          passwordHash: hashPassword(dto.newPassword),
-          passwordChangeRequired: false
-        }
+          passwordHash,
+          passwordChangeRequired: false,
+        },
       });
 
       const revokedSessions = await tx.authSession.updateMany({
         where: {
           userId: resetToken.userId,
-          revokedAt: null
+          revokedAt: null,
         },
-        data: { revokedAt: now }
+        data: { revokedAt: now },
       });
 
       const tenantId = resetToken.user.memberships[0]?.tenantId;
@@ -990,8 +1305,8 @@ export class AuthService {
             entityId: resetToken.userId,
             ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
             ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
-            payload: { revokedSessions: revokedSessions.count } satisfies Prisma.InputJsonObject
-          }
+            payload: { revokedSessions: revokedSessions.count } satisfies Prisma.InputJsonObject,
+          },
         });
       }
 
@@ -1001,7 +1316,13 @@ export class AuthService {
     return { updated: true, revokedSessions: revoked.count };
   }
 
-  private async issueSession(user: AuthUser, tenant: AuthTenant, role: MembershipRole, meta: AuthMeta, authMode: AuthMode = "credentials") {
+  private async issueSession(
+    user: AuthUser,
+    tenant: AuthTenant,
+    role: MembershipRole,
+    meta: AuthMeta,
+    authMode: AuthMode = "credentials",
+  ) {
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + sessionTtlMs);
     await this.prisma.authSession.create({
@@ -1012,8 +1333,8 @@ export class AuthService {
         authMode,
         expiresAt,
         ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
-        ...(meta.userAgent ? { userAgent: meta.userAgent } : {})
-      }
+        ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
+      },
     });
 
     await this.prisma.auditLog.create({
@@ -1024,54 +1345,91 @@ export class AuthService {
         entityType: "auth_session",
         ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
         ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
-        payload: { email: user.email, phone: user.phone, authMode } satisfies Prisma.InputJsonObject
-      }
+        payload: {
+          email: user.email,
+          phone: user.phone,
+          authMode,
+        } satisfies Prisma.InputJsonObject,
+      },
     });
 
     return {
       token,
       expiresAt,
-      data: this.authPayload(user, tenant, role, expiresAt, authMode)
+      data: this.authPayload(user, tenant, role, expiresAt, authMode),
     };
   }
 
-  async changePassword(context: RequestContext, dto: { currentPassword: string; newPassword: string }) {
+  async changePassword(
+    context: RequestContext,
+    dto: { currentPassword: string; newPassword: string },
+  ) {
     if (dto.currentPassword === dto.newPassword) {
       throw new BadRequestException("New password must be different from the current password.");
     }
 
     const user = await this.prisma.user.findFirst({
       where: { id: context.userId, deletedAt: null },
-      select: { id: true, passwordHash: true }
+      select: { id: true, passwordHash: true },
     });
     if (!user?.passwordHash || !verifyPassword(dto.currentPassword, user.passwordHash)) {
       throw new UnauthorizedException("Current password is invalid.");
     }
 
-    await this.prisma.user.update({
-      where: { id: context.userId },
-      data: { passwordHash: hashPassword(dto.newPassword), passwordChangeRequired: false }
-    });
-
-    const revoked = await this.prisma.authSession.updateMany({
-      where: {
-        userId: context.userId,
-        tenantId: context.tenantId,
-        revokedAt: null,
-        ...(context.sessionId ? { id: { not: context.sessionId } } : {})
-      },
-      data: { revokedAt: new Date() }
-    });
-
-    await this.prisma.auditLog.create({
-      data: {
-        tenantId: context.tenantId,
-        actorUserId: context.userId,
-        action: "auth.password_changed",
-        entityType: "user",
-        entityId: context.userId,
-        payload: { revokedSessions: revoked.count } satisfies Prisma.InputJsonObject
+    const nextPasswordHash = hashPassword(dto.newPassword);
+    const revoked = await this.prisma.$transaction(async (tx) => {
+      if (!(await lockPasswordCredential(tx, context.userId))) {
+        throw new UnauthorizedException("Current password is invalid.");
       }
+
+      const currentUser = await tx.user.findFirst({
+        where: { id: context.userId, deletedAt: null },
+        select: { passwordHash: true },
+      });
+      if (!currentUser?.passwordHash || currentUser.passwordHash !== user.passwordHash) {
+        throw new UnauthorizedException("Current password is invalid.");
+      }
+
+      const changedAt = new Date();
+      const changed = await tx.user.updateMany({
+        where: {
+          id: context.userId,
+          deletedAt: null,
+          passwordHash: user.passwordHash,
+        },
+        data: { passwordHash: nextPasswordHash, passwordChangeRequired: false },
+      });
+      if (changed.count !== 1) {
+        throw new UnauthorizedException("Current password is invalid.");
+      }
+
+      await tx.authPasswordResetToken.updateMany({
+        where: { userId: context.userId, usedAt: null },
+        data: { usedAt: changedAt },
+      });
+
+      const revokedSessions = await tx.authSession.updateMany({
+        where: {
+          userId: context.userId,
+          tenantId: context.tenantId,
+          revokedAt: null,
+          ...(context.sessionId ? { id: { not: context.sessionId } } : {}),
+        },
+        data: { revokedAt: changedAt },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          tenantId: context.tenantId,
+          actorUserId: context.userId,
+          action: "auth.password_changed",
+          entityType: "user",
+          entityId: context.userId,
+          payload: { revokedSessions: revokedSessions.count } satisfies Prisma.InputJsonObject,
+        },
+      });
+
+      return revokedSessions;
     });
 
     return { updated: true, revokedSessions: revoked.count };
@@ -1084,7 +1442,7 @@ export class AuthService {
         userId: context.userId,
         tenantId: context.tenantId,
         revokedAt: null,
-        expiresAt: { gt: now }
+        expiresAt: { gt: now },
       },
       orderBy: [{ lastUsedAt: "desc" }, { createdAt: "desc" }],
       select: {
@@ -1093,8 +1451,8 @@ export class AuthService {
         lastUsedAt: true,
         createdAt: true,
         ipAddress: true,
-        userAgent: true
-      }
+        userAgent: true,
+      },
     });
 
     return sessions.map((session) => ({
@@ -1104,7 +1462,7 @@ export class AuthService {
       userAgent: session.userAgent,
       createdAt: session.createdAt.toISOString(),
       lastUsedAt: session.lastUsedAt?.toISOString() ?? session.createdAt.toISOString(),
-      expiresAt: session.expiresAt.toISOString()
+      expiresAt: session.expiresAt.toISOString(),
     }));
   }
 
@@ -1114,9 +1472,9 @@ export class AuthService {
         id: sessionId,
         userId: context.userId,
         tenantId: context.tenantId,
-        revokedAt: null
+        revokedAt: null,
       },
-      select: { id: true }
+      select: { id: true },
     });
     if (!session) {
       throw new BadRequestException("Session is not active.");
@@ -1124,7 +1482,7 @@ export class AuthService {
 
     await this.prisma.authSession.update({
       where: { id: session.id },
-      data: { revokedAt: new Date() }
+      data: { revokedAt: new Date() },
     });
 
     await this.prisma.auditLog.create({
@@ -1134,8 +1492,8 @@ export class AuthService {
         action: "auth.session_revoked",
         entityType: "auth_session",
         entityId: session.id,
-        payload: { current: session.id === context.sessionId } satisfies Prisma.InputJsonObject
-      }
+        payload: { current: session.id === context.sessionId } satisfies Prisma.InputJsonObject,
+      },
     });
 
     return { id: session.id, revoked: true, current: session.id === context.sessionId };
@@ -1147,9 +1505,9 @@ export class AuthService {
         userId: context.userId,
         tenantId: context.tenantId,
         revokedAt: null,
-        ...(context.sessionId ? { id: { not: context.sessionId } } : {})
+        ...(context.sessionId ? { id: { not: context.sessionId } } : {}),
       },
-      data: { revokedAt: new Date() }
+      data: { revokedAt: new Date() },
     });
 
     await this.prisma.auditLog.create({
@@ -1158,8 +1516,8 @@ export class AuthService {
         actorUserId: context.userId,
         action: "auth.other_sessions_revoked",
         entityType: "auth_session",
-        payload: { count: revoked.count } satisfies Prisma.InputJsonObject
-      }
+        payload: { count: revoked.count } satisfies Prisma.InputJsonObject,
+      },
     });
 
     return { revoked: revoked.count };
@@ -1172,16 +1530,18 @@ export class AuthService {
         twoFactorEnabled: true,
         twoFactorSecretEncrypted: true,
         twoFactorRecoveryCodes: true,
-        twoFactorConfirmedAt: true
-      }
+        twoFactorConfirmedAt: true,
+      },
     });
 
-    const recoveryCodesRemaining = user?.twoFactorEnabled ? recoveryCodeHashes(user.twoFactorRecoveryCodes).length : 0;
+    const recoveryCodesRemaining = user?.twoFactorEnabled
+      ? recoveryCodeHashes(user.twoFactorRecoveryCodes).length
+      : 0;
     return {
       enabled: Boolean(user?.twoFactorEnabled),
       setupPending: Boolean(user?.twoFactorSecretEncrypted && !user.twoFactorEnabled),
       confirmedAt: user?.twoFactorConfirmedAt?.toISOString() ?? null,
-      recoveryCodesRemaining
+      recoveryCodesRemaining,
     };
   }
 
@@ -1197,8 +1557,8 @@ export class AuthService {
       data: {
         twoFactorSecretEncrypted: encryptTotpSecret(secret),
         twoFactorRecoveryCodes: [],
-        twoFactorConfirmedAt: null
-      }
+        twoFactorConfirmedAt: null,
+      },
     });
 
     await this.prisma.auditLog.create({
@@ -1208,8 +1568,8 @@ export class AuthService {
         action: "auth.two_factor_setup_started",
         entityType: "user",
         entityId: context.userId,
-        payload: { authMode: context.authMode } satisfies Prisma.InputJsonObject
-      }
+        payload: { authMode: context.authMode } satisfies Prisma.InputJsonObject,
+      },
     });
 
     return {
@@ -1217,15 +1577,15 @@ export class AuthService {
       otpauthUri: totpAuthUri({
         issuer: "LeadVirt.ai",
         accountName: context.user.phone ?? context.user.email,
-        secret
-      })
+        secret,
+      }),
     };
   }
 
   async enableTwoFactor(context: RequestContext, code: string) {
     const user = await this.prisma.user.findFirst({
       where: { id: context.userId, deletedAt: null },
-      select: { twoFactorEnabled: true, twoFactorSecretEncrypted: true }
+      select: { twoFactorEnabled: true, twoFactorSecretEncrypted: true },
     });
     if (!user?.twoFactorSecretEncrypted) {
       throw new BadRequestException("Start two-factor setup before confirming it.");
@@ -1246,8 +1606,10 @@ export class AuthService {
       data: {
         twoFactorEnabled: true,
         twoFactorConfirmedAt: confirmedAt,
-        twoFactorRecoveryCodes: recoveryCodes.map((recoveryCode) => hashPassword(normalizeRecoveryCode(recoveryCode)))
-      }
+        twoFactorRecoveryCodes: recoveryCodes.map((recoveryCode) =>
+          hashPassword(normalizeRecoveryCode(recoveryCode)),
+        ),
+      },
     });
 
     await this.prisma.auditLog.create({
@@ -1257,8 +1619,8 @@ export class AuthService {
         action: "auth.two_factor_enabled",
         entityType: "user",
         entityId: context.userId,
-        payload: { recoveryCodes: recoveryCodes.length } satisfies Prisma.InputJsonObject
-      }
+        payload: { recoveryCodes: recoveryCodes.length } satisfies Prisma.InputJsonObject,
+      },
     });
 
     return {
@@ -1266,9 +1628,9 @@ export class AuthService {
         enabled: true,
         setupPending: false,
         confirmedAt: confirmedAt.toISOString(),
-        recoveryCodesRemaining: recoveryCodes.length
+        recoveryCodesRemaining: recoveryCodes.length,
       },
-      recoveryCodes
+      recoveryCodes,
     };
   }
 
@@ -1280,8 +1642,8 @@ export class AuthService {
         twoFactorEnabled: false,
         twoFactorSecretEncrypted: null,
         twoFactorRecoveryCodes: [],
-        twoFactorConfirmedAt: null
-      }
+        twoFactorConfirmedAt: null,
+      },
     });
 
     await this.prisma.auditLog.create({
@@ -1291,8 +1653,8 @@ export class AuthService {
         action: "auth.two_factor_disabled",
         entityType: "user",
         entityId: context.userId,
-        payload: {} satisfies Prisma.InputJsonObject
-      }
+        payload: {} satisfies Prisma.InputJsonObject,
+      },
     });
 
     return { twoFactor: await this.twoFactorStatus(context) };
@@ -1302,15 +1664,19 @@ export class AuthService {
     await this.assertCurrentPassword(context.userId, currentPassword);
     const status = await this.twoFactorStatus(context);
     if (!status.enabled) {
-      throw new BadRequestException("Enable two-factor authentication before regenerating recovery codes.");
+      throw new BadRequestException(
+        "Enable two-factor authentication before regenerating recovery codes.",
+      );
     }
 
     const recoveryCodes = generateRecoveryCodes();
     await this.prisma.user.update({
       where: { id: context.userId },
       data: {
-        twoFactorRecoveryCodes: recoveryCodes.map((recoveryCode) => hashPassword(normalizeRecoveryCode(recoveryCode)))
-      }
+        twoFactorRecoveryCodes: recoveryCodes.map((recoveryCode) =>
+          hashPassword(normalizeRecoveryCode(recoveryCode)),
+        ),
+      },
     });
 
     await this.prisma.auditLog.create({
@@ -1320,26 +1686,32 @@ export class AuthService {
         action: "auth.two_factor_recovery_codes_regenerated",
         entityType: "user",
         entityId: context.userId,
-        payload: { recoveryCodes: recoveryCodes.length } satisfies Prisma.InputJsonObject
-      }
+        payload: { recoveryCodes: recoveryCodes.length } satisfies Prisma.InputJsonObject,
+      },
     });
 
     return {
       twoFactor: {
         ...status,
-        recoveryCodesRemaining: recoveryCodes.length
+        recoveryCodesRemaining: recoveryCodes.length,
       },
-      recoveryCodes
+      recoveryCodes,
     };
   }
 
-  private authPayload(user: AuthUser, tenant: AuthTenant, role: MembershipRole, expiresAt: Date, authMode: AuthMode) {
+  private authPayload(
+    user: AuthUser,
+    tenant: AuthTenant,
+    role: MembershipRole,
+    expiresAt: Date,
+    authMode: AuthMode,
+  ) {
     return {
       ...user,
       role,
       tenantId: tenant.id,
       authMode,
-      expiresAt: expiresAt.toISOString()
+      expiresAt: expiresAt.toISOString(),
     };
   }
 
@@ -1349,7 +1721,8 @@ export class AuthService {
   ) {
     const root = baseSlug(companyName);
     for (let attempt = 0; attempt < 8; attempt += 1) {
-      const suffix = attempt === 0 ? randomBytes(3).toString("hex") : randomBytes(4).toString("hex");
+      const suffix =
+        attempt === 0 ? randomBytes(3).toString("hex") : randomBytes(4).toString("hex");
       const slug = `${root}-${suffix}`.slice(0, 64).replace(/-$/g, "");
       const exists = await client.tenant.findUnique({ where: { slug }, select: { id: true } });
       if (!exists) return slug;
@@ -1368,7 +1741,7 @@ export class AuthService {
   private async assertCurrentPassword(userId: string, currentPassword: string) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { passwordHash: true }
+      select: { passwordHash: true },
     });
     if (!user?.passwordHash || !verifyPassword(currentPassword, user.passwordHash)) {
       throw new UnauthorizedException("Current password is invalid.");
@@ -1376,15 +1749,22 @@ export class AuthService {
   }
 
   private async verifyLoginTwoFactor(
-    user: { id: string; twoFactorSecretEncrypted: string | null; twoFactorRecoveryCodes: Prisma.JsonValue | null },
+    user: {
+      id: string;
+      twoFactorSecretEncrypted: string | null;
+      twoFactorRecoveryCodes: Prisma.JsonValue | null;
+    },
     code: string | undefined,
-    tenantId: string
+    tenantId: string,
   ) {
     if (!code) {
       throw new UnauthorizedException("Two-factor code is required.");
     }
 
-    if (user.twoFactorSecretEncrypted && verifyTotpCode(this.decryptUserTotpSecret(user.twoFactorSecretEncrypted), code)) {
+    if (
+      user.twoFactorSecretEncrypted &&
+      verifyTotpCode(this.decryptUserTotpSecret(user.twoFactorSecretEncrypted), code)
+    ) {
       return;
     }
 
@@ -1395,7 +1775,7 @@ export class AuthService {
       const remaining = hashes.filter((_, index) => index !== usedIndex);
       await this.prisma.user.update({
         where: { id: user.id },
-        data: { twoFactorRecoveryCodes: remaining }
+        data: { twoFactorRecoveryCodes: remaining },
       });
       await this.prisma.auditLog.create({
         data: {
@@ -1404,8 +1784,8 @@ export class AuthService {
           action: "auth.two_factor_recovery_code_used",
           entityType: "user",
           entityId: user.id,
-          payload: { recoveryCodesRemaining: remaining.length } satisfies Prisma.InputJsonObject
-        }
+          payload: { recoveryCodesRemaining: remaining.length } satisfies Prisma.InputJsonObject,
+        },
       });
       return;
     }

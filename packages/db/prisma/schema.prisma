@@ -187,6 +187,612 @@ enum BusinessKnowledgeSourceStatus {
   ARCHIVED
 }
 
+enum KnowledgeRevisionStatus {
+  ACQUIRED
+  SCANNING
+  PARSING
+  NORMALIZING
+  EXTRACTING
+  CHUNKING
+  EMBEDDING
+  EVALUATING
+  NEEDS_REVIEW
+  READY
+  REJECTED
+  SUPERSEDED
+  DELETED
+}
+
+enum KnowledgeIndexSnapshotStatus {
+  PREPARING
+  READY
+  ABANDONED
+  DELETING
+  DELETED
+}
+
+enum KnowledgePublicationStatus {
+  VALIDATING
+  READY
+  PUBLISHING
+  ACTIVE
+  SUPERSEDED
+  FAILED
+  ROLLED_BACK
+}
+
+enum KnowledgePublicationItemType {
+  LEGACY_REVISION
+  DOCUMENT_REVISION
+  FACT_VERSION
+  GUIDANCE_RULE_VERSION
+  SOURCE_PERMISSION_SNAPSHOT
+}
+
+enum KnowledgeCorpusKind {
+  LEGACY_V1
+  STRUCTURED_V2
+}
+
+enum KnowledgeV2AutoPublishPolicy {
+  OFF
+  TRUSTED_LOW_RISK
+  SCHEDULED
+}
+
+enum KnowledgeV2ApprovalPolicy {
+  OWNER_ONLY
+  OWNER_OR_ADMIN
+}
+
+enum KnowledgeV2RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum KnowledgeV2LifecycleStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum KnowledgeV2VerificationStatus {
+  UNVERIFIED
+  PENDING_REVIEW
+  VERIFIED
+  REJECTED
+  CONFLICTED
+}
+
+enum KnowledgeV2FactAuthority {
+  INFERRED
+  IMPORTED
+  MANUAL
+  TRUSTED_SOURCE
+  OWNER_VERIFIED
+}
+
+enum KnowledgeV2LocaleBehavior {
+  LANGUAGE_NEUTRAL
+  LOCALIZED
+  LOCALE_SPECIFIC
+}
+
+enum KnowledgeV2GuidanceReviewStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  DISABLED
+}
+
+enum KnowledgeV2GuidanceRuleType {
+  RESPONSE
+  PROHIBITION
+  ESCALATION
+  APPROVAL
+  TOOL_USE
+  STYLE
+}
+
+enum KnowledgeV2EvidenceKind {
+  MANUAL
+  LEGACY_REVISION
+  EXTERNAL_REFERENCE
+}
+
+enum KnowledgeV2IdempotencyStatus {
+  IN_PROGRESS
+  SUCCEEDED
+  FAILED
+}
+
+enum KnowledgeV2ValidationStatus {
+  PENDING
+  PASSED
+  FAILED
+  EXPIRED
+}
+
+enum KnowledgeV2CapabilityType {
+  GENERAL_FAQ
+  LEAD_QUALIFICATION
+  PRICING
+  APPOINTMENT_DISCOVERY
+  APPOINTMENT_BOOKING
+  ORDER_ACCOUNT_SUPPORT
+  COMMERCE_RECOMMENDATION
+  REGULATED_TOPIC
+}
+
+enum KnowledgeV2CapabilityAutonomy {
+  ANSWER_ONLY
+  COLLECT_INFORMATION
+  PROPOSE_ACTION
+  ACT_WITH_CONFIRMATION
+  AUTONOMOUS_ACTION
+}
+
+enum KnowledgeV2CapabilityDecision {
+  AUTHORIZED
+  HANDOFF
+}
+
+enum KnowledgeV2ReplyDisposition {
+  AUTO_SEND
+  HANDOFF
+}
+
+enum KnowledgeV2RequirementKind {
+  FACT
+  RULE
+  DOCUMENT_COVERAGE
+  CONNECTOR
+  TOOL
+  PERMISSION
+  LOCALE
+  EVALUATION_CASE
+}
+
+enum KnowledgeV2RequirementSeverity {
+  BLOCKER
+  WARNING
+}
+
+enum KnowledgeV2RequirementEvaluationStatus {
+  PENDING
+  SATISFIED
+  UNSATISFIED
+  STALE
+  CONFLICTED
+  NOT_APPLICABLE
+  ERROR
+}
+
+enum KnowledgeV2SourceKind {
+  MANUAL
+  WEBSITE
+  FILE
+  SPREADSHEET
+  HELP_CENTER
+  DRIVE
+  NOTION
+  API
+  LEGACY_ONBOARDING
+}
+
+enum KnowledgeV2SourceSyncMode {
+  MANUAL
+  SCHEDULED
+  WEBHOOK
+}
+
+enum KnowledgeV2SourceStatus {
+  CONNECTING
+  DISCOVERING
+  SYNCING
+  READY
+  NEEDS_REVIEW
+  PAUSED
+  FAILED
+  DISCONNECTED
+  DELETING
+  DELETED
+}
+
+enum KnowledgeV2RevisionStatus {
+  ACQUIRED
+  SCANNING
+  PARSING
+  NORMALIZING
+  EXTRACTING
+  CHUNKING
+  EMBEDDING
+  INDEXING
+  EVALUATING
+  READY
+  NEEDS_REVIEW
+  QUARANTINED
+  REJECTED
+  PUBLISHED
+  SUPERSEDED
+  FAILED
+  CANCELLED
+  DELETED
+}
+
+enum KnowledgeV2ElementKind {
+  TITLE
+  PARAGRAPH
+  LIST
+  TABLE
+  TABLE_ROW_GROUP
+  IMAGE_CAPTION
+  CODE
+  HEADER_FOOTER
+}
+
+enum KnowledgeV2DeletionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+enum KnowledgeV2SecurityClassification {
+  PUBLIC
+  INTERNAL
+  CUSTOMER_PERSONAL
+  SENSITIVE
+  SECRET
+}
+
+enum KnowledgeV2ArtifactMalwareStatus {
+  PENDING
+  NOT_APPLICABLE
+  CLEAN
+  DETECTED
+  SCAN_FAILED
+}
+
+enum KnowledgeV2MimeValidationStatus {
+  PENDING
+  VALID
+  INVALID
+}
+
+enum KnowledgeV2ArtifactDeletionState {
+  RETAINED
+  TOMBSTONED
+  DELETING
+  DELETED
+  FAILED
+}
+
+enum KnowledgeV2FileUploadStatus {
+  PENDING
+  UPLOADING
+  UPLOADED
+  FINALIZING
+  COMPLETED
+  REJECTED
+  EXPIRED
+  REVOKED
+}
+
+enum KnowledgeV2DocumentStatus {
+  DISCOVERED
+  ACTIVE
+  NEEDS_REVIEW
+  TOMBSTONED
+  DELETED
+}
+
+enum KnowledgeV2ChunkIndexState {
+  PENDING
+  INDEXED
+  FAILED
+  DELETED
+}
+
+enum KnowledgeV2Audience {
+  PUBLIC
+  AUTHENTICATED_CUSTOMER
+  INTERNAL
+}
+
+enum KnowledgeV2EvidenceTargetType {
+  DOCUMENT_REVISION
+  FACT_VERSION
+  GUIDANCE_RULE_VERSION
+  MESSAGE
+  TOOL_RESULT
+  EXTERNAL_REFERENCE
+}
+
+enum KnowledgeV2ConflictType {
+  FACT_VALUE
+  GUIDANCE_RULE
+  AUTHORITY
+  SCOPE_OVERLAP
+  EFFECTIVE_PERIOD
+  PERMISSION
+  DUPLICATE_IDENTITY
+}
+
+enum KnowledgeV2ConflictStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  DISMISSED
+  SUPERSEDED
+}
+
+enum KnowledgeV2ConflictResolution {
+  KEEP_LEFT
+  KEEP_RIGHT
+  MERGE
+  SPLIT_SCOPE
+  MARK_UNANSWERABLE
+  REQUIRE_HANDOFF
+  DISMISS
+}
+
+enum KnowledgeV2ConflictCandidateType {
+  DOCUMENT_REVISION
+  FACT_VERSION
+  GUIDANCE_RULE_VERSION
+}
+
+enum KnowledgeV2ReviewReason {
+  MISSING_REQUIRED_INFORMATION
+  CONFLICTING_VALUES
+  INFERRED_HIGH_RISK
+  LOW_CONFIDENCE_CONTENT
+  SENSITIVE_CONTENT
+  STALE_SOURCE
+  INACCESSIBLE_SOURCE
+  FAILING_TEST
+}
+
+enum KnowledgeV2ReviewStatus {
+  OPEN
+  ASSIGNED
+  IN_REVIEW
+  RESOLVED
+  DISMISSED
+  SUPERSEDED
+}
+
+enum KnowledgeV2ReviewAction {
+  REVIEW_VALUE
+  CORRECT_SOURCE
+  ADD_MISSING_ANSWER
+  CHANGE_GUIDANCE
+  MARK_UNANSWERABLE
+  REQUIRE_HANDOFF
+  EXCLUDE_CONTENT
+  RETRY_SOURCE
+  VERIFY_PERMISSION
+  APPROVE
+  REJECT
+  DISMISS
+}
+
+enum KnowledgeV2TestCaseStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum KnowledgeV2TestCaseOrigin {
+  PLATFORM
+  INDUSTRY_PACK
+  TENANT
+  ANONYMIZED_FAILURE
+  SYNTHETIC
+}
+
+enum KnowledgeV2ExpectedBehavior {
+  ANSWER
+  ABSTAIN
+  HANDOFF
+  REFUSE
+  TOOL_CALL
+  HOLD_FOR_APPROVAL
+}
+
+enum KnowledgeV2TestExpectationKind {
+  REQUIRED_FACT
+  FORBIDDEN_FACT
+  REQUIRED_GUIDANCE
+  FORBIDDEN_GUIDANCE
+  REQUIRED_EVIDENCE
+  FORBIDDEN_CLAIM
+  REQUIRED_TOOL
+  FORBIDDEN_TOOL
+}
+
+enum KnowledgeV2EvaluationRunKind {
+  PULL_REQUEST
+  DEPLOY
+  PUBLICATION
+  MODEL_MIGRATION
+  MANUAL
+  PLAYGROUND
+}
+
+enum KnowledgeV2EvaluationRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum KnowledgeV2EvaluationResultStatus {
+  PASSED
+  WARNING
+  FAILED
+  ERROR
+  SKIPPED
+}
+
+enum KnowledgeV2MetricCategory {
+  INGESTION
+  STRUCTURED_EXTRACTION
+  RETRIEVAL
+  GENERATION
+  POLICY_TOOLS
+  SECURITY
+  SYSTEM
+}
+
+enum KnowledgeV2MetricComparator {
+  GREATER_THAN_OR_EQUAL
+  LESS_THAN_OR_EQUAL
+  EQUAL
+  NOT_EQUAL
+}
+
+enum KnowledgeV2SnapshotKind {
+  PUBLICATION
+  DRAFT_CANDIDATE
+}
+
+enum KnowledgeV2FeedbackCategory {
+  INCORRECT_ANSWER
+  MISSING_ANSWER
+  WRONG_GUIDANCE
+  SHOULD_BE_UNANSWERABLE
+  SHOULD_HANDOFF
+  BAD_CITATION
+  STALE_INFORMATION
+  SECURITY_CONCERN
+  OTHER
+}
+
+enum KnowledgeV2FeedbackStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum KnowledgeV2CorrectionTargetType {
+  SOURCE
+  DOCUMENT_REVISION
+  FACT
+  GUIDANCE_RULE
+  MARK_UNANSWERABLE
+  REQUIRE_HANDOFF
+}
+
+enum KnowledgeV2RetrievalOutcome {
+  ANSWERED
+  ABSTAINED
+  HANDED_OFF
+  HELD_FOR_APPROVAL
+  REFUSED
+  FAILED
+}
+
+enum KnowledgeV2GateOutcome {
+  AUTO_SEND
+  HOLD_FOR_APPROVAL
+  HANDOFF
+  BLOCKED
+}
+
+enum KnowledgeV2RetrievalRejectionReason {
+  BELOW_THRESHOLD
+  DUPLICATE
+  PERMISSION_DENIED
+  STALE
+  DELETED
+  CONFLICTED
+  RERANKED_OUT
+  NOT_SELECTED
+}
+
+enum KnowledgeV2CitationSupport {
+  SUPPORTS
+  PARTIAL
+  CONTRADICTS
+  NOT_ASSESSED
+}
+
+enum KnowledgeJobStatus {
+  QUEUED
+  RUNNING
+  RETRY_SCHEDULED
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  DEAD_LETTER
+}
+
+enum KnowledgeJobAttemptStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  TIMED_OUT
+}
+
+enum KnowledgeOutboxStatus {
+  PENDING
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  DEAD_LETTER
+}
+
+enum KnowledgeInboxStatus {
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum AiReplyRunStatus {
+  QUEUED
+  RUNNING
+  RETRY_SCHEDULED
+  SUCCEEDED
+  SKIPPED
+  FAILED
+  CANCEL_REQUESTED
+  CANCELLED
+  TIMED_OUT
+  SUPERSEDED
+  DEAD_LETTER
+}
+
+enum ExternalOperationStatus {
+  REQUESTED
+  STARTED
+  SUCCEEDED
+  FAILED
+  UNKNOWN
+  RECONCILED
+}
+
+enum RuntimeOutboxStatus {
+  PENDING
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  DEAD_LETTER
+}
+
+enum RuntimeInboxStatus {
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
 model Tenant {
   id           String       @id @default(cuid())
   name         String
@@ -199,58 +805,125 @@ model Tenant {
   updatedAt    DateTime     @updatedAt
   deletedAt    DateTime?
 
-  memberships         Membership[]
-  channels            Channel[]
-  webhookEvents       WebhookEvent[]
-  leads               Lead[]
-  leadEvents          LeadEvent[]
-  conversations       Conversation[]
-  messages            Message[]
-  messageAttachments  MessageAttachment[]
-  workflows           Workflow[]
-  workflowRuns        WorkflowRun[]
-  integrations        IntegrationAccount[]
-  integrationSyncLogs IntegrationSyncLog[]
-  aiUsageLogs         AiUsageLog[]
-  auditLogs           AuditLog[]
-  subscriptions       Subscription[]
-  usageCounters       UsageCounter[]
-  tasks               Task[]
-  bookings            Booking[]
-  orders              Order[]
-  apiKeys             ApiKey[]
-  authSessions        AuthSession[]
-  onboardingState     OnboardingState?
-  knowledgeSources    BusinessKnowledgeSource[]
-  knowledgeChunks     BusinessKnowledgeChunk[]
+  memberships                       Membership[]
+  channels                          Channel[]
+  webhookEvents                     WebhookEvent[]
+  leads                             Lead[]
+  leadEvents                        LeadEvent[]
+  conversations                     Conversation[]
+  messages                          Message[]
+  messageAttachments                MessageAttachment[]
+  workflows                         Workflow[]
+  workflowRuns                      WorkflowRun[]
+  integrations                      IntegrationAccount[]
+  integrationSyncLogs               IntegrationSyncLog[]
+  aiUsageLogs                       AiUsageLog[]
+  auditLogs                         AuditLog[]
+  subscriptions                     Subscription[]
+  usageCounters                     UsageCounter[]
+  tasks                             Task[]
+  bookings                          Booking[]
+  orders                            Order[]
+  apiKeys                           ApiKey[]
+  authSessions                      AuthSession[]
+  onboardingState                   OnboardingState?
+  knowledgeSources                  BusinessKnowledgeSource[]
+  knowledgeChunks                   BusinessKnowledgeChunk[]
+  knowledgeRevisions                KnowledgeRevision[]
+  knowledgeRevisionChunks           KnowledgeRevisionChunk[]
+  knowledgeIndexSnapshots           KnowledgeIndexSnapshot[]
+  knowledgePublications             KnowledgePublication[]
+  activeKnowledgePublications       ActiveKnowledgePublication[]
+  knowledgeJobs                     KnowledgeJob[]
+  knowledgeOutbox                   KnowledgeOutbox[]
+  knowledgeInbox                    KnowledgeInbox[]
+  knowledgeV2Settings               KnowledgeV2Settings?
+  knowledgeV2Entities               KnowledgeV2Entity[]
+  knowledgeV2Facts                  KnowledgeV2Fact[]
+  knowledgeV2FactVersions           KnowledgeV2FactVersion[]
+  knowledgeV2GuidanceRules          KnowledgeV2GuidanceRule[]
+  knowledgeV2GuidanceVersions       KnowledgeV2GuidanceRuleVersion[]
+  knowledgeV2Evidence               KnowledgeV2Evidence[]
+  knowledgeV2Idempotency            KnowledgeV2IdempotencyRecord[]
+  knowledgeV2Validations            KnowledgeV2PublicationValidation[]
+  knowledgeV2Capabilities           KnowledgeV2Capability[]
+  knowledgeV2RequirementDefinitions KnowledgeV2RequirementDefinition[]
+  knowledgeV2RequirementEvaluations KnowledgeV2RequirementEvaluation[]
+  knowledgePublicationCapabilities  KnowledgePublicationCapability[]
+  knowledgeV2Sources                KnowledgeV2Source[]
+  knowledgeV2FileUploadIntents      KnowledgeV2FileUploadIntent[]
+  knowledgeV2Artifacts              KnowledgeV2Artifact[]
+  knowledgeV2Documents              KnowledgeV2Document[]
+  knowledgeV2Revisions              KnowledgeV2DocumentRevision[]
+  knowledgeV2Elements               KnowledgeV2Element[]
+  knowledgeV2Chunks                 KnowledgeV2Chunk[]
+  knowledgeV2EmbeddingCaches        KnowledgeV2EmbeddingCache[]
+  knowledgeV2LegacyMigrations       KnowledgeV2LegacyMigration[]
+  knowledgeCorpusSelector           KnowledgeCorpusSelector?
+  knowledgeV2DeletionLedger         KnowledgeV2DeletionLedger[]
+  knowledgeV2EvidenceRefs           KnowledgeV2EvidenceReference[]
+  knowledgeV2Conflicts              KnowledgeV2Conflict[]
+  knowledgeV2ConflictCandidates     KnowledgeV2ConflictCandidate[]
+  knowledgeV2ConflictEvidence       KnowledgeV2ConflictCandidateEvidence[]
+  knowledgeV2ReviewItems            KnowledgeV2ReviewItem[]
+  knowledgeV2ReviewEvidence         KnowledgeV2ReviewItemEvidence[]
+  knowledgeV2TestCases              KnowledgeV2TestCase[]
+  knowledgeV2TestCaseVersions       KnowledgeV2TestCaseVersion[]
+  knowledgeV2TestExpectations       KnowledgeV2TestExpectation[]
+  knowledgeV2EvaluationRuns         KnowledgeV2EvaluationRun[]
+  knowledgeV2EvaluationResults      KnowledgeV2EvaluationResult[]
+  knowledgeV2EvaluationMetrics      KnowledgeV2EvaluationMetric[]
+  knowledgeV2EvaluationEvidence     KnowledgeV2EvaluationResultEvidence[]
+  knowledgeV2Feedback               KnowledgeV2Feedback[]
+  knowledgeV2FeedbackEvidence       KnowledgeV2FeedbackEvidence[]
+  knowledgeV2RetrievalTraces        KnowledgeV2RetrievalTrace[]
+  knowledgeV2RetrievalCandidates    KnowledgeV2RetrievalCandidate[]
+  knowledgeV2Citations              KnowledgeV2Citation[]
+  aiReplyRuns                       AiReplyRun[]
+  externalOperations                ExternalOperation[]
+  channelDeliveryOperations         ChannelDeliveryOperation[]
+  runtimeOutbox                     RuntimeOutbox[]
+  runtimeInbox                      RuntimeInbox[]
+  operationalAuthorizationState     TenantOperationalAuthorizationState?
+  knowledgeV2LiveToolExecutions     KnowledgeV2LiveToolExecution[]
+  authenticatedCustomerIdentities   AuthenticatedCustomerIdentity[]
 
   @@index([status])
 }
 
-model User {
-  id             String   @id @default(cuid())
-  externalAuthId String?  @unique
-  email          String   @unique
-  phone          String?  @unique
-  passwordHash   String?
-  passwordChangeRequired Boolean @default(false)
-  twoFactorEnabled Boolean @default(false)
-  twoFactorSecretEncrypted String?
-  twoFactorRecoveryCodes Json?
-  twoFactorConfirmedAt DateTime?
-  name           String?
-  avatarUrl      String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  deletedAt      DateTime?
+model TenantOperationalAuthorizationState {
+  tenantId             String   @id
+  permissionGeneration Int      @default(1)
+  updatedAt            DateTime @updatedAt
 
-  memberships   Membership[]
-  authSessions  AuthSession[]
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model User {
+  id                       String    @id @default(cuid())
+  externalAuthId           String?   @unique
+  email                    String    @unique
+  phone                    String?   @unique
+  passwordHash             String?
+  passwordChangeRequired   Boolean   @default(false)
+  twoFactorEnabled         Boolean   @default(false)
+  twoFactorSecretEncrypted String?
+  twoFactorRecoveryCodes   Json?
+  twoFactorConfirmedAt     DateTime?
+  name                     String?
+  avatarUrl                String?
+  locale                   String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  deletedAt                DateTime?
+
+  memberships         Membership[]
+  authSessions        AuthSession[]
   passwordResetTokens AuthPasswordResetToken[]
-  assignedLeads Lead[]    @relation("AssignedLeads")
-  messages      Message[] @relation("UserMessages")
-  tasks         Task[]    @relation("AssignedTasks")
-  auditLogs     AuditLog[] @relation("ActorAuditLogs")
+  assignedLeads       Lead[]                   @relation("AssignedLeads")
+  messages            Message[]                @relation("UserMessages")
+  tasks               Task[]                   @relation("AssignedTasks")
+  auditLogs           AuditLog[]               @relation("ActorAuditLogs")
 }
 
 model AuthSession {
@@ -315,8 +988,23 @@ model Membership {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant                           Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user                             User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedKnowledgeConflicts       KnowledgeV2Conflict[]         @relation("KnowledgeV2ConflictAssignee")
+  resolvedKnowledgeConflicts       KnowledgeV2Conflict[]         @relation("KnowledgeV2ConflictResolver")
+  createdKnowledgeReviewItems      KnowledgeV2ReviewItem[]       @relation("KnowledgeV2ReviewItemCreator")
+  assignedKnowledgeReviewItems     KnowledgeV2ReviewItem[]       @relation("KnowledgeV2ReviewItemAssignee")
+  resolvedKnowledgeReviewItems     KnowledgeV2ReviewItem[]       @relation("KnowledgeV2ReviewItemResolver")
+  requestedKnowledgeV2Migrations   KnowledgeV2LegacyMigration[]  @relation("KnowledgeV2LegacyMigrationRequester")
+  selectedKnowledgeCorpus          KnowledgeCorpusSelector[]     @relation("KnowledgeCorpusSelectorActor")
+  createdKnowledgeTestCases        KnowledgeV2TestCase[]         @relation("KnowledgeV2TestCaseCreator")
+  archivedKnowledgeTestCases       KnowledgeV2TestCase[]         @relation("KnowledgeV2TestCaseArchiver")
+  createdKnowledgeTestCaseVersions KnowledgeV2TestCaseVersion[]  @relation("KnowledgeV2TestCaseVersionCreator")
+  requestedKnowledgeEvaluationRuns KnowledgeV2EvaluationRun[]    @relation("KnowledgeV2EvaluationRunRequester")
+  authoredKnowledgeFeedback        KnowledgeV2Feedback[]         @relation("KnowledgeV2FeedbackActor")
+  assignedKnowledgeFeedback        KnowledgeV2Feedback[]         @relation("KnowledgeV2FeedbackAssignee")
+  resolvedKnowledgeFeedback        KnowledgeV2Feedback[]         @relation("KnowledgeV2FeedbackResolver")
+  knowledgeV2FileUploadIntents     KnowledgeV2FileUploadIntent[]
 
   @@unique([tenantId, userId])
   @@index([tenantId, role])
@@ -339,16 +1027,16 @@ model BillingPlan {
 }
 
 model Subscription {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   tenantId    String
   planId      String
-  status      String   @default("ACTIVE")
-  periodStart DateTime @default(now())
+  status      String    @default("ACTIVE")
+  periodStart DateTime  @default(now())
   periodEnd   DateTime
   trialEndsAt DateTime?
   metadata    Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   tenant Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   plan   BillingPlan @relation(fields: [planId], references: [id])
@@ -380,43 +1068,67 @@ model UsageCounter {
 }
 
 model Channel {
-  id                   String        @id @default(cuid())
-  tenantId             String
-  type                 ChannelType
-  status               ChannelStatus @default(PENDING)
-  name                 String
-  externalId           String?
-  publicKey            String?       @unique
-  settings             Json?
-  encryptedCredentials String?
-  lastHealthAt         DateTime?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  deletedAt            DateTime?
+  id                                 String        @id @default(cuid())
+  tenantId                           String
+  type                               ChannelType
+  status                             ChannelStatus @default(PENDING)
+  name                               String
+  externalId                         String?
+  publicKey                          String?       @unique
+  settings                           Json?
+  encryptedCredentials               String?
+  lastHealthAt                       DateTime?
+  automaticRepliesEnabled            Boolean       @default(false)
+  automaticRepliesGeneration         Int           @default(1)
+  automaticRepliesPublicationId      String?
+  automaticRepliesPublicationEtag    Int?
+  automaticRepliesChannelFingerprint String?
+  automaticRepliesCapabilitySetHash  String?
+  automaticRepliesOperationalBindingHash String?
+  automaticRepliesOperationalPermissionGeneration Int?
+  automaticRepliesActivatedAt        DateTime?
+  automaticRepliesActivatedByUserId  String?
+  createdAt                          DateTime      @default(now())
+  updatedAt                          DateTime      @updatedAt
+  deletedAt                          DateTime?
 
-  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversations Conversation[]
+  tenant                      Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  automaticRepliesPublication KnowledgePublication?      @relation("ChannelAutomaticRepliesPublication", fields: [tenantId, automaticRepliesPublicationId, automaticRepliesCapabilitySetHash, automaticRepliesOperationalBindingHash, automaticRepliesOperationalPermissionGeneration], references: [tenantId, id, capabilitySetHash, operationalBindingHash, operationalPermissionGeneration], onDelete: NoAction, onUpdate: NoAction, map: "Channel_automaticRepliesPublication_fkey")
+  conversations               Conversation[]
+  deliveryOperations          ChannelDeliveryOperation[]
 
+  @@unique([tenantId, id])
   @@index([tenantId, type, status])
   @@index([tenantId, createdAt])
+  @@index([tenantId, automaticRepliesEnabled, status])
+  @@index([tenantId, automaticRepliesPublicationId])
 }
 
 model WebhookEvent {
-  id              String   @id @default(cuid())
-  tenantId        String?
-  provider        String
-  externalEventId String
-  payloadHash     String
-  payload         Json
-  status          String   @default("RECEIVED")
-  errorMessage    String?
-  receivedAt      DateTime @default(now())
-  processedAt     DateTime?
+  id                          String    @id @default(cuid())
+  tenantId                    String?
+  provider                    String
+  externalEventId             String
+  payloadHash                 String
+  payload                     Json
+  status                      String    @default("RECEIVED")
+  errorMessage                String?
+  receivedAt                  DateTime  @default(now())
+  processedAt                 DateTime?
+  processingAttempt           Int       @default(0)
+  leaseToken                  String?
+  leaseAcquiredAt             DateTime?
+  leaseExpiresAt              DateTime?
+  intakeCompletedAt           DateTime?
+  aiDispatchCompletedAt       DateTime?
+  workflowDispatchCompletedAt DateTime?
 
-  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant                          Tenant?                         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  authenticatedCustomerIdentities AuthenticatedCustomerIdentity[]
 
   @@unique([provider, externalEventId])
   @@index([tenantId, provider, receivedAt])
+  @@index([status, leaseExpiresAt])
 }
 
 model Lead {
@@ -445,16 +1157,18 @@ model Lead {
   updatedAt        DateTime        @updatedAt
   deletedAt        DateTime?
 
-  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  assignedTo    User?          @relation("AssignedLeads", fields: [assignedToUserId], references: [id])
-  conversations Conversation[]
-  events        LeadEvent[]
-  tasks         Task[]
-  bookings      Booking[]
-  orders        Order[]
-  aiUsageLogs   AiUsageLog[]
-  workflowRuns  WorkflowRun[]
+  tenant                        Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedTo                    User?                          @relation("AssignedLeads", fields: [assignedToUserId], references: [id])
+  conversations                 Conversation[]
+  events                        LeadEvent[]
+  tasks                         Task[]
+  bookings                      Booking[]
+  orders                        Order[]
+  aiUsageLogs                   AiUsageLog[]
+  workflowRuns                  WorkflowRun[]
+  knowledgeV2LiveToolExecutions KnowledgeV2LiveToolExecution[]
 
+  @@unique([tenantId, id])
   @@index([tenantId, status, createdAt])
   @@index([tenantId, channelType])
   @@index([tenantId, assignedToUserId])
@@ -487,7 +1201,10 @@ model Conversation {
   status                 ConversationStatus @default(OPEN)
   subject                String?
   lastMessageAt          DateTime?
-  aiEnabled              Boolean            @default(true)
+  aiEnabled              Boolean            @default(false)
+  aiGeneration           Int                @default(1)
+  aiReplySequence        Int                @default(0)
+  aiReplyFence           Int                @default(0)
   handoffRequested       Boolean            @default(false)
   assignedToUserId       String?
   metadata               Json?
@@ -495,13 +1212,20 @@ model Conversation {
   updatedAt              DateTime           @updatedAt
   deletedAt              DateTime?
 
-  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  lead        Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  channel     Channel?        @relation(fields: [channelId], references: [id], onDelete: SetNull)
-  messages    Message[]
-  workflowRuns WorkflowRun[]
-  aiUsageLogs AiUsageLog[]
+  tenant                          Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead                            Lead?                           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  channel                         Channel?                        @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  messages                        Message[]
+  workflowRuns                    WorkflowRun[]
+  aiUsageLogs                     AiUsageLog[]
+  aiReplyRuns                     AiReplyRun[]
+  externalOperations              ExternalOperation[]
+  deliveryOperations              ChannelDeliveryOperation[]
+  knowledgeV2LiveToolExecutions   KnowledgeV2LiveToolExecution[]
+  authenticatedCustomerIdentities AuthenticatedCustomerIdentity[]
 
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, channelId])
   @@index([tenantId, status, lastMessageAt])
   @@index([tenantId, leadId])
   @@index([tenantId, channelId])
@@ -522,27 +1246,71 @@ model Message {
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
-  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversation Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderUser   User?               @relation("UserMessages", fields: [senderUserId], references: [id], onDelete: SetNull)
-  attachments  MessageAttachment[]
+  tenant                        Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation                  Conversation                   @relation(fields: [tenantId, conversationId], references: [tenantId, id], onDelete: Cascade, map: "Message_tenant_conversation_fkey")
+  senderUser                    User?                          @relation("UserMessages", fields: [senderUserId], references: [id], onDelete: SetNull)
+  attachments                   MessageAttachment[]
+  inputAiReplyRuns              AiReplyRun[]                   @relation("AiReplyInputMessage")
+  outputAiReplyRun              AiReplyRun?                    @relation("AiReplyOutputMessage")
+  externalOperations            ExternalOperation[]            @relation("ExternalOperationOriginatingMessage")
+  deliveryOperations            ChannelDeliveryOperation[]
+  knowledgeV2EvidenceReferences KnowledgeV2EvidenceReference[]
+  knowledgeV2Feedback           KnowledgeV2Feedback[]
+  knowledgeV2RetrievalTraces    KnowledgeV2RetrievalTrace[]
+  knowledgeV2LiveToolExecutions KnowledgeV2LiveToolExecution[] @relation("KnowledgeV2LiveToolOriginatingMessage")
+  authenticatedCustomerIdentity AuthenticatedCustomerIdentity?
 
+  @@unique([tenantId, id])
+  @@unique([tenantId, conversationId, id])
   @@index([tenantId, conversationId, createdAt])
   @@index([externalMessageId])
   @@index([tenantId, senderType, createdAt])
 }
 
+model AuthenticatedCustomerIdentity {
+  id                   String   @id @default(cuid())
+  tenantId             String
+  version              Int      @default(1)
+  channelId            String
+  conversationId       String
+  messageId            String
+  webhookEventId       String
+  provider             String
+  authenticationMethod String
+  subjectSource        String
+  conversationType     String
+  subjectHash          String
+  channelBindingHash   String
+  eventPayloadHash     String
+  attestationHash      String
+  authenticatedAt      DateTime
+  createdAt            DateTime @default(now())
+
+  tenant             Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  conversation       Conversation                   @relation(fields: [tenantId, conversationId, channelId], references: [tenantId, id, channelId], onDelete: Restrict, onUpdate: NoAction)
+  message            Message                        @relation(fields: [tenantId, conversationId, messageId], references: [tenantId, conversationId, id], onDelete: Restrict, onUpdate: NoAction)
+  webhookEvent       WebhookEvent                   @relation(fields: [webhookEventId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  liveToolExecutions KnowledgeV2LiveToolExecution[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, messageId])
+  @@unique([tenantId, conversationId, messageId])
+  @@index([tenantId, channelId, authenticatedAt])
+  @@index([tenantId, subjectHash, authenticatedAt])
+  @@index([webhookEventId])
+}
+
 model MessageAttachment {
-  id          String   @id @default(cuid())
-  tenantId    String
-  messageId   String
-  kind        String
-  filename    String?
-  mimeType    String?
-  url         String
-  sizeBytes   Int?
-  metadata    Json?
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  tenantId  String
+  messageId String
+  kind      String
+  filename  String?
+  mimeType  String?
+  url       String
+  sizeBytes Int?
+  metadata  Json?
+  createdAt DateTime @default(now())
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
@@ -564,7 +1332,7 @@ model Workflow {
   updatedAt    DateTime       @updatedAt
   deletedAt    DateTime?
 
-  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   steps  WorkflowStep[]
   runs   WorkflowRun[]
 
@@ -596,6 +1364,8 @@ model WorkflowRun {
   workflowId     String
   conversationId String?
   leadId         String?
+  idempotencyKey String?
+  inputHash      String?
   status         WorkflowRunStatus @default(QUEUED)
   startedAt      DateTime?
   completedAt    DateTime?
@@ -604,13 +1374,14 @@ model WorkflowRun {
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
-  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  workflow     Workflow            @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  conversation Conversation?       @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  lead         Lead?               @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workflow     Workflow           @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  conversation Conversation?      @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  lead         Lead?              @relation(fields: [leadId], references: [id], onDelete: SetNull)
   events       WorkflowRunEvent[]
 
   @@index([tenantId, workflowId, createdAt])
+  @@unique([tenantId, workflowId, idempotencyKey])
   @@index([tenantId, conversationId])
   @@index([tenantId, leadId])
   @@index([tenantId, status, createdAt])
@@ -645,11 +1416,15 @@ model IntegrationAccount {
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
   deletedAt            DateTime?
+  permissionVersion    Int                 @default(1)
 
-  tenant   Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  syncLogs IntegrationSyncLog[]
+  tenant                        Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  syncLogs                      IntegrationSyncLog[]
+  externalOperations            ExternalOperation[]
+  knowledgeV2LiveToolExecutions KnowledgeV2LiveToolExecution[]
 
   @@unique([tenantId, provider])
+  @@unique([tenantId, id])
   @@index([tenantId, provider, status])
 }
 
@@ -767,19 +1542,19 @@ model Task {
 }
 
 model Booking {
-  id          String        @id @default(cuid())
-  tenantId    String
-  leadId      String?
-  title       String
-  startsAt    DateTime
-  endsAt      DateTime?
-  status      BookingStatus @default(DRAFT)
-  location    String?
-  notes       String?
-  metadata    Json?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  deletedAt   DateTime?
+  id        String        @id @default(cuid())
+  tenantId  String
+  leadId    String?
+  title     String
+  startsAt  DateTime
+  endsAt    DateTime?
+  status    BookingStatus @default(DRAFT)
+  location  String?
+  notes     String?
+  metadata  Json?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  deletedAt DateTime?
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lead   Lead?  @relation(fields: [leadId], references: [id], onDelete: SetNull)
@@ -810,17 +1585,17 @@ model Order {
 }
 
 model ApiKey {
-  id          String    @id @default(cuid())
-  tenantId    String
-  name        String
-  keyPrefix   String
-  keyHash     String
-  scopes      Json?
-  lastUsedAt  DateTime?
-  expiresAt   DateTime?
-  revokedAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id         String    @id @default(cuid())
+  tenantId   String
+  name       String
+  keyPrefix  String
+  keyHash    String
+  scopes     Json?
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -829,14 +1604,14 @@ model ApiKey {
 }
 
 model OnboardingState {
-  id             String   @id @default(cuid())
-  tenantId       String   @unique
+  id             String    @id @default(cuid())
+  tenantId       String    @unique
   completedSteps Json?
-  currentStep    String   @default("business")
+  currentStep    String    @default("business")
   data           Json?
   completedAt    DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
@@ -856,31 +1631,35 @@ model BusinessKnowledgeSource {
   updatedAt      DateTime                      @updatedAt
   deletedAt      DateTime?
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  chunks BusinessKnowledgeChunk[]
+  tenant              Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chunks              BusinessKnowledgeChunk[]
+  revisions           KnowledgeRevision[]
+  knowledgeJobs       KnowledgeJob[]
+  v2MigratedRevisions KnowledgeV2DocumentRevision[] @relation("KnowledgeV2LegacySourceRevisions")
 
   @@unique([tenantId, sourceKey])
+  @@unique([tenantId, id])
   @@index([tenantId, type, status])
   @@index([tenantId, updatedAt])
 }
 
 model BusinessKnowledgeChunk {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   tenantId          String
   sourceId          String
   sourceVersion     Int
   chunkIndex        Int
   content           String
   contentHash       String
-  tokenEstimate     Int      @default(0)
-  embeddingProvider String   @default("leadvirt-local-hash")
-  embeddingModel    String   @default("hash-v1")
-  vectorPointId     String?  @unique
+  tokenEstimate     Int       @default(0)
+  embeddingProvider String    @default("leadvirt-local-hash")
+  embeddingModel    String    @default("hash-v1")
+  vectorPointId     String?   @unique
   metadata          Json?
   embeddedAt        DateTime?
   indexedAt         DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?
 
   tenant Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -889,4 +1668,2201 @@ model BusinessKnowledgeChunk {
   @@unique([sourceId, chunkIndex])
   @@index([tenantId, sourceId])
   @@index([tenantId, updatedAt])
+}
+
+model KnowledgeRevision {
+  id                   String                      @id @default(cuid())
+  tenantId             String
+  sourceId             String
+  sourceVersion        Int
+  sourceType           BusinessKnowledgeSourceType
+  title                String
+  content              String
+  structuredData       Json?
+  contentHash          String
+  status               KnowledgeRevisionStatus     @default(ACQUIRED)
+  pipelineVersion      String                      @default("legacy-v1")
+  supersedesRevisionId String?
+  createdAt            DateTime                    @default(now())
+
+  tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  source           BusinessKnowledgeSource    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  supersedes       KnowledgeRevision?         @relation("KnowledgeRevisionSupersession", fields: [supersedesRevisionId], references: [id], onDelete: SetNull)
+  supersededBy     KnowledgeRevision[]        @relation("KnowledgeRevisionSupersession")
+  chunks           KnowledgeRevisionChunk[]
+  publicationItems KnowledgePublicationItem[]
+  v2Evidence       KnowledgeV2Evidence[]
+  jobs             KnowledgeJob[]
+
+  @@unique([sourceId, sourceVersion])
+  @@unique([tenantId, id])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, sourceId, sourceVersion])
+}
+
+model KnowledgeRevisionChunk {
+  id                String    @id @default(cuid())
+  tenantId          String
+  revisionId        String
+  chunkIndex        Int
+  content           String
+  contentHash       String
+  tokenEstimate     Int       @default(0)
+  embeddingProvider String    @default("leadvirt-local-hash")
+  embeddingModel    String    @default("hash-v1")
+  metadata          Json?
+  embeddedAt        DateTime?
+  createdAt         DateTime  @default(now())
+
+  tenant        Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  revision      KnowledgeRevision            @relation(fields: [tenantId, revisionId], references: [tenantId, id], onDelete: Cascade)
+  snapshotItems KnowledgeIndexSnapshotItem[]
+
+  @@unique([revisionId, chunkIndex])
+  @@unique([tenantId, id])
+  @@index([tenantId, revisionId, chunkIndex])
+  @@index([tenantId, contentHash])
+}
+
+model KnowledgeIndexSnapshot {
+  id                           String                       @id @default(cuid())
+  tenantId                     String
+  corpusKind                   KnowledgeCorpusKind          @default(LEGACY_V1)
+  status                       KnowledgeIndexSnapshotStatus @default(PREPARING)
+  collectionName               String
+  embeddingProvider            String
+  embeddingModel               String
+  manifestHash                 String
+  authorizationManifest        Json?
+  authorizationManifestHash    String?
+  authorizationManifestVersion Int?
+  indexSchema                  Json?
+  indexSchemaHash              String?
+  pipelineVersion              String                       @default("legacy-v1")
+  expectedPointCount           Int                          @default(0)
+  observedPointCount           Int?
+  errorCode                    String?
+  createdAt                    DateTime                     @default(now())
+  preparationStartedAt         DateTime?
+  verifiedAt                   DateTime?
+  deleteAfter                  DateTime?
+  deletedAt                    DateTime?
+
+  tenant        Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items         KnowledgeIndexSnapshotItem[]
+  v2Items       KnowledgeV2IndexSnapshotItem[]
+  publications  KnowledgePublication[]
+  v2Validations KnowledgeV2PublicationValidation[]
+  jobs          KnowledgeJob[]
+
+  @@unique([tenantId, manifestHash, collectionName, embeddingProvider, embeddingModel, pipelineVersion, authorizationManifestVersion], map: "KnowledgeIndexSnapshot_reuse_key")
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, corpusKind])
+  @@index([tenantId, status, createdAt])
+  @@index([status, deleteAfter])
+}
+
+model KnowledgeIndexSnapshotItem {
+  tenantId      String
+  snapshotId    String
+  chunkId       String
+  corpusKind    KnowledgeCorpusKind @default(LEGACY_V1)
+  contentHash   String
+  vectorPointId String              @unique
+  createdAt     DateTime            @default(now())
+
+  snapshot KnowledgeIndexSnapshot @relation(fields: [tenantId, snapshotId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Cascade)
+  chunk    KnowledgeRevisionChunk @relation(fields: [tenantId, chunkId], references: [tenantId, id], onDelete: Restrict)
+
+  @@id([snapshotId, chunkId])
+  @@index([tenantId, snapshotId])
+  @@index([tenantId, chunkId])
+}
+
+model KnowledgeV2Source {
+  id                      String                            @id @default(cuid())
+  tenantId                String
+  kind                    KnowledgeV2SourceKind
+  displayName             String
+  connectorId             String?
+  externalRootKey         String?
+  canonicalUri            String?
+  syncMode                KnowledgeV2SourceSyncMode         @default(MANUAL)
+  status                  KnowledgeV2SourceStatus           @default(CONNECTING)
+  authorityProfileId      String?
+  defaultScope            Json?
+  defaultClassification   KnowledgeV2SecurityClassification
+  defaultLocale           String                            @default("en")
+  syncCursorEncrypted     String?
+  sourcePermissionVersion Int                               @default(1)
+  lastAttemptAt           DateTime?
+  lastSuccessAt           DateTime?
+  sourceObservedAt        DateTime?
+  nextSyncAt              DateTime?
+  lastErrorCode           String?
+  lastErrorAt             DateTime?
+  generation              Int                               @default(1)
+  etag                    Int                               @default(1)
+  createdByUserId         String?
+  updatedByUserId         String?
+  createdAt               DateTime                          @default(now())
+  updatedAt               DateTime                          @updatedAt
+  tombstonedAt            DateTime?
+  deletedAt               DateTime?
+
+  tenant            Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  artifacts         KnowledgeV2Artifact[]
+  documents         KnowledgeV2Document[]
+  deletionLedger    KnowledgeV2DeletionLedger[]
+  jobs              KnowledgeJob[]                @relation("KnowledgeV2SourceJobs")
+  conflicts         KnowledgeV2Conflict[]
+  reviewItems       KnowledgeV2ReviewItem[]
+  feedback          KnowledgeV2Feedback[]
+  fileUploadIntents KnowledgeV2FileUploadIntent[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, kind, externalRootKey])
+  @@index([tenantId, status, updatedAt])
+  @@index([tenantId, nextSyncAt])
+}
+
+model KnowledgeV2FileUploadIntent {
+  id                      String                            @id @default(cuid())
+  tenantId                String
+  sourceId                String?
+  artifactId              String?
+  knowledgeJobId          String?
+  tokenHash               String                            @unique
+  status                  KnowledgeV2FileUploadStatus       @default(PENDING)
+  displayName             String
+  originalFilename        String
+  declaredMimeType        String
+  expectedByteSize        BigInt
+  defaultScope            Json?
+  defaultClassification   KnowledgeV2SecurityClassification
+  defaultLocale           String                            @default("en")
+  stagingObjectKey        String?                           @unique
+  stagingEncryptionKeyRef String?
+  errorCode               String?
+  expiresAt               DateTime
+  uploadedAt              DateTime?
+  finalizedAt             DateTime?
+  createdByUserId         String
+  createdAt               DateTime                          @default(now())
+  updatedAt               DateTime                          @updatedAt
+
+  tenant            Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  source            KnowledgeV2Source?   @relation(fields: [tenantId, sourceId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  artifact          KnowledgeV2Artifact? @relation(fields: [tenantId, sourceId, artifactId], references: [tenantId, sourceId, id], onDelete: NoAction, onUpdate: NoAction)
+  knowledgeJob      KnowledgeJob?        @relation(fields: [tenantId, knowledgeJobId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  creatorMembership Membership           @relation(fields: [tenantId, createdByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status, expiresAt])
+  @@index([tenantId, sourceId])
+}
+
+model KnowledgeV2Artifact {
+  id                     String                            @id @default(cuid())
+  tenantId               String
+  sourceId               String
+  objectStorageKey       String
+  encryptionKeyRef       String
+  sha256                 String
+  byteSize               BigInt
+  detectedMimeType       String?
+  declaredMimeType       String?
+  originalFilename       String?
+  acquisitionUriHash     String?
+  upstreamEtag           String?
+  upstreamModifiedAt     DateTime?
+  malwareStatus          KnowledgeV2ArtifactMalwareStatus  @default(PENDING)
+  mimeValidationStatus   KnowledgeV2MimeValidationStatus   @default(PENDING)
+  securityClassification KnowledgeV2SecurityClassification
+  retentionClass         String
+  legalHold              Boolean                           @default(false)
+  deletionState          KnowledgeV2ArtifactDeletionState  @default(RETAINED)
+  acquiredAt             DateTime                          @default(now())
+  scannedAt              DateTime?
+  createdAt              DateTime                          @default(now())
+  updatedAt              DateTime                          @updatedAt
+  deletedAt              DateTime?
+
+  tenant            Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  source            KnowledgeV2Source             @relation(fields: [tenantId, sourceId], references: [tenantId, id], onDelete: Cascade)
+  revisions         KnowledgeV2DocumentRevision[]
+  fileUploadIntents KnowledgeV2FileUploadIntent[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceId, id])
+  @@unique([tenantId, objectStorageKey])
+  @@index([tenantId, sourceId, acquiredAt])
+  @@index([tenantId, sourceId, sha256])
+  @@index([tenantId, deletionState, deletedAt])
+}
+
+model KnowledgeV2Document {
+  id                         String                            @id @default(cuid())
+  tenantId                   String
+  sourceId                   String
+  externalKey                String
+  kind                       String
+  canonicalUri               String?
+  title                      String
+  canonicalLocale            String                            @default("en")
+  translationGroup           String?
+  scope                      Json?
+  audience                   Json?
+  classification             KnowledgeV2SecurityClassification
+  permissionVersion          Int                               @default(1)
+  currentDraftRevisionId     String?
+  currentPublishedRevisionId String?
+  sourceCreatedAt            DateTime?
+  sourceUpdatedAt            DateTime?
+  sourceDeletedAt            DateTime?
+  status                     KnowledgeV2DocumentStatus         @default(DISCOVERED)
+  deletionGeneration         Int                               @default(1)
+  createdAt                  DateTime                          @default(now())
+  updatedAt                  DateTime                          @updatedAt
+  tombstonedAt               DateTime?
+  deletedAt                  DateTime?
+
+  tenant                   Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  source                   KnowledgeV2Source             @relation(fields: [tenantId, sourceId], references: [tenantId, id], onDelete: Cascade)
+  revisions                KnowledgeV2DocumentRevision[] @relation("KnowledgeV2DocumentRevisions")
+  currentDraftRevision     KnowledgeV2DocumentRevision?  @relation("KnowledgeV2CurrentDraftRevision", fields: [tenantId, id, currentDraftRevisionId], references: [tenantId, documentId, id], onDelete: NoAction, onUpdate: NoAction)
+  currentPublishedRevision KnowledgeV2DocumentRevision?  @relation("KnowledgeV2CurrentPublishedRevision", fields: [tenantId, id, currentPublishedRevisionId], references: [tenantId, documentId, id], onDelete: NoAction, onUpdate: NoAction)
+  chunks                   KnowledgeV2Chunk[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceId, id])
+  @@unique([tenantId, sourceId, externalKey])
+  @@unique([tenantId, id, currentDraftRevisionId])
+  @@unique([tenantId, id, currentPublishedRevisionId])
+  @@index([tenantId, sourceId, status])
+  @@index([tenantId, sourceId, updatedAt])
+  @@index([tenantId, tombstonedAt])
+}
+
+model KnowledgeV2DocumentRevision {
+  id                          String                    @id @default(cuid())
+  tenantId                    String
+  sourceId                    String
+  documentId                  String
+  revisionNumber              Int
+  contentHash                 String
+  artifactId                  String?
+  extractedContentObjectKey   String?
+  status                      KnowledgeV2RevisionStatus @default(ACQUIRED)
+  parserVersion               String?
+  ocrVersion                  String?
+  normalizerVersion           String?
+  extractorVersion            String?
+  chunkerVersion              String?
+  embeddingVersion            String?
+  sparseIndexVersion          String?
+  pipelineVersion             String
+  detectedLocale              String?
+  characterCount              Int                       @default(0)
+  tokenCount                  Int                       @default(0)
+  pageCount                   Int                       @default(0)
+  tableCount                  Int                       @default(0)
+  imageCount                  Int                       @default(0)
+  extractionCoverage          Float?
+  parserQuality               Json?
+  sourcePermissionFingerprint String
+  scopeSnapshot               Json?
+  effectiveFrom               DateTime?
+  effectiveUntil              DateTime?
+  staleAfter                  DateTime?
+  supersedesRevisionId        String?
+  generation                  Int                       @default(1)
+  createdByUserId             String?
+  createdAt                   DateTime                  @default(now())
+  deletedAt                   DateTime?
+  legacyMigrationId           String?
+  legacySourceId              String?
+  legacySourceVersion         Int?
+  legacySnapshotHash          String?
+
+  tenant                   Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  document                 KnowledgeV2Document            @relation("KnowledgeV2DocumentRevisions", fields: [tenantId, sourceId, documentId], references: [tenantId, sourceId, id], onDelete: Cascade)
+  artifact                 KnowledgeV2Artifact?           @relation(fields: [tenantId, sourceId, artifactId], references: [tenantId, sourceId, id], onDelete: Restrict)
+  supersedes               KnowledgeV2DocumentRevision?   @relation("KnowledgeV2RevisionSupersession", fields: [tenantId, documentId, supersedesRevisionId], references: [tenantId, documentId, id], onDelete: Restrict, onUpdate: NoAction)
+  supersededBy             KnowledgeV2DocumentRevision[]  @relation("KnowledgeV2RevisionSupersession")
+  currentDraftForDocument  KnowledgeV2Document?           @relation("KnowledgeV2CurrentDraftRevision")
+  currentPublishedDocument KnowledgeV2Document?           @relation("KnowledgeV2CurrentPublishedRevision")
+  elements                 KnowledgeV2Element[]
+  chunks                   KnowledgeV2Chunk[]
+  publicationItems         KnowledgePublicationItem[]
+  jobs                     KnowledgeJob[]                 @relation("KnowledgeV2RevisionJobs")
+  evidenceReferences       KnowledgeV2EvidenceReference[]
+  conflictCandidates       KnowledgeV2ConflictCandidate[]
+  reviewItems              KnowledgeV2ReviewItem[]
+  feedback                 KnowledgeV2Feedback[]
+  legacyMigration          KnowledgeV2LegacyMigration?    @relation(fields: [tenantId, legacyMigrationId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  legacySource             BusinessKnowledgeSource?       @relation("KnowledgeV2LegacySourceRevisions", fields: [tenantId, legacySourceId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([documentId, revisionNumber])
+  @@unique([documentId, contentHash, pipelineVersion])
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceId, id])
+  @@unique([tenantId, id, contentHash])
+  @@unique([tenantId, documentId, id])
+  @@unique([tenantId, sourceId, documentId, id])
+  @@unique([tenantId, legacySourceId, legacySourceVersion])
+  @@index([tenantId, documentId, status, createdAt])
+  @@index([tenantId, sourceId, status])
+  @@index([tenantId, contentHash])
+  @@index([tenantId, staleAfter])
+  @@index([tenantId, legacyMigrationId])
+}
+
+model KnowledgeV2LegacyMigration {
+  id                  String    @id @default(cuid())
+  tenantId            String
+  jobId               String    @unique
+  generation          Int       @default(1)
+  status              String    @default("QUEUED")
+  sourceManifest      Json
+  sourceManifestHash  String
+  sourceCursor        String?
+  expectedSourceCount Int
+  migratedSourceCount Int       @default(0)
+  reviewCount         Int       @default(0)
+  conflictCount       Int       @default(0)
+  requestedByUserId   String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  completedAt         DateTime?
+  cutoverAt           DateTime?
+
+  tenant           Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  job              KnowledgeJob                  @relation(fields: [tenantId, jobId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  requestedBy      Membership?                   @relation("KnowledgeV2LegacyMigrationRequester", fields: [tenantId, requestedByUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+  revisions        KnowledgeV2DocumentRevision[]
+  runtimeSelectors KnowledgeCorpusSelector[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, jobId])
+  @@unique([tenantId, sourceManifestHash])
+  @@index([tenantId, status, createdAt])
+}
+
+model KnowledgeCorpusSelector {
+  tenantId         String              @id
+  corpusKind       KnowledgeCorpusKind @default(LEGACY_V1)
+  generation       Int                 @default(1)
+  migrationId      String?
+  selectedAt       DateTime            @default(now())
+  selectedByUserId String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  tenant     Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  migration  KnowledgeV2LegacyMigration? @relation(fields: [tenantId, migrationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  selectedBy Membership?                 @relation("KnowledgeCorpusSelectorActor", fields: [tenantId, selectedByUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([corpusKind, updatedAt])
+  @@index([tenantId, migrationId])
+  @@index([tenantId, selectedByUserId])
+}
+
+model KnowledgeV2Element {
+  id               String                            @id @default(cuid())
+  tenantId         String
+  documentId       String
+  revisionId       String
+  kind             KnowledgeV2ElementKind
+  ordinal          Int
+  parentElementId  String?
+  headingPath      String[]                          @default([])
+  pageNumber       Int?
+  boundingBox      Json?
+  urlAnchor        String?
+  sheetName        String?
+  sheetRange       String?
+  normalizedText   String?
+  objectStorageKey String?
+  contentHash      String
+  parserConfidence Float?
+  locale           String
+  classification   KnowledgeV2SecurityClassification
+  createdAt        DateTime                          @default(now())
+
+  tenant        Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  revision      KnowledgeV2DocumentRevision @relation(fields: [tenantId, documentId, revisionId], references: [tenantId, documentId, id], onDelete: Cascade)
+  parent        KnowledgeV2Element?         @relation("KnowledgeV2ElementTree", fields: [tenantId, revisionId, parentElementId], references: [tenantId, revisionId, id], onDelete: NoAction, onUpdate: NoAction)
+  children      KnowledgeV2Element[]        @relation("KnowledgeV2ElementTree")
+  chunks        KnowledgeV2Chunk[]          @relation("KnowledgeV2ChunkParentElement")
+  sectionChunks KnowledgeV2Chunk[]          @relation("KnowledgeV2ChunkParentSection")
+
+  @@unique([revisionId, ordinal])
+  @@unique([tenantId, id])
+  @@unique([tenantId, revisionId, id])
+  @@index([tenantId, documentId, revisionId, ordinal])
+  @@index([tenantId, contentHash])
+}
+
+model KnowledgeV2Chunk {
+  id                  String                            @id @default(cuid())
+  tenantId            String
+  revisionId          String
+  documentId          String
+  ordinal             Int
+  parentElementId     String?
+  parentSectionId     String?
+  contentHash         String
+  tokenCount          Int
+  locale              String
+  scope               Json?
+  classification      KnowledgeV2SecurityClassification
+  permissionVersion   Int
+  denseSchemaVersion  String
+  sparseSchemaVersion String
+  pipelineVersion     String
+  vectorPointId       String
+  indexState          KnowledgeV2ChunkIndexState        @default(PENDING)
+  indexedAt           DateTime?
+  deletedAt           DateTime?
+  provenanceRange     Json
+  createdAt           DateTime                          @default(now())
+
+  tenant        Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  document      KnowledgeV2Document            @relation(fields: [tenantId, documentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  revision      KnowledgeV2DocumentRevision    @relation(fields: [tenantId, documentId, revisionId], references: [tenantId, documentId, id], onDelete: Cascade)
+  parentElement KnowledgeV2Element?            @relation("KnowledgeV2ChunkParentElement", fields: [tenantId, revisionId, parentElementId], references: [tenantId, revisionId, id], onDelete: NoAction, onUpdate: NoAction)
+  parentSection KnowledgeV2Element?            @relation("KnowledgeV2ChunkParentSection", fields: [tenantId, revisionId, parentSectionId], references: [tenantId, revisionId, id], onDelete: NoAction, onUpdate: NoAction)
+  snapshotItems KnowledgeV2IndexSnapshotItem[]
+
+  @@unique([revisionId, pipelineVersion, ordinal])
+  @@unique([tenantId, id])
+  @@unique([tenantId, revisionId, id])
+  @@unique([tenantId, vectorPointId])
+  @@unique([tenantId, id, contentHash])
+  @@unique([tenantId, id, contentHash, vectorPointId])
+  @@index([tenantId, documentId, revisionId, ordinal])
+  @@index([tenantId, contentHash])
+  @@index([tenantId, indexState, indexedAt])
+  @@index([tenantId, deletedAt])
+}
+
+model KnowledgeV2IndexSnapshotItem {
+  tenantId         String
+  snapshotId       String
+  chunkId          String
+  corpusKind       KnowledgeCorpusKind @default(STRUCTURED_V2)
+  contentHash      String
+  vectorPointId    String              @unique
+  pointFingerprint String
+  createdAt        DateTime            @default(now())
+
+  snapshot KnowledgeIndexSnapshot @relation(fields: [tenantId, snapshotId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Cascade)
+  chunk    KnowledgeV2Chunk       @relation(fields: [tenantId, chunkId, contentHash], references: [tenantId, id, contentHash], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([tenantId, snapshotId, chunkId])
+  @@index([tenantId, chunkId])
+}
+
+model KnowledgeV2EmbeddingCache {
+  id                  String    @id @default(cuid())
+  tenantId            String
+  contentHash         String
+  schemaFingerprint   String
+  objectStorageKey    String
+  encryptionKeyRef    String
+  payloadHash         String
+  denseDimensions     Int
+  denseProvider       String
+  denseModel          String
+  denseSchemaVersion  String
+  sparseProvider      String
+  sparseModel         String
+  sparseSchemaVersion String
+  providerRegion      String
+  expiresAt           DateTime
+  lastUsedAt          DateTime
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenantId, contentHash, schemaFingerprint])
+  @@unique([tenantId, id])
+  @@index([tenantId, expiresAt, deletedAt])
+  @@index([expiresAt, deletedAt])
+}
+
+model KnowledgeV2DeletionLedger {
+  id               String                    @id @default(cuid())
+  tenantId         String
+  sourceId         String
+  sourceGeneration Int
+  targetType       String
+  targetId         String
+  subsystem        String
+  status           KnowledgeV2DeletionStatus @default(PENDING)
+  deniedAt         DateTime                  @default(now())
+  notBefore        DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  attemptCount     Int                       @default(0)
+  lastErrorCode    String?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  tenant Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  source KnowledgeV2Source @relation(fields: [tenantId, sourceId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, sourceId, sourceGeneration, targetType, targetId, subsystem])
+  @@unique([tenantId, id])
+  @@index([tenantId, status, notBefore])
+  @@index([tenantId, sourceId, sourceGeneration])
+}
+
+model KnowledgeV2Settings {
+  tenantId                  String                       @id
+  defaultLocale             String                       @default("en")
+  supportedLocales          String[]                     @default(["en"])
+  defaultScope              Json?
+  defaultScopeGeneration    Int                          @default(0)
+  defaultScopeHash          String?
+  autoPublishPolicy         KnowledgeV2AutoPublishPolicy @default(OFF)
+  publicationApprovalPolicy KnowledgeV2ApprovalPolicy    @default(OWNER_OR_ADMIN)
+  publicationSchedule       Json?
+  retentionPolicyId         String?
+  embeddingRegion           String?
+  modelRegion               String?
+  embeddingProviderPolicy   Json?
+  retrievalProcessorPolicy  Json?
+  modelProcessorPolicy      Json?
+  maxSourceBytes            BigInt                       @default(10485760)
+  maxDocuments              Int                          @default(1000)
+  crawlLimits               Json?
+  draftGeneration           Int                          @default(1)
+  etag                      Int                          @default(1)
+  createdAt                 DateTime                     @default(now())
+  updatedAt                 DateTime                     @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model KnowledgeV2Capability {
+  id              String                        @id @default(cuid())
+  tenantId        String
+  capabilityType  KnowledgeV2CapabilityType
+  targetKey       String                        @default("workspace-v2")
+  enabled         Boolean                       @default(false)
+  allowedAutonomy KnowledgeV2CapabilityAutonomy @default(ANSWER_ONLY)
+  scope           Json?
+  templateKey     String
+  templateVersion Int                           @default(1)
+  serverOwned     Boolean                       @default(true)
+  generation      Int                           @default(1)
+  etag            Int                           @default(1)
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt       DateTime                      @default(now())
+  updatedAt       DateTime                      @updatedAt
+
+  tenant                 Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  requirementDefinitions KnowledgeV2RequirementDefinition[]
+  requirementEvaluations KnowledgeV2RequirementEvaluation[]
+  publicationSnapshots   KnowledgePublicationCapability[]
+
+  @@unique([tenantId, capabilityType, targetKey])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, capabilityType])
+  @@index([tenantId, enabled, targetKey])
+  @@index([tenantId, templateKey, templateVersion])
+}
+
+model KnowledgeV2RequirementDefinition {
+  id                    String                         @id @default(cuid())
+  tenantId              String
+  capabilityId          String
+  requirementKey        String
+  definitionVersion     Int
+  kind                  KnowledgeV2RequirementKind
+  severity              KnowledgeV2RequirementSeverity
+  riskLevel             KnowledgeV2RiskLevel
+  active                Boolean                        @default(true)
+  freshnessSlaSeconds   Int?
+  requiredScope         Json?
+  localeConstraints     Json?
+  satisfactionPredicate Json
+  predicateVersion      String                         @default("knowledge-requirement-v1")
+  templateOrigin        String
+  tenantOverride        Boolean                        @default(false)
+  immutableHash         String
+  createdByUserId       String?
+  approvedByUserId      String?
+  approvedAt            DateTime?
+  createdAt             DateTime                       @default(now())
+
+  tenant      Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  capability  KnowledgeV2Capability              @relation(fields: [tenantId, capabilityId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  evaluations KnowledgeV2RequirementEvaluation[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, capabilityId, id, definitionVersion], map: "KnowledgeV2RequirementDefinition_context_key")
+  @@unique([tenantId, capabilityId, requirementKey, definitionVersion], map: "KnowledgeV2RequirementDefinition_version_key")
+  @@unique([tenantId, capabilityId, requirementKey, immutableHash], map: "KnowledgeV2RequirementDefinition_hash_key")
+  @@index([tenantId, capabilityId, active, requirementKey], map: "KnowledgeV2RequirementDefinition_active_idx")
+  @@index([tenantId, kind, severity])
+}
+
+model KnowledgeV2RequirementEvaluation {
+  id                      String                                 @id @default(cuid())
+  tenantId                String
+  validationId            String
+  capabilityId            String
+  requirementDefinitionId String
+  definitionVersion       Int
+  status                  KnowledgeV2RequirementEvaluationStatus @default(PENDING)
+  evidenceIds             String[]                               @default([])
+  reasonCode              String?
+  details                 Json?
+  evaluatorVersion        String                                 @default("knowledge-requirement-v1")
+  immutableHash           String
+  evaluatedAt             DateTime?
+  createdAt               DateTime                               @default(now())
+
+  tenant                Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  validation            KnowledgeV2PublicationValidation @relation(fields: [tenantId, validationId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+  capability            KnowledgeV2Capability            @relation(fields: [tenantId, capabilityId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  requirementDefinition KnowledgeV2RequirementDefinition @relation(fields: [tenantId, capabilityId, requirementDefinitionId, definitionVersion], references: [tenantId, capabilityId, id, definitionVersion], onDelete: Restrict, onUpdate: NoAction, map: "KnowledgeV2RequirementEvaluation_definition_fkey")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, validationId, requirementDefinitionId], map: "KnowledgeV2RequirementEvaluation_validation_definition_key")
+  @@index([tenantId, validationId, status], map: "KnowledgeV2RequirementEvaluation_validation_status_idx")
+  @@index([tenantId, capabilityId, status], map: "KnowledgeV2RequirementEvaluation_capability_status_idx")
+  @@index([tenantId, requirementDefinitionId], map: "KnowledgeV2RequirementEvaluation_definition_idx")
+}
+
+model KnowledgeV2Entity {
+  id              String    @id @default(cuid())
+  tenantId        String
+  entityType      String
+  entityKey       String
+  displayName     String?
+  defaultLocale   String    @default("en")
+  metadata        Json?
+  generation      Int       @default(1)
+  etag            Int       @default(1)
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  tenant Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facts  KnowledgeV2Fact[]
+
+  @@unique([tenantId, entityType, entityKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, entityType, updatedAt])
+}
+
+model KnowledgeV2Fact {
+  id                  String    @id @default(cuid())
+  tenantId            String
+  entityId            String?
+  entityType          String
+  factKey             String
+  fieldType           String
+  latestVersionNumber Int       @default(0)
+  generation          Int       @default(1)
+  etag                Int       @default(1)
+  createdByUserId     String?
+  updatedByUserId     String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+
+  tenant           Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entity           KnowledgeV2Entity?           @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict)
+  versions         KnowledgeV2FactVersion[]
+  conflicts        KnowledgeV2Conflict[]
+  reviewItems      KnowledgeV2ReviewItem[]
+  testExpectations KnowledgeV2TestExpectation[]
+  feedback         KnowledgeV2Feedback[]
+
+  @@unique([tenantId, factKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, entityId, fieldType])
+  @@index([tenantId, updatedAt])
+}
+
+model KnowledgeV2FactVersion {
+  id                     String                        @id @default(cuid())
+  tenantId               String
+  factId                 String
+  versionNumber          Int
+  normalizedValue        Json
+  displayValue           String?
+  locale                 String                        @default("en")
+  localizedValues        Json?
+  unit                   String?
+  currency               String?
+  timeZone               String?
+  scope                  Json?
+  localeBehavior         KnowledgeV2LocaleBehavior     @default(LANGUAGE_NEUTRAL)
+  effectiveFrom          DateTime?
+  effectiveUntil         DateTime?
+  riskLevel              KnowledgeV2RiskLevel          @default(LOW)
+  authority              KnowledgeV2FactAuthority      @default(MANUAL)
+  lifecycleStatus        KnowledgeV2LifecycleStatus    @default(DRAFT)
+  verificationStatus     KnowledgeV2VerificationStatus @default(UNVERIFIED)
+  extractionConfidence   Float?
+  extractionModelVersion String?
+  changeReason           String?
+  supersedesVersionId    String?
+  immutableHash          String
+  createdByUserId        String?
+  verifiedByUserId       String?
+  verifiedAt             DateTime?
+  rejectedByUserId       String?
+  rejectedAt             DateTime?
+  createdAt              DateTime                      @default(now())
+
+  tenant             Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fact               KnowledgeV2Fact                @relation(fields: [tenantId, factId], references: [tenantId, id], onDelete: Restrict)
+  supersedes         KnowledgeV2FactVersion?        @relation("KnowledgeV2FactVersionSupersession", fields: [tenantId, factId, supersedesVersionId], references: [tenantId, factId, id], onDelete: Restrict, map: "KnowledgeV2FactVersion_sameFactSupersedes_fkey")
+  supersededBy       KnowledgeV2FactVersion[]       @relation("KnowledgeV2FactVersionSupersession")
+  evidence           KnowledgeV2Evidence[]
+  publicationItems   KnowledgePublicationItem[]
+  evidenceReferences KnowledgeV2EvidenceReference[]
+  conflictCandidates KnowledgeV2ConflictCandidate[]
+
+  @@unique([factId, versionNumber])
+  @@unique([factId, immutableHash])
+  @@unique([tenantId, id])
+  @@unique([tenantId, factId, id], map: "KnowledgeV2FactVersion_tenant_fact_id_key")
+  @@unique([tenantId, id, immutableHash])
+  @@index([tenantId, factId, verificationStatus])
+  @@index([tenantId, effectiveFrom, effectiveUntil])
+}
+
+model KnowledgeV2GuidanceRule {
+  id                  String                      @id @default(cuid())
+  tenantId            String
+  ruleKey             String
+  title               String
+  ruleType            KnowledgeV2GuidanceRuleType
+  latestVersionNumber Int                         @default(0)
+  generation          Int                         @default(1)
+  etag                Int                         @default(1)
+  createdByUserId     String?
+  updatedByUserId     String?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  deletedAt           DateTime?
+
+  tenant           Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  versions         KnowledgeV2GuidanceRuleVersion[]
+  conflicts        KnowledgeV2Conflict[]
+  reviewItems      KnowledgeV2ReviewItem[]
+  testExpectations KnowledgeV2TestExpectation[]
+  feedback         KnowledgeV2Feedback[]
+
+  @@unique([tenantId, ruleKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, ruleType, updatedAt])
+}
+
+model KnowledgeV2GuidanceRuleVersion {
+  id                   String                          @id @default(cuid())
+  tenantId             String
+  guidanceRuleId       String
+  versionNumber        Int
+  title                String
+  ruleType             KnowledgeV2GuidanceRuleType
+  conditionAst         Json
+  instruction          String
+  outcome              Json?
+  priority             Int                             @default(0)
+  tieBreakPolicy       String                          @default("stable_rule_key")
+  tieBreakKey          String
+  scope                Json?
+  effectiveFrom        DateTime?
+  effectiveUntil       DateTime?
+  riskLevel            KnowledgeV2RiskLevel            @default(LOW)
+  requiredApproverRole MembershipRole?
+  examples             Json?
+  reviewStatus         KnowledgeV2GuidanceReviewStatus @default(DRAFT)
+  changeReason         String?
+  supersedesVersionId  String?
+  immutableHash        String
+  createdByUserId      String?
+  approvedByUserId     String?
+  approvedAt           DateTime?
+  rejectedByUserId     String?
+  rejectedAt           DateTime?
+  createdAt            DateTime                        @default(now())
+
+  tenant             Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  guidanceRule       KnowledgeV2GuidanceRule          @relation(fields: [tenantId, guidanceRuleId], references: [tenantId, id], onDelete: Restrict)
+  supersedes         KnowledgeV2GuidanceRuleVersion?  @relation("KnowledgeV2GuidanceRuleVersionSupersession", fields: [tenantId, guidanceRuleId, supersedesVersionId], references: [tenantId, guidanceRuleId, id], onDelete: Restrict, map: "KnowledgeV2GuidanceRuleVersion_sameRuleSupersedes_fkey")
+  supersededBy       KnowledgeV2GuidanceRuleVersion[] @relation("KnowledgeV2GuidanceRuleVersionSupersession")
+  evidence           KnowledgeV2Evidence[]
+  publicationItems   KnowledgePublicationItem[]
+  evidenceReferences KnowledgeV2EvidenceReference[]
+  conflictCandidates KnowledgeV2ConflictCandidate[]
+
+  @@unique([guidanceRuleId, versionNumber])
+  @@unique([guidanceRuleId, immutableHash])
+  @@unique([tenantId, id])
+  @@unique([tenantId, guidanceRuleId, id], map: "KnowledgeV2GuidanceRuleVersion_tenant_rule_id_key")
+  @@unique([tenantId, id, immutableHash])
+  @@index([tenantId, guidanceRuleId, reviewStatus])
+  @@index([tenantId, effectiveFrom, effectiveUntil])
+}
+
+model KnowledgeV2Evidence {
+  id                    String                  @id @default(cuid())
+  tenantId              String
+  kind                  KnowledgeV2EvidenceKind
+  factVersionId         String?
+  guidanceRuleVersionId String?
+  legacyRevisionId      String?
+  label                 String
+  locator               String?
+  isPublic              Boolean                 @default(false)
+  sourceReference       Json?
+  elementReference      Json?
+  quoteHash             String?
+  confidence            Float?
+  metadata              Json?
+  createdByUserId       String?
+  createdAt             DateTime                @default(now())
+
+  tenant              Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  factVersion         KnowledgeV2FactVersion?         @relation(fields: [tenantId, factVersionId], references: [tenantId, id], onDelete: Cascade)
+  guidanceRuleVersion KnowledgeV2GuidanceRuleVersion? @relation(fields: [tenantId, guidanceRuleVersionId], references: [tenantId, id], onDelete: Cascade)
+  legacyRevision      KnowledgeRevision?              @relation(fields: [tenantId, legacyRevisionId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, factVersionId])
+  @@index([tenantId, guidanceRuleVersionId])
+  @@index([tenantId, legacyRevisionId])
+}
+
+model KnowledgeV2IdempotencyRecord {
+  id           String                       @id @default(cuid())
+  tenantId     String
+  endpoint     String
+  key          String
+  requestHash  String
+  status       KnowledgeV2IdempotencyStatus @default(IN_PROGRESS)
+  httpStatus   Int?
+  responseRef  String?
+  responseBody Json?
+  errorCode    String?
+  expiresAt    DateTime
+  completedAt  DateTime?
+  createdAt    DateTime                     @default(now())
+  updatedAt    DateTime                     @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, endpoint, key])
+  @@unique([tenantId, id])
+  @@index([status, expiresAt])
+  @@index([tenantId, createdAt])
+}
+
+model KnowledgeV2PublicationValidation {
+  id                           String                      @id @default(cuid())
+  tenantId                     String
+  targetKey                    String                      @default("workspace-v2")
+  corpusKind                   KnowledgeCorpusKind         @default(STRUCTURED_V2)
+  candidateId                  String
+  candidateVersion             Int
+  candidateManifestHash        String
+  basePublicationId            String?
+  publicationId                String?
+  indexSnapshotId              String?
+  candidateItems               Json
+  status                       KnowledgeV2ValidationStatus @default(PENDING)
+  blockers                     Json?
+  warnings                     Json?
+  capabilitySetHash            String?
+  requirementEvaluationSetHash String?
+  operationalBindingSchemaVersion Int?
+  operationalRegistryVersion   String?
+  operationalRegistryHash      String?
+  operationalDependencySetHash String?
+  operationalBindingHash       String?
+  operationalPermissionGeneration Int?
+  validationPolicyVersion      String                      @default("knowledge-v2")
+  validatedByUserId            String?
+  createdAt                    DateTime                    @default(now())
+  evaluatedAt                  DateTime?
+  validUntil                   DateTime?
+
+  tenant                  Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  basePublication         KnowledgePublication?              @relation("KnowledgeV2ValidationBasePublication", fields: [tenantId, basePublicationId, corpusKind], references: [tenantId, id, corpusKind], onDelete: NoAction)
+  publication             KnowledgePublication?              @relation("KnowledgeV2PublicationValidationResult", fields: [tenantId, publicationId, corpusKind], references: [tenantId, id, corpusKind], onDelete: NoAction)
+  indexSnapshot           KnowledgeIndexSnapshot?            @relation(fields: [tenantId, indexSnapshotId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  requirementEvaluations  KnowledgeV2RequirementEvaluation[]
+  publicationCapabilities KnowledgePublicationCapability[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, publicationId], map: "KnowledgeV2PublicationValidation_result_key")
+  @@unique([tenantId, publicationId, corpusKind])
+  @@index([tenantId, candidateId, candidateVersion, validationPolicyVersion], map: "KnowledgeV2PublicationValidation_tenantId_candidateId_candi_key")
+  @@index([tenantId, targetKey, status, createdAt])
+  @@index([tenantId, basePublicationId])
+  @@index([tenantId, indexSnapshotId])
+  @@index([status, validUntil])
+}
+
+model KnowledgePublication {
+  id                           String                     @id @default(cuid())
+  tenantId                     String
+  targetKey                    String                     @default("workspace")
+  corpusKind                   KnowledgeCorpusKind        @default(LEGACY_V1)
+  sequence                     Int
+  status                       KnowledgePublicationStatus @default(VALIDATING)
+  indexSnapshotId              String?
+  basePublicationId            String?
+  manifestHash                 String
+  pipelineVersion              String                     @default("legacy-v1")
+  retrievalPolicyVersion       String                     @default("legacy-v1")
+  promptPolicyVersion          String                     @default("legacy-v1")
+  capabilitySetHash            String?
+  requirementEvaluationSetHash String?
+  operationalBindingSchemaVersion Int?
+  operationalRegistryVersion   String?
+  operationalRegistryHash      String?
+  operationalDependencySetHash String?
+  operationalBindingHash       String?
+  operationalPermissionGeneration Int?
+  qualitySummary               Json?
+  failureCode                  String?
+  createdAt                    DateTime                   @default(now())
+  readyAt                      DateTime?
+  activatedAt                  DateTime?
+  supersededAt                 DateTime?
+  failedAt                     DateTime?
+
+  tenant                     Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  indexSnapshot              KnowledgeIndexSnapshot?            @relation(fields: [tenantId, indexSnapshotId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict)
+  basePublication            KnowledgePublication?              @relation("KnowledgePublicationBase", fields: [tenantId, basePublicationId, corpusKind], references: [tenantId, id, corpusKind], onDelete: NoAction)
+  derivedPublications        KnowledgePublication[]             @relation("KnowledgePublicationBase")
+  validation                 KnowledgeV2PublicationValidation?  @relation("KnowledgeV2PublicationValidationResult")
+  validationBases            KnowledgeV2PublicationValidation[] @relation("KnowledgeV2ValidationBasePublication")
+  items                      KnowledgePublicationItem[]
+  activePointers             ActiveKnowledgePublication[]
+  jobs                       KnowledgeJob[]
+  aiReplyRuns                AiReplyRun[]
+  knowledgeV2Conflicts       KnowledgeV2Conflict[]
+  knowledgeV2EvaluationRuns  KnowledgeV2EvaluationRun[]
+  knowledgeV2Feedback        KnowledgeV2Feedback[]
+  knowledgeV2RetrievalTraces KnowledgeV2RetrievalTrace[]
+  knowledgeV2ReviewItems     KnowledgeV2ReviewItem[]
+  automaticReplyChannels     Channel[]                          @relation("ChannelAutomaticRepliesPublication")
+  capabilitySnapshots        KnowledgePublicationCapability[]
+
+  @@unique([tenantId, targetKey, sequence])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, capabilitySetHash, operationalBindingHash, operationalPermissionGeneration], map: "KnowledgePublication_runtimeBinding_key")
+  @@unique([tenantId, id, corpusKind])
+  @@unique([tenantId, targetKey, id, sequence])
+  @@index([tenantId, targetKey, status, createdAt])
+  @@index([tenantId, indexSnapshotId])
+}
+
+model KnowledgePublicationCapability {
+  tenantId                     String
+  publicationId                String
+  validationId                 String
+  capabilityId                 String
+  capabilityType               KnowledgeV2CapabilityType
+  allowedAutonomy              KnowledgeV2CapabilityAutonomy
+  capabilityEtag               Int
+  capabilitySnapshotHash       String
+  requirementEvaluationSetHash String
+  operationalBindingHash       String?
+  operationalPermissionGeneration Int?
+  createdAt                    DateTime                      @default(now())
+
+  tenant      Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  publication KnowledgePublication             @relation(fields: [tenantId, publicationId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+  validation  KnowledgeV2PublicationValidation @relation(fields: [tenantId, validationId, publicationId], references: [tenantId, id, publicationId], onDelete: Restrict, onUpdate: NoAction)
+  capability  KnowledgeV2Capability            @relation(fields: [tenantId, capabilityId, capabilityType], references: [tenantId, id, capabilityType], onDelete: Restrict, onUpdate: NoAction)
+  aiReplyRuns AiReplyRun[] @relation("AiReplyRuntimeCapability")
+
+  @@id([publicationId, capabilityId])
+  @@unique([tenantId, publicationId, capabilityId], map: "KnowledgePublicationCapability_context_key")
+  @@unique([tenantId, publicationId, capabilityType], map: "KnowledgePublicationCapability_type_key")
+  @@unique([tenantId, publicationId, capabilityType, allowedAutonomy], map: "KnowledgePublicationCapability_runtime_key")
+  @@index([tenantId, validationId])
+  @@index([tenantId, capabilityId])
+}
+
+model ActiveKnowledgePublication {
+  tenantId        String
+  targetKey       String   @default("workspace")
+  publicationId   String
+  sequence        Int
+  etag            Int      @default(1)
+  updatedAt       DateTime @updatedAt
+  updatedByUserId String?
+
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  publication KnowledgePublication @relation(fields: [tenantId, targetKey, publicationId, sequence], references: [tenantId, targetKey, id, sequence], onDelete: Cascade)
+
+  @@id([tenantId, targetKey])
+  @@unique([publicationId])
+  @@index([tenantId, publicationId])
+}
+
+model KnowledgePublicationItem {
+  tenantId                     String
+  publicationId                String
+  corpusKind                   KnowledgeCorpusKind          @default(LEGACY_V1)
+  itemType                     KnowledgePublicationItemType
+  itemId                       String
+  itemVersionHash              String?
+  revisionId                   String?
+  v2DocumentRevisionId         String?
+  factVersionId                String?
+  guidanceRuleVersionId        String?
+  scope                        Json?
+  usesTenantDefaultScope       Boolean                      @default(false)
+  tenantDefaultScopeGeneration Int?
+  tenantDefaultScopeHash       String?
+  authorizationFingerprint     String?
+  createdAt                    DateTime                     @default(now())
+
+  publication         KnowledgePublication            @relation(fields: [tenantId, publicationId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Cascade)
+  revision            KnowledgeRevision?              @relation(fields: [tenantId, revisionId], references: [tenantId, id], onDelete: Restrict)
+  v2DocumentRevision  KnowledgeV2DocumentRevision?    @relation(fields: [tenantId, v2DocumentRevisionId, itemVersionHash], references: [tenantId, id, contentHash], onDelete: Restrict)
+  factVersion         KnowledgeV2FactVersion?         @relation(fields: [tenantId, factVersionId, itemVersionHash], references: [tenantId, id, immutableHash], onDelete: Restrict)
+  guidanceRuleVersion KnowledgeV2GuidanceRuleVersion? @relation(fields: [tenantId, guidanceRuleVersionId, itemVersionHash], references: [tenantId, id, immutableHash], onDelete: Restrict)
+
+  @@id([publicationId, itemType, itemId])
+  @@index([tenantId, publicationId])
+  @@index([tenantId, revisionId])
+  @@index([tenantId, v2DocumentRevisionId])
+  @@index([tenantId, factVersionId])
+  @@index([tenantId, guidanceRuleVersionId])
+}
+
+model KnowledgeV2EvidenceReference {
+  id                    String                        @id @default(cuid())
+  tenantId              String
+  corpusKind            KnowledgeCorpusKind           @default(STRUCTURED_V2)
+  evidenceKey           String
+  targetType            KnowledgeV2EvidenceTargetType
+  itemVersionHash       String?
+  v2DocumentRevisionId  String?
+  factVersionId         String?
+  guidanceRuleVersionId String?
+  messageId             String?
+  toolResultRef         String?
+  externalReferenceHash String?
+  safeLabel             String
+  locatorHash           String?
+  restrictedPayloadRef  String?
+  isPublic              Boolean                       @default(false)
+  confidence            Float?
+  observedAt            DateTime?
+  expiresAt             DateTime?
+  permissionFingerprint String?
+  createdAt             DateTime                      @default(now())
+
+  tenant                      Tenant                                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  documentRevision            KnowledgeV2DocumentRevision?           @relation(fields: [tenantId, v2DocumentRevisionId, itemVersionHash], references: [tenantId, id, contentHash], onDelete: Restrict, onUpdate: NoAction)
+  factVersion                 KnowledgeV2FactVersion?                @relation(fields: [tenantId, factVersionId, itemVersionHash], references: [tenantId, id, immutableHash], onDelete: Restrict, onUpdate: NoAction)
+  guidanceRuleVersion         KnowledgeV2GuidanceRuleVersion?        @relation(fields: [tenantId, guidanceRuleVersionId, itemVersionHash], references: [tenantId, id, immutableHash], onDelete: Restrict, onUpdate: NoAction)
+  message                     Message?                               @relation(fields: [tenantId, messageId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  liveToolExecution           KnowledgeV2LiveToolExecution?          @relation(fields: [tenantId, toolResultRef], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  conflictLinks               KnowledgeV2ConflictCandidateEvidence[]
+  reviewLinks                 KnowledgeV2ReviewItemEvidence[]
+  evaluationLinks             KnowledgeV2EvaluationResultEvidence[]
+  feedbackLinks               KnowledgeV2FeedbackEvidence[]
+  retrievalCandidates         KnowledgeV2RetrievalCandidate[]
+  citations                   KnowledgeV2Citation[]
+  knowledgeV2TestExpectations KnowledgeV2TestExpectation[]
+
+  @@unique([tenantId, evidenceKey])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, corpusKind])
+  @@index([tenantId, targetType, createdAt])
+  @@index([tenantId, v2DocumentRevisionId])
+  @@index([tenantId, factVersionId])
+  @@index([tenantId, guidanceRuleVersionId])
+  @@index([tenantId, messageId])
+  @@index([expiresAt])
+}
+
+model KnowledgeV2Conflict {
+  id                      String                         @id @default(cuid())
+  tenantId                String
+  corpusKind              KnowledgeCorpusKind            @default(STRUCTURED_V2)
+  conflictKey             String
+  conflictType            KnowledgeV2ConflictType
+  semanticKey             String
+  scope                   Json?
+  scopeHash               String
+  effectiveFrom           DateTime?
+  effectiveUntil          DateTime?
+  severity                KnowledgeV2RiskLevel
+  status                  KnowledgeV2ConflictStatus      @default(OPEN)
+  sourceId                String?
+  factId                  String?
+  guidanceRuleId          String?
+  publicationId           String?
+  candidateSetHash        String
+  assignedToUserId        String?
+  assignedAt              DateTime?
+  dueAt                   DateTime?
+  resolution              KnowledgeV2ConflictResolution?
+  resolutionRationaleHash String?
+  restrictedResolutionRef String?
+  resolvedByUserId        String?
+  resolvedAt              DateTime?
+  etag                    Int                            @default(1)
+  generation              Int                            @default(1)
+  detectedAt              DateTime                       @default(now())
+  createdAt               DateTime                       @default(now())
+  updatedAt               DateTime                       @updatedAt
+
+  tenant       Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  source       KnowledgeV2Source?             @relation(fields: [tenantId, sourceId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  fact         KnowledgeV2Fact?               @relation(fields: [tenantId, factId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  guidanceRule KnowledgeV2GuidanceRule?       @relation(fields: [tenantId, guidanceRuleId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  publication  KnowledgePublication?          @relation(fields: [tenantId, publicationId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  assignee     Membership?                    @relation("KnowledgeV2ConflictAssignee", fields: [tenantId, assignedToUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+  resolvedBy   Membership?                    @relation("KnowledgeV2ConflictResolver", fields: [tenantId, resolvedByUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+  candidates   KnowledgeV2ConflictCandidate[]
+  reviewItems  KnowledgeV2ReviewItem[]
+
+  @@unique([tenantId, conflictKey])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, corpusKind])
+  @@index([tenantId, status, severity, createdAt])
+  @@index([tenantId, semanticKey, status])
+  @@index([tenantId, assignedToUserId, status])
+  @@index([tenantId, sourceId])
+  @@index([tenantId, factId])
+  @@index([tenantId, guidanceRuleId])
+  @@index([tenantId, publicationId])
+}
+
+model KnowledgeV2ConflictCandidate {
+  id                    String                           @id @default(cuid())
+  tenantId              String
+  corpusKind            KnowledgeCorpusKind              @default(STRUCTURED_V2)
+  conflictId            String
+  candidateKey          String
+  ordinal               Int
+  candidateType         KnowledgeV2ConflictCandidateType
+  itemVersionHash       String
+  v2DocumentRevisionId  String?
+  factVersionId         String?
+  guidanceRuleVersionId String?
+  candidateValueHash    String
+  restrictedValueRef    String?
+  authorityFingerprint  String?
+  extractionMethod      String?
+  confidence            Float?
+  scope                 Json?
+  effectiveFrom         DateTime?
+  effectiveUntil        DateTime?
+  createdAt             DateTime                         @default(now())
+
+  tenant              Tenant                                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  conflict            KnowledgeV2Conflict                    @relation(fields: [tenantId, conflictId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  documentRevision    KnowledgeV2DocumentRevision?           @relation(fields: [tenantId, v2DocumentRevisionId, itemVersionHash], references: [tenantId, id, contentHash], onDelete: Restrict, onUpdate: NoAction)
+  factVersion         KnowledgeV2FactVersion?                @relation(fields: [tenantId, factVersionId, itemVersionHash], references: [tenantId, id, immutableHash], onDelete: Restrict, onUpdate: NoAction)
+  guidanceRuleVersion KnowledgeV2GuidanceRuleVersion?        @relation(fields: [tenantId, guidanceRuleVersionId, itemVersionHash], references: [tenantId, id, immutableHash], onDelete: Restrict, onUpdate: NoAction)
+  evidenceLinks       KnowledgeV2ConflictCandidateEvidence[]
+
+  @@unique([tenantId, conflictId, candidateKey])
+  @@unique([tenantId, conflictId, ordinal])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, corpusKind])
+  @@index([tenantId, v2DocumentRevisionId])
+  @@index([tenantId, factVersionId])
+  @@index([tenantId, guidanceRuleVersionId])
+}
+
+model KnowledgeV2ConflictCandidateEvidence {
+  tenantId            String
+  corpusKind          KnowledgeCorpusKind @default(STRUCTURED_V2)
+  conflictCandidateId String
+  evidenceReferenceId String
+  ordinal             Int
+  relevanceScore      Float?
+  createdAt           DateTime            @default(now())
+
+  tenant            Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  conflictCandidate KnowledgeV2ConflictCandidate @relation(fields: [tenantId, conflictCandidateId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  evidenceReference KnowledgeV2EvidenceReference @relation(fields: [tenantId, evidenceReferenceId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([tenantId, conflictCandidateId, evidenceReferenceId])
+  @@unique([tenantId, conflictCandidateId, ordinal])
+  @@index([tenantId, evidenceReferenceId])
+}
+
+model KnowledgeV2ReviewItem {
+  id                      String                   @id @default(cuid())
+  tenantId                String
+  corpusKind              KnowledgeCorpusKind      @default(STRUCTURED_V2)
+  reviewKey               String
+  reason                  KnowledgeV2ReviewReason
+  riskLevel               KnowledgeV2RiskLevel
+  status                  KnowledgeV2ReviewStatus  @default(OPEN)
+  suggestedAction         KnowledgeV2ReviewAction
+  safeTitle               String
+  safeSummary             String?
+  restrictedPayloadRef    String?
+  sourceId                String?
+  v2DocumentRevisionId    String?
+  factId                  String?
+  guidanceRuleId          String?
+  conflictId              String?
+  evaluationResultId      String?
+  feedbackId              String?
+  publicationId           String?
+  createdByUserId         String?
+  assignedToUserId        String?
+  assignedAt              DateTime?
+  dueAt                   DateTime?
+  freshnessDueAt          DateTime?
+  resolutionAction        KnowledgeV2ReviewAction?
+  resolutionSummaryHash   String?
+  restrictedResolutionRef String?
+  resolvedByUserId        String?
+  resolvedAt              DateTime?
+  etag                    Int                      @default(1)
+  generation              Int                      @default(1)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+
+  tenant           Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  source           KnowledgeV2Source?              @relation(fields: [tenantId, sourceId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  documentRevision KnowledgeV2DocumentRevision?    @relation(fields: [tenantId, v2DocumentRevisionId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  fact             KnowledgeV2Fact?                @relation(fields: [tenantId, factId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  guidanceRule     KnowledgeV2GuidanceRule?        @relation(fields: [tenantId, guidanceRuleId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  conflict         KnowledgeV2Conflict?            @relation(fields: [tenantId, conflictId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  evaluationResult KnowledgeV2EvaluationResult?    @relation(fields: [tenantId, evaluationResultId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  feedback         KnowledgeV2Feedback?            @relation(fields: [tenantId, feedbackId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  publication      KnowledgePublication?           @relation(fields: [tenantId, publicationId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  createdBy        Membership?                     @relation("KnowledgeV2ReviewItemCreator", fields: [tenantId, createdByUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+  assignee         Membership?                     @relation("KnowledgeV2ReviewItemAssignee", fields: [tenantId, assignedToUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+  resolvedBy       Membership?                     @relation("KnowledgeV2ReviewItemResolver", fields: [tenantId, resolvedByUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+  evidenceLinks    KnowledgeV2ReviewItemEvidence[]
+
+  @@unique([tenantId, reviewKey])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, corpusKind])
+  @@index([tenantId, status, riskLevel, createdAt])
+  @@index([tenantId, reason, status])
+  @@index([tenantId, assignedToUserId, status])
+  @@index([tenantId, sourceId])
+  @@index([tenantId, v2DocumentRevisionId])
+  @@index([tenantId, factId])
+  @@index([tenantId, guidanceRuleId])
+  @@index([tenantId, conflictId])
+  @@index([tenantId, evaluationResultId])
+  @@index([tenantId, feedbackId])
+}
+
+model KnowledgeV2ReviewItemEvidence {
+  tenantId            String
+  corpusKind          KnowledgeCorpusKind @default(STRUCTURED_V2)
+  reviewItemId        String
+  evidenceReferenceId String
+  ordinal             Int
+  relevanceScore      Float?
+  createdAt           DateTime            @default(now())
+
+  tenant            Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  reviewItem        KnowledgeV2ReviewItem        @relation(fields: [tenantId, reviewItemId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  evidenceReference KnowledgeV2EvidenceReference @relation(fields: [tenantId, evidenceReferenceId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([tenantId, reviewItemId, evidenceReferenceId])
+  @@unique([tenantId, reviewItemId, ordinal])
+  @@index([tenantId, evidenceReferenceId])
+}
+
+model KnowledgeV2QueryHashKeyRegistry {
+  keyId            String   @id
+  queryHashVersion String
+  keyCheck         String
+  createdAt        DateTime @default(now())
+}
+
+model KnowledgeV2TestCase {
+  id                  String                    @id @default(cuid())
+  tenantId            String
+  corpusKind          KnowledgeCorpusKind       @default(STRUCTURED_V2)
+  caseKey             String
+  safeLabel           String
+  origin              KnowledgeV2TestCaseOrigin
+  status              KnowledgeV2TestCaseStatus @default(DRAFT)
+  riskLevel           KnowledgeV2RiskLevel      @default(LOW)
+  critical            Boolean                   @default(false)
+  currentVersionId    String?
+  latestVersionNumber Int                       @default(0)
+  createdByUserId     String?
+  archivedByUserId    String?
+  archivedAt          DateTime?
+  etag                Int                       @default(1)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  tenant         Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  currentVersion KnowledgeV2TestCaseVersion?  @relation("KnowledgeV2CurrentTestCaseVersion", fields: [tenantId, id, currentVersionId], references: [tenantId, testCaseId, id], onDelete: NoAction, onUpdate: NoAction)
+  versions       KnowledgeV2TestCaseVersion[] @relation("KnowledgeV2TestCaseVersions")
+  createdBy      Membership?                  @relation("KnowledgeV2TestCaseCreator", fields: [tenantId, createdByUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+  archivedBy     Membership?                  @relation("KnowledgeV2TestCaseArchiver", fields: [tenantId, archivedByUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, caseKey])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, corpusKind])
+  @@unique([tenantId, id, currentVersionId])
+  @@index([tenantId, status, riskLevel, updatedAt])
+  @@index([tenantId, origin, status])
+}
+
+model KnowledgeV2TestCaseVersion {
+  id                  String                      @id @default(cuid())
+  tenantId            String
+  corpusKind          KnowledgeCorpusKind         @default(STRUCTURED_V2)
+  testCaseId          String
+  versionNumber       Int
+  queryHash           String
+  queryHashKeyId      String?
+  queryHashVersion    String?
+  restrictedInputRef  String
+  expectedBehavior    KnowledgeV2ExpectedBehavior
+  locale              String
+  channelType         ChannelType
+  audience            KnowledgeV2Audience
+  scope               Json?
+  sliceKeys           String[]                    @default([])
+  datasetVersion      String
+  riskLevel           KnowledgeV2RiskLevel        @default(LOW)
+  supersedesVersionId String?
+  immutableHash       String
+  createdByUserId     String?
+  createdAt           DateTime                    @default(now())
+
+  tenant             Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  testCase           KnowledgeV2TestCase           @relation("KnowledgeV2TestCaseVersions", fields: [tenantId, testCaseId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  currentForTestCase KnowledgeV2TestCase?          @relation("KnowledgeV2CurrentTestCaseVersion")
+  supersedes         KnowledgeV2TestCaseVersion?   @relation("KnowledgeV2TestCaseVersionSupersession", fields: [tenantId, testCaseId, supersedesVersionId], references: [tenantId, testCaseId, id], onDelete: Restrict, onUpdate: NoAction)
+  supersededBy       KnowledgeV2TestCaseVersion[]  @relation("KnowledgeV2TestCaseVersionSupersession")
+  createdBy          Membership?                   @relation("KnowledgeV2TestCaseVersionCreator", fields: [tenantId, createdByUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+  expectations       KnowledgeV2TestExpectation[]
+  evaluationResults  KnowledgeV2EvaluationResult[]
+
+  @@unique([testCaseId, versionNumber])
+  @@unique([testCaseId, immutableHash])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, corpusKind])
+  @@unique([tenantId, testCaseId, id])
+  @@index([tenantId, testCaseId, createdAt])
+  @@index([tenantId, datasetVersion])
+  @@index([tenantId, locale, channelType, audience])
+}
+
+model KnowledgeV2TestExpectation {
+  id                    String                         @id @default(cuid())
+  tenantId              String
+  corpusKind            KnowledgeCorpusKind            @default(STRUCTURED_V2)
+  testCaseVersionId     String
+  ordinal               Int
+  kind                  KnowledgeV2TestExpectationKind
+  factId                String?
+  guidanceRuleId        String?
+  evidenceReferenceId   String?
+  semanticKey           String?
+  expectedValueHash     String?
+  restrictedExpectedRef String?
+  createdAt             DateTime                       @default(now())
+
+  tenant            Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  testCaseVersion   KnowledgeV2TestCaseVersion    @relation(fields: [tenantId, testCaseVersionId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  fact              KnowledgeV2Fact?              @relation(fields: [tenantId, factId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  guidanceRule      KnowledgeV2GuidanceRule?      @relation(fields: [tenantId, guidanceRuleId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  evidenceReference KnowledgeV2EvidenceReference? @relation(fields: [tenantId, evidenceReferenceId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([tenantId, testCaseVersionId, ordinal])
+  @@unique([tenantId, id])
+  @@index([tenantId, factId])
+  @@index([tenantId, guidanceRuleId])
+  @@index([tenantId, evidenceReferenceId])
+}
+
+model KnowledgeV2EvaluationRun {
+  id                           String                         @id @default(cuid())
+  tenantId                     String
+  corpusKind                   KnowledgeCorpusKind            @default(STRUCTURED_V2)
+  runKey                       String
+  runKind                      KnowledgeV2EvaluationRunKind
+  status                       KnowledgeV2EvaluationRunStatus @default(QUEUED)
+  snapshotKind                 KnowledgeV2SnapshotKind
+  targetKey                    String                         @default("workspace-v2")
+  publicationId                String?
+  candidateId                  String?
+  candidateVersion             Int?
+  candidateManifestHash        String?
+  datasetVersion               String
+  testCaseSetHash              String
+  configHash                   String
+  restrictedConfigRef          String?
+  queryHash                    String?
+  queryHashKeyId               String?
+  queryHashVersion             String?
+  restrictedInputRef           String?
+  parserVersion                String?
+  normalizerVersion            String?
+  chunkerVersion               String?
+  embeddingVersion             String?
+  sparseVersion                String?
+  rerankerVersion              String?
+  retrievalPolicyVersion       String
+  retrievalProcessorPolicyHash String?
+  modelProcessorPolicyHash     String?
+  promptPolicyVersion          String
+  graphVersion                 String
+  provider                     String?
+  generatorModel               String?
+  judgeModel                   String?
+  judgePromptVersion           String?
+  codeCommit                   String
+  environment                  String
+  requestedByUserId            String?
+  startedAt                    DateTime?
+  completedAt                  DateTime?
+  cancelledAt                  DateTime?
+  createdAt                    DateTime                       @default(now())
+  updatedAt                    DateTime                       @updatedAt
+
+  tenant      Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  publication KnowledgePublication?         @relation(fields: [tenantId, publicationId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  requestedBy Membership?                   @relation("KnowledgeV2EvaluationRunRequester", fields: [tenantId, requestedByUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+  results     KnowledgeV2EvaluationResult[]
+  feedback    KnowledgeV2Feedback[]
+  traces      KnowledgeV2RetrievalTrace[]
+
+  @@unique([tenantId, runKey])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, corpusKind])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, runKind, datasetVersion])
+  @@index([tenantId, publicationId])
+  @@index([tenantId, candidateId, candidateVersion])
+}
+
+model KnowledgeV2EvaluationResult {
+  id                       String                            @id @default(cuid())
+  tenantId                 String
+  corpusKind               KnowledgeCorpusKind               @default(STRUCTURED_V2)
+  resultKey                String
+  evaluationRunId          String
+  testCaseVersionId        String?
+  repeatIndex              Int                               @default(0)
+  status                   KnowledgeV2EvaluationResultStatus
+  expectedBehavior         KnowledgeV2ExpectedBehavior?
+  observedBehavior         KnowledgeV2ExpectedBehavior?
+  gateOutcome              KnowledgeV2GateOutcome?
+  provider                 String?
+  generatorModel           String?
+  promptPolicyVersion      String?
+  modelProcessorPolicyHash String?
+  providerOutputHash       String?
+  gateInputHash            String?
+  gateResultHash           String?
+  responseHash             String?
+  restrictedResultRef      String?
+  restrictedResultHash     String?
+  safeSummaryHash          String?
+  metricManifestHash       String
+  evidenceManifestHash     String
+  errorCode                String?
+  latencyMs                Int?
+  inputTokens              Int?
+  outputTokens             Int?
+  costMicros               BigInt?
+  createdAt                DateTime                          @default(now())
+
+  tenant          Tenant                                @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  evaluationRun   KnowledgeV2EvaluationRun              @relation(fields: [tenantId, evaluationRunId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  testCaseVersion KnowledgeV2TestCaseVersion?           @relation(fields: [tenantId, testCaseVersionId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  metrics         KnowledgeV2EvaluationMetric[]
+  evidenceLinks   KnowledgeV2EvaluationResultEvidence[]
+  reviewItems     KnowledgeV2ReviewItem[]
+  feedback        KnowledgeV2Feedback[]
+  retrievalTraces KnowledgeV2RetrievalTrace[]
+
+  @@unique([tenantId, resultKey])
+  @@unique([tenantId, evaluationRunId, testCaseVersionId, repeatIndex])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, corpusKind])
+  @@unique([tenantId, id, evaluationRunId, corpusKind])
+  @@index([tenantId, evaluationRunId, status])
+  @@index([tenantId, testCaseVersionId, status])
+  @@index([tenantId, gateOutcome])
+}
+
+model KnowledgeV2EvaluationMetric {
+  id                 String                            @id @default(cuid())
+  tenantId           String
+  corpusKind         KnowledgeCorpusKind               @default(STRUCTURED_V2)
+  evaluationResultId String
+  metricKey          String
+  category           KnowledgeV2MetricCategory
+  value              Float?
+  numerator          Float?
+  denominator        Float?
+  unit               String?
+  threshold          Float?
+  comparator         KnowledgeV2MetricComparator?
+  status             KnowledgeV2EvaluationResultStatus
+  sliceKey           String?
+  sampleCount        Int?
+  confidenceLower    Float?
+  confidenceUpper    Float?
+  createdAt          DateTime                          @default(now())
+
+  tenant           Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  evaluationResult KnowledgeV2EvaluationResult @relation(fields: [tenantId, evaluationResultId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([tenantId, evaluationResultId, metricKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, category, status])
+  @@index([tenantId, metricKey, sliceKey])
+}
+
+model KnowledgeV2EvaluationResultEvidence {
+  tenantId            String
+  corpusKind          KnowledgeCorpusKind @default(STRUCTURED_V2)
+  evaluationResultId  String
+  evidenceReferenceId String
+  ordinal             Int
+  relevanceScore      Float?
+  createdAt           DateTime            @default(now())
+
+  tenant            Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  evaluationResult  KnowledgeV2EvaluationResult  @relation(fields: [tenantId, evaluationResultId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  evidenceReference KnowledgeV2EvidenceReference @relation(fields: [tenantId, evidenceReferenceId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([tenantId, evaluationResultId, evidenceReferenceId])
+  @@unique([tenantId, evaluationResultId, ordinal])
+  @@index([tenantId, evidenceReferenceId])
+}
+
+model KnowledgeV2Feedback {
+  id                      String                           @id @default(cuid())
+  tenantId                String
+  corpusKind              KnowledgeCorpusKind              @default(STRUCTURED_V2)
+  feedbackKey             String
+  category                KnowledgeV2FeedbackCategory
+  status                  KnowledgeV2FeedbackStatus        @default(OPEN)
+  riskLevel               KnowledgeV2RiskLevel             @default(LOW)
+  responseMessageId       String?
+  evaluationRunId         String?
+  evaluationResultId      String?
+  publicationId           String?
+  retrievalTraceId        String?
+  actorUserId             String?
+  noteHash                String?
+  restrictedNoteRef       String?
+  proposedAction          KnowledgeV2ReviewAction?
+  correctionTargetType    KnowledgeV2CorrectionTargetType?
+  sourceId                String?
+  v2DocumentRevisionId    String?
+  factId                  String?
+  guidanceRuleId          String?
+  assignedToUserId        String?
+  assignedAt              DateTime?
+  resolutionAction        KnowledgeV2ReviewAction?
+  resolutionSummaryHash   String?
+  restrictedResolutionRef String?
+  resolvedByUserId        String?
+  resolvedAt              DateTime?
+  etag                    Int                              @default(1)
+  createdAt               DateTime                         @default(now())
+  updatedAt               DateTime                         @updatedAt
+
+  tenant           Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  responseMessage  Message?                      @relation(fields: [tenantId, responseMessageId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  evaluationRun    KnowledgeV2EvaluationRun?     @relation(fields: [tenantId, evaluationRunId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  evaluationResult KnowledgeV2EvaluationResult?  @relation(fields: [tenantId, evaluationResultId, evaluationRunId, corpusKind], references: [tenantId, id, evaluationRunId, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  publication      KnowledgePublication?         @relation(fields: [tenantId, publicationId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  retrievalTrace   KnowledgeV2RetrievalTrace?    @relation(fields: [tenantId, retrievalTraceId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  source           KnowledgeV2Source?            @relation(fields: [tenantId, sourceId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  documentRevision KnowledgeV2DocumentRevision?  @relation(fields: [tenantId, v2DocumentRevisionId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  fact             KnowledgeV2Fact?              @relation(fields: [tenantId, factId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  guidanceRule     KnowledgeV2GuidanceRule?      @relation(fields: [tenantId, guidanceRuleId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  actor            Membership?                   @relation("KnowledgeV2FeedbackActor", fields: [tenantId, actorUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+  assignee         Membership?                   @relation("KnowledgeV2FeedbackAssignee", fields: [tenantId, assignedToUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+  resolvedBy       Membership?                   @relation("KnowledgeV2FeedbackResolver", fields: [tenantId, resolvedByUserId], references: [tenantId, userId], onDelete: NoAction, onUpdate: NoAction)
+  evidenceLinks    KnowledgeV2FeedbackEvidence[]
+  reviewItems      KnowledgeV2ReviewItem[]
+
+  @@unique([tenantId, feedbackKey])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, corpusKind])
+  @@index([tenantId, status, category, createdAt])
+  @@index([tenantId, assignedToUserId, status])
+  @@index([tenantId, responseMessageId])
+  @@index([tenantId, evaluationRunId])
+  @@index([tenantId, evaluationResultId])
+  @@index([tenantId, publicationId])
+  @@index([tenantId, retrievalTraceId])
+  @@index([tenantId, sourceId])
+  @@index([tenantId, v2DocumentRevisionId])
+  @@index([tenantId, factId])
+  @@index([tenantId, guidanceRuleId])
+}
+
+model KnowledgeV2FeedbackEvidence {
+  tenantId            String
+  corpusKind          KnowledgeCorpusKind @default(STRUCTURED_V2)
+  feedbackId          String
+  evidenceReferenceId String
+  ordinal             Int
+  relevanceScore      Float?
+  createdAt           DateTime            @default(now())
+
+  tenant            Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  feedback          KnowledgeV2Feedback          @relation(fields: [tenantId, feedbackId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  evidenceReference KnowledgeV2EvidenceReference @relation(fields: [tenantId, evidenceReferenceId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([tenantId, feedbackId, evidenceReferenceId])
+  @@unique([tenantId, feedbackId, ordinal])
+  @@index([tenantId, evidenceReferenceId])
+}
+
+model KnowledgeV2RetrievalTrace {
+  id                             String                      @id @default(cuid())
+  tenantId                       String
+  corpusKind                     KnowledgeCorpusKind         @default(STRUCTURED_V2)
+  traceKey                       String
+  distributedTraceId             String?
+  snapshotKind                   KnowledgeV2SnapshotKind
+  targetKey                      String                      @default("workspace-v2")
+  publicationId                  String?
+  candidateId                    String?
+  candidateVersion               Int?
+  candidateManifestHash          String?
+  evaluationRunId                String?
+  evaluationResultId             String?
+  responseMessageId              String?
+  queryHash                      String
+  queryHashKeyId                 String?
+  queryHashVersion               String?
+  restrictedQueryRef             String
+  filters                        Json
+  filtersHash                    String
+  permissionFingerprint          String
+  candidateCount                 Int                         @default(0)
+  selectedCount                  Int                         @default(0)
+  retrievalPolicyVersion         String
+  retrievalProcessorPolicyHash   String?
+  modelProcessorPolicyHash       String?
+  rerankerVersion                String?
+  promptPolicyVersion            String
+  graphVersion                   String
+  provider                       String?
+  generatorModel                 String?
+  providerOutputHash             String?
+  gateInputHash                  String?
+  gateResultHash                 String?
+  outcome                        KnowledgeV2RetrievalOutcome
+  gateOutcome                    KnowledgeV2GateOutcome
+  answerHash                     String?
+  restrictedTraceRef             String?
+  retrievalCandidateManifestHash String
+  citationManifestHash           String
+  latencyMs                      Int?
+  inputTokens                    Int?
+  outputTokens                   Int?
+  costMicros                     BigInt?
+  retentionClass                 String
+  retentionExpiresAt             DateTime
+  createdAt                      DateTime                    @default(now())
+
+  tenant           Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  publication      KnowledgePublication?           @relation(fields: [tenantId, publicationId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  evaluationRun    KnowledgeV2EvaluationRun?       @relation(fields: [tenantId, evaluationRunId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  evaluationResult KnowledgeV2EvaluationResult?    @relation(fields: [tenantId, evaluationResultId, evaluationRunId, corpusKind], references: [tenantId, id, evaluationRunId, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  responseMessage  Message?                        @relation(fields: [tenantId, responseMessageId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  candidates       KnowledgeV2RetrievalCandidate[]
+  citations        KnowledgeV2Citation[]
+  feedback         KnowledgeV2Feedback[]
+
+  @@unique([tenantId, traceKey])
+  @@unique([tenantId, distributedTraceId])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, corpusKind])
+  @@index([tenantId, publicationId, createdAt])
+  @@index([tenantId, candidateId, candidateVersion])
+  @@index([tenantId, evaluationRunId])
+  @@index([tenantId, evaluationResultId])
+  @@index([tenantId, responseMessageId])
+  @@index([tenantId, outcome, gateOutcome, createdAt])
+  @@index([retentionExpiresAt])
+}
+
+model KnowledgeV2RetrievalCandidate {
+  id                  String                               @id @default(cuid())
+  tenantId            String
+  corpusKind          KnowledgeCorpusKind                  @default(STRUCTURED_V2)
+  retrievalTraceId    String
+  candidateKey        String
+  evidenceReferenceId String
+  denseRank           Int?
+  denseScore          Float?
+  sparseRank          Int?
+  sparseScore         Float?
+  fusedRank           Int?
+  fusedScore          Float?
+  rerankRank          Int?
+  rerankScore         Float?
+  selected            Boolean                              @default(false)
+  rejectionReason     KnowledgeV2RetrievalRejectionReason?
+  createdAt           DateTime                             @default(now())
+
+  tenant            Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  retrievalTrace    KnowledgeV2RetrievalTrace    @relation(fields: [tenantId, retrievalTraceId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  evidenceReference KnowledgeV2EvidenceReference @relation(fields: [tenantId, evidenceReferenceId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([tenantId, retrievalTraceId, candidateKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, retrievalTraceId, selected])
+  @@index([tenantId, evidenceReferenceId])
+  @@index([tenantId, rerankRank])
+}
+
+model KnowledgeV2Citation {
+  id                  String                     @id @default(cuid())
+  tenantId            String
+  corpusKind          KnowledgeCorpusKind        @default(STRUCTURED_V2)
+  citationKey         String
+  retrievalTraceId    String
+  evidenceReferenceId String
+  ordinal             Int
+  claimHash           String
+  restrictedClaimRef  String?
+  support             KnowledgeV2CitationSupport @default(NOT_ASSESSED)
+  confidence          Float?
+  toolObservedAt      DateTime?
+  toolExpiresAt       DateTime?
+  createdAt           DateTime                   @default(now())
+
+  tenant            Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  retrievalTrace    KnowledgeV2RetrievalTrace    @relation(fields: [tenantId, retrievalTraceId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+  evidenceReference KnowledgeV2EvidenceReference @relation(fields: [tenantId, evidenceReferenceId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([tenantId, citationKey])
+  @@unique([tenantId, retrievalTraceId, ordinal])
+  @@unique([tenantId, id])
+  @@index([tenantId, evidenceReferenceId])
+  @@index([tenantId, support])
+}
+
+model KnowledgeJob {
+  id                String             @id @default(cuid())
+  tenantId          String
+  idempotencyKey    String
+  stage             String
+  pipelineVersion   String             @default("legacy-v1")
+  generation        Int                @default(1)
+  status            KnowledgeJobStatus @default(QUEUED)
+  priority          Int                @default(0)
+  deadlineAt        DateTime?
+  availableAt       DateTime           @default(now())
+  maxAttempts       Int                @default(5)
+  attemptCount      Int                @default(0)
+  progressCompleted Int                @default(0)
+  progressTotal     Int?
+  payloadRef        String?
+  errorCode         String?
+  errorMessage      String?
+  traceId           String?
+  sourceId          String?
+  v2SourceId        String?
+  revisionId        String?
+  v2RevisionId      String?
+  indexSnapshotId   String?
+  publicationId     String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  startedAt         DateTime?
+  heartbeatAt       DateTime?
+  completedAt       DateTime?
+
+  tenant            Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  source            BusinessKnowledgeSource?      @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  v2Source          KnowledgeV2Source?            @relation("KnowledgeV2SourceJobs", fields: [tenantId, v2SourceId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  revision          KnowledgeRevision?            @relation(fields: [revisionId], references: [id], onDelete: SetNull)
+  v2Revision        KnowledgeV2DocumentRevision?  @relation("KnowledgeV2RevisionJobs", fields: [tenantId, v2SourceId, v2RevisionId], references: [tenantId, sourceId, id], onDelete: NoAction, onUpdate: NoAction)
+  indexSnapshot     KnowledgeIndexSnapshot?       @relation(fields: [indexSnapshotId], references: [id], onDelete: SetNull)
+  publication       KnowledgePublication?         @relation(fields: [publicationId], references: [id], onDelete: SetNull)
+  attempts          KnowledgeJobAttempt[]
+  legacyMigration   KnowledgeV2LegacyMigration?
+  fileUploadIntents KnowledgeV2FileUploadIntent[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, id])
+  @@index([status, availableAt, priority])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, sourceId, generation])
+  @@index([tenantId, v2SourceId, generation])
+  @@index([tenantId, v2RevisionId, generation])
+}
+
+model KnowledgeJobAttempt {
+  id           String                    @id @default(cuid())
+  tenantId     String
+  jobId        String
+  attempt      Int
+  status       KnowledgeJobAttemptStatus @default(RUNNING)
+  workerId     String?
+  errorCode    String?
+  errorMessage String?
+  traceId      String?
+  startedAt    DateTime                  @default(now())
+  heartbeatAt  DateTime?
+  completedAt  DateTime?
+
+  job KnowledgeJob @relation(fields: [tenantId, jobId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([jobId, attempt])
+  @@index([tenantId, jobId, status])
+  @@index([status, heartbeatAt])
+}
+
+model KnowledgeOutbox {
+  id               String                @id @default(cuid())
+  tenantId         String
+  aggregateType    String
+  aggregateId      String
+  aggregateVersion Int
+  eventType        String
+  schemaVersion    Int                   @default(1)
+  dedupeKey        String
+  payload          Json
+  status           KnowledgeOutboxStatus @default(PENDING)
+  availableAt      DateTime              @default(now())
+  deadlineAt       DateTime?
+  attemptCount     Int                   @default(0)
+  lockedAt         DateTime?
+  lockedBy         String?
+  publishedAt      DateTime?
+  lastErrorCode    String?
+  traceId          String?
+  traceParent      String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, dedupeKey])
+  @@unique([tenantId, aggregateType, aggregateId, aggregateVersion, eventType])
+  @@index([status, availableAt, createdAt])
+  @@index([tenantId, aggregateType, aggregateId, aggregateVersion])
+}
+
+model KnowledgeInbox {
+  id           String               @id @default(cuid())
+  tenantId     String
+  consumer     String
+  eventId      String
+  status       KnowledgeInboxStatus @default(PROCESSING)
+  result       Json?
+  errorCode    String?
+  attemptCount Int                  @default(1)
+  receivedAt   DateTime             @default(now())
+  startedAt    DateTime             @default(now())
+  completedAt  DateTime?
+  updatedAt    DateTime             @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([consumer, eventId])
+  @@index([tenantId, status, receivedAt])
+  @@index([status, updatedAt])
+}
+
+model AiReplyRun {
+  id                String           @id @default(cuid())
+  tenantId          String
+  conversationId    String
+  inboundMessageId  String
+  replyMessageId    String?
+  publicationId     String?
+  capabilitySetHash String?
+  operationalBindingHash String?
+  operationalPermissionGeneration Int?
+  capabilityType   KnowledgeV2CapabilityType?
+  allowedAutonomy  KnowledgeV2CapabilityAutonomy?
+  requiredAutonomy KnowledgeV2CapabilityAutonomy?
+  capabilityDecision KnowledgeV2CapabilityDecision?
+  replyDisposition KnowledgeV2ReplyDisposition?
+  replyContentHash String?
+  replyTemplateVersion String?
+  idempotencyKey    String
+  inputHash         String
+  generation        Int
+  sequence          Int
+  status            AiReplyRunStatus @default(QUEUED)
+  schemaVersion     Int              @default(1)
+  attemptCount      Int              @default(0)
+  maxAttempts       Int              @default(5)
+  availableAt       DateTime         @default(now())
+  deadlineAt        DateTime?
+  payloadRef        String?
+  errorCode         String?
+  errorMessage      String?
+  traceId           String?
+  traceParent       String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  startedAt         DateTime?
+  heartbeatAt       DateTime?
+  cancelRequestedAt DateTime?
+  cancelReason      String?
+  completedAt       DateTime?
+
+  tenant                        Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation                  Conversation                   @relation(fields: [tenantId, conversationId], references: [tenantId, id], onDelete: NoAction, map: "AiReplyRun_tenant_conversation_fkey")
+  inboundMessage                Message                        @relation("AiReplyInputMessage", fields: [tenantId, conversationId, inboundMessageId], references: [tenantId, conversationId, id], onDelete: NoAction, map: "AiReplyRun_tenant_inbound_fkey")
+  replyMessage                  Message?                       @relation("AiReplyOutputMessage", fields: [tenantId, conversationId, replyMessageId], references: [tenantId, conversationId, id], onDelete: NoAction, map: "AiReplyRun_tenant_reply_fkey")
+  publication                   KnowledgePublication?          @relation(fields: [tenantId, publicationId, capabilitySetHash, operationalBindingHash, operationalPermissionGeneration], references: [tenantId, id, capabilitySetHash, operationalBindingHash, operationalPermissionGeneration], onDelete: NoAction, onUpdate: NoAction, map: "AiReplyRun_tenant_publication_fkey")
+  runtimeCapability             KnowledgePublicationCapability? @relation("AiReplyRuntimeCapability", fields: [tenantId, publicationId, capabilityType, allowedAutonomy], references: [tenantId, publicationId, capabilityType, allowedAutonomy], onDelete: NoAction, onUpdate: NoAction, map: "AiReplyRun_runtimeCapability_fkey")
+  externalOperations            ExternalOperation[]
+  knowledgeV2LiveToolExecutions KnowledgeV2LiveToolExecution[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, inboundMessageId])
+  @@unique([tenantId, replyMessageId])
+  @@unique([tenantId, conversationId, replyMessageId])
+  @@unique([conversationId, sequence])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, conversationId, inboundMessageId], map: "AiReplyRun_liveToolContext_key")
+  @@index([status, availableAt, createdAt])
+  @@index([tenantId, conversationId, generation, sequence])
+  @@index([tenantId, publicationId])
+}
+
+model KnowledgeV2LiveToolExecution {
+  id                          String   @id
+  executionKey                String
+  tenantId                    String
+  aiReplyRunId                String
+  conversationId              String
+  originatingMessageId        String
+  leadId                      String?
+  executionContextId          String
+  attemptNumber               Int
+  toolCallId                  String
+  toolKey                     String
+  toolVersion                 String
+  safeName                    String
+  sourceSystem                String
+  operationalCategory         String
+  toolPolicyVersion           String
+  queryHash                   String
+  queryHashKeyId              String?
+  queryHashVersion            String?
+  requestHash                 String
+  authorizationScopeHash      String
+  authorizationDecisionId     String
+  permissionGeneration        Int
+  connectionId                String?
+  connectionPermissionVersion Int?
+  customerIdentityId          String?
+  customerIdentityVersion     Int?
+  subjectHash                 String
+  resultType                  String
+  valueHash                   String
+  exactValueHash              String
+  contentHash                 String
+  envelopeHash                String
+  payloadObjectKey            String
+  payloadEncryptionKeyRef     String
+  payloadHash                 String
+  payloadBytes                Int
+  observedAt                  DateTime
+  expiresAt                   DateTime
+  authorizedAt                DateTime
+  authorizationExpiresAt      DateTime
+  retentionExpiresAt          DateTime
+  createdAt                   DateTime @default(now())
+
+  tenant             Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  aiReplyRun         AiReplyRun                     @relation(fields: [tenantId, aiReplyRunId, conversationId, originatingMessageId], references: [tenantId, id, conversationId, inboundMessageId], onDelete: Restrict, onUpdate: NoAction)
+  conversation       Conversation                   @relation(fields: [tenantId, conversationId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  originatingMessage Message                        @relation("KnowledgeV2LiveToolOriginatingMessage", fields: [tenantId, conversationId, originatingMessageId], references: [tenantId, conversationId, id], onDelete: Restrict, onUpdate: NoAction)
+  lead               Lead?                          @relation(fields: [tenantId, leadId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  connection         IntegrationAccount?            @relation(fields: [tenantId, connectionId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  customerIdentity   AuthenticatedCustomerIdentity? @relation(fields: [tenantId, customerIdentityId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  evidenceReferences KnowledgeV2EvidenceReference[]
+
+  @@unique([tenantId, executionKey])
+  @@unique([tenantId, id])
+  @@unique([payloadObjectKey])
+  @@index([tenantId, aiReplyRunId, attemptNumber])
+  @@index([tenantId, conversationId, createdAt])
+  @@index([tenantId, connectionId, connectionPermissionVersion])
+  @@index([tenantId, customerIdentityId, customerIdentityVersion])
+  @@index([tenantId, operationalCategory, createdAt])
+  @@index([tenantId, authorizationDecisionId])
+  @@index([expiresAt])
+  @@index([retentionExpiresAt])
+}
+
+model ExternalOperation {
+  id                     String                  @id
+  tenantId               String
+  aiReplyRunId           String?
+  conversationId         String?
+  originatingMessageId   String?
+  integrationId          String?
+  operationKind          String
+  requestHash            String
+  confirmationVersion    Int                     @default(1)
+  status                 ExternalOperationStatus @default(REQUESTED)
+  providerIdempotencyKey String?
+  externalReference      String?
+  result                 Json?
+  errorCode              String?
+  errorMessage           String?
+  attemptCount           Int                     @default(0)
+  deadlineAt             DateTime?
+  nextRetryAt            DateTime?
+  retentionExpiresAt     DateTime
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  startedAt              DateTime?
+  completedAt            DateTime?
+  reconciledAt           DateTime?
+
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  aiReplyRun         AiReplyRun?         @relation(fields: [tenantId, aiReplyRunId], references: [tenantId, id], onDelete: NoAction, map: "ExternalOperation_tenant_run_fkey")
+  conversation       Conversation?       @relation(fields: [tenantId, conversationId], references: [tenantId, id], onDelete: NoAction, map: "ExternalOperation_tenant_conversation_fkey")
+  originatingMessage Message?            @relation("ExternalOperationOriginatingMessage", fields: [tenantId, originatingMessageId], references: [tenantId, id], onDelete: NoAction, map: "ExternalOperation_tenant_message_fkey")
+  integration        IntegrationAccount? @relation(fields: [tenantId, integrationId], references: [tenantId, id], onDelete: NoAction, map: "ExternalOperation_tenant_integration_fkey")
+
+  @@index([tenantId, status, nextRetryAt])
+  @@index([tenantId, aiReplyRunId])
+  @@index([tenantId, conversationId, originatingMessageId], map: "ExternalOperation_origin_idx")
+  @@index([tenantId, integrationId, operationKind])
+  @@index([status, retentionExpiresAt])
+}
+
+model ChannelDeliveryOperation {
+  id                     String                  @id
+  tenantId               String
+  messageId              String
+  conversationId         String
+  channelId              String
+  provider               String
+  channelKey             String
+  recipientKey           String
+  deliveryVersion        Int                     @default(1)
+  requestHash            String
+  status                 ExternalOperationStatus @default(REQUESTED)
+  providerIdempotencyKey String?
+  providerMessageId      String?
+  result                 Json?
+  errorCode              String?
+  errorMessage           String?
+  attemptCount           Int                     @default(0)
+  deadlineAt             DateTime?
+  nextRetryAt            DateTime?
+  retentionExpiresAt     DateTime
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  startedAt              DateTime?
+  completedAt            DateTime?
+  reconciledAt           DateTime?
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  message      Message      @relation(fields: [tenantId, conversationId, messageId], references: [tenantId, conversationId, id], onDelete: NoAction, map: "ChannelDeliveryOperation_tenant_message_fkey")
+  conversation Conversation @relation(fields: [tenantId, conversationId, channelId], references: [tenantId, id, channelId], onDelete: NoAction, map: "ChannelDeliveryOperation_tenant_conversation_fkey")
+  channel      Channel      @relation(fields: [tenantId, channelId], references: [tenantId, id], onDelete: NoAction, map: "ChannelDeliveryOperation_tenant_channel_fkey")
+
+  @@unique([tenantId, messageId, channelKey, recipientKey, deliveryVersion], map: "ChannelDeliveryOperation_deliveryIdentity_key")
+  @@index([tenantId, status, nextRetryAt])
+  @@index([tenantId, conversationId, createdAt])
+  @@index([tenantId, channelId, provider])
+  @@index([provider, providerMessageId])
+  @@index([status, retentionExpiresAt])
+}
+
+model RuntimeOutbox {
+  id               String              @id @default(cuid())
+  tenantId         String
+  aggregateType    String
+  aggregateId      String
+  aggregateVersion Int
+  generation       Int                 @default(1)
+  eventType        String
+  schemaVersion    Int                 @default(1)
+  dedupeKey        String
+  payloadRef       String?
+  payload          Json?
+  status           RuntimeOutboxStatus @default(PENDING)
+  availableAt      DateTime            @default(now())
+  deadlineAt       DateTime?
+  maxAttempts      Int                 @default(10)
+  attemptCount     Int                 @default(0)
+  lockedAt         DateTime?
+  lockExpiresAt    DateTime?
+  lockedBy         String?
+  publishedAt      DateTime?
+  lastErrorCode    String?
+  lastErrorMessage String?
+  traceId          String?
+  traceParent      String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, dedupeKey])
+  @@unique([tenantId, aggregateType, aggregateId, aggregateVersion, generation, eventType], map: "RuntimeOutbox_aggregateEvent_key")
+  @@index([status, availableAt, createdAt])
+  @@index([status, lockExpiresAt])
+  @@index([tenantId, aggregateType, aggregateId, aggregateVersion], map: "RuntimeOutbox_aggregateVersion_idx")
+}
+
+model RuntimeInbox {
+  id            String             @id @default(cuid())
+  tenantId      String
+  consumerName  String
+  eventId       String
+  generation    Int                @default(1)
+  status        RuntimeInboxStatus @default(PROCESSING)
+  resultRef     String?
+  result        Json?
+  errorCode     String?
+  errorMessage  String?
+  attemptCount  Int                @default(1)
+  receivedAt    DateTime           @default(now())
+  startedAt     DateTime           @default(now())
+  heartbeatAt   DateTime?
+  lockedBy      String?
+  lockExpiresAt DateTime?
+  completedAt   DateTime?
+  updatedAt     DateTime           @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([consumerName, eventId])
+  @@index([tenantId, status, receivedAt])
+  @@index([status, lockExpiresAt, updatedAt])
 }

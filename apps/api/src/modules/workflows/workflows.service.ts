@@ -1,9 +1,17 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { ChannelType, Workflow } from "@leadvirt/types";
-import type { Prisma } from "@leadvirt/db";
+import { createHash } from "node:crypto";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import type { ChannelType, Workflow, WorkflowTestResult } from "@leadvirt/types";
+import { Prisma } from "@leadvirt/db";
 import type { RequestContext } from "../../common/request-context.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type { UpsertWorkflowDto, UpsertWorkflowStepDto } from "./dto/upsert-workflow.dto.js";
+import { workflowExecutionIssues, workflowExecutionMessage } from "./workflow-runtime-contract.js";
 
 type WorkflowWithSteps = Prisma.WorkflowGetPayload<{ include: { steps: true } }>;
 type WorkflowStepRow = WorkflowWithSteps["steps"][number];
@@ -11,6 +19,7 @@ type WorkflowStepRow = WorkflowWithSteps["steps"][number];
 export interface WorkflowRuntimeInput {
   tenantId: string;
   eventType: "message.received" | "workflow.test";
+  idempotencyKey?: string;
   conversationId?: string | null;
   leadId?: string | null;
   channelType?: ChannelType | null;
@@ -41,6 +50,38 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function canonicalValue(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => [key, canonicalValue(nested)]),
+  );
+}
+
+function runtimeInputHash(input: WorkflowRuntimeInput) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify(
+        canonicalValue({
+          tenantId: input.tenantId,
+          eventType: input.eventType,
+          conversationId: input.conversationId ?? null,
+          leadId: input.leadId ?? null,
+          channelType: input.channelType ?? null,
+          text: input.text ?? null,
+          source: input.source ?? null,
+          actorUserId: input.actorUserId ?? null,
+          metadata: input.metadata ?? null,
+          receivedAt: input.receivedAt ?? null,
+        }),
+      ),
+    )
+    .digest("hex");
+}
+
 function channelKey(channelType?: ChannelType | null) {
   switch (channelType) {
     case "TELEGRAM":
@@ -69,29 +110,22 @@ function stepEnabled(step: WorkflowStepRow) {
   return config.enabled !== false;
 }
 
-function interpolateTemplate(template: string, lead: { name: string | null; interest: string | null } | null) {
-  const name = lead?.name?.trim() || "клиент";
-  const interest = lead?.interest?.trim() || "ваш запрос";
-  return template
-    .replaceAll("{{имя}}", name)
-    .replaceAll("{{name}}", name)
-    .replaceAll("{{интерес}}", interest)
-    .replaceAll("{{request}}", interest);
-}
-
 @Injectable()
 export class WorkflowsService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async list(context: RequestContext, options: { includeArchived?: boolean } = {}): Promise<Workflow[]> {
+  async list(
+    context: RequestContext,
+    options: { includeArchived?: boolean } = {},
+  ): Promise<Workflow[]> {
     const workflows = await this.prisma.workflow.findMany({
       where: {
         tenantId: context.tenantId,
         deletedAt: null,
-        ...(options.includeArchived ? {} : { status: { not: "ARCHIVED" } })
+        ...(options.includeArchived ? {} : { status: { not: "ARCHIVED" } }),
       },
       include: { steps: { orderBy: [{ positionX: "asc" }, { createdAt: "asc" }] } },
-      orderBy: [{ status: "asc" }, { updatedAt: "desc" }]
+      orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
     });
     return workflows.map((workflow) => this.mapWorkflow(workflow));
   }
@@ -99,7 +133,7 @@ export class WorkflowsService {
   async get(context: RequestContext, id: string): Promise<Workflow> {
     const workflow = await this.prisma.workflow.findFirst({
       where: { id, tenantId: context.tenantId, deletedAt: null },
-      include: { steps: { orderBy: [{ positionX: "asc" }, { createdAt: "asc" }] } }
+      include: { steps: { orderBy: [{ positionX: "asc" }, { createdAt: "asc" }] } },
     });
     if (!workflow) {
       throw new NotFoundException("Workflow was not found.");
@@ -110,11 +144,14 @@ export class WorkflowsService {
   async create(context: RequestContext, dto: UpsertWorkflowDto): Promise<Workflow> {
     const steps = dto.steps?.length
       ? dto.steps
-      : [
+      : ([
           { type: "TRIGGER", name: "New message", positionX: 80, positionY: 120 },
-          { type: "AI_MESSAGE", name: "AI response", positionX: 320, positionY: 120 },
-          { type: "END", name: "End", positionX: 560, positionY: 120 }
-        ] satisfies UpsertWorkflowStepDto[];
+          { type: "END", name: "End", positionX: 320, positionY: 120 },
+        ] satisfies UpsertWorkflowStepDto[]);
+
+    if (dto.status === "ACTIVE") {
+      this.assertWorkflowExecutable(steps);
+    }
 
     const workflow = await this.prisma.workflow.create({
       data: {
@@ -122,48 +159,76 @@ export class WorkflowsService {
         name: dto.name,
         description: dto.description ?? null,
         status: dto.status ?? "DRAFT",
+        publishedAt: dto.status === "ACTIVE" ? new Date() : null,
         createdById: context.userId,
         steps: {
-          create: steps.map((step, index) => this.stepCreateData(context, step, index))
-        }
-      }
+          create: steps.map((step, index) => this.stepCreateData(context, step, index)),
+        },
+      },
     });
     await this.log(context, "workflow.created", workflow.id, { name: workflow.name });
     return this.get(context, workflow.id);
   }
 
   async update(context: RequestContext, id: string, dto: UpsertWorkflowDto): Promise<Workflow> {
-    await this.ensureWorkflow(context.tenantId, id);
-    await this.prisma.$transaction(async (tx) => {
-      const data: Prisma.WorkflowUpdateInput = {
-        name: dto.name,
-        description: dto.description ?? null,
-        status: dto.status ?? "DRAFT"
-      };
+    await this.prisma.$transaction(
+      async (tx) => {
+        const current = await tx.workflow.findFirst({
+          where: { id, tenantId: context.tenantId, deletedAt: null },
+          include: { steps: { orderBy: [{ positionX: "asc" }, { createdAt: "asc" }] } },
+        });
+        if (!current) {
+          throw new NotFoundException("Workflow was not found.");
+        }
 
-      if (dto.steps) {
-        data.version = { increment: 1 };
-      }
+        const nextStatus = dto.status ?? current.status;
+        if (nextStatus === "ACTIVE") {
+          this.assertWorkflowExecutable(dto.steps ?? current.steps);
+        }
 
-      await tx.workflow.update({
-        where: { id },
-        data
-      });
+        const data: Prisma.WorkflowUpdateInput = {
+          name: dto.name,
+          status: nextStatus,
+          ...(dto.description !== undefined ? { description: dto.description } : {}),
+          ...(nextStatus === "ACTIVE" && !current.publishedAt ? { publishedAt: new Date() } : {}),
+        };
 
-      if (dto.steps) {
-        await this.syncSteps(tx, context, id, dto.steps);
-      }
+        if (dto.steps) {
+          data.version = { increment: 1 };
+        }
+
+        await tx.workflow.update({ where: { id }, data });
+        if (dto.steps) {
+          await this.syncSteps(tx, context, id, dto.steps);
+        }
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    await this.log(context, "workflow.updated", id, {
+      name: dto.name,
+      steps: dto.steps?.length ?? undefined,
     });
-    await this.log(context, "workflow.updated", id, { name: dto.name, steps: dto.steps?.length ?? undefined });
     return this.get(context, id);
   }
 
   async publish(context: RequestContext, id: string): Promise<Workflow> {
-    await this.ensureWorkflow(context.tenantId, id);
-    await this.prisma.workflow.update({
-      where: { id },
-      data: { status: "ACTIVE", publishedAt: new Date() }
-    });
+    await this.prisma.$transaction(
+      async (tx) => {
+        const workflow = await tx.workflow.findFirst({
+          where: { id, tenantId: context.tenantId, deletedAt: null },
+          include: { steps: { orderBy: [{ positionX: "asc" }, { createdAt: "asc" }] } },
+        });
+        if (!workflow) {
+          throw new NotFoundException("Workflow was not found.");
+        }
+        this.assertWorkflowExecutable(workflow.steps);
+        await tx.workflow.update({
+          where: { id },
+          data: { status: "ACTIVE", publishedAt: new Date() },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
     await this.log(context, "workflow.published", id, {});
     return this.get(context, id);
   }
@@ -172,42 +237,76 @@ export class WorkflowsService {
     const workflows = await this.prisma.workflow.findMany({
       where: { tenantId: input.tenantId, status: "ACTIVE", deletedAt: null },
       include: { steps: { orderBy: [{ positionX: "asc" }, { createdAt: "asc" }] } },
-      orderBy: [{ publishedAt: "desc" }, { updatedAt: "desc" }]
+      orderBy: [{ publishedAt: "desc" }, { updatedAt: "desc" }],
     });
 
     const results: WorkflowRuntimeResult[] = [];
     for (const workflow of workflows) {
-      if (this.workflowMatchesInput(workflow, input)) {
-        results.push(await this.executeWorkflow(workflow, input));
-      }
+      if (!this.workflowMatchesInput(workflow, input)) continue;
+      results.push(await this.executeWorkflow(workflow, input));
     }
     return results;
   }
 
-  async test(context: RequestContext, id: string) {
+  async test(context: RequestContext, id: string): Promise<WorkflowTestResult> {
     const workflow = await this.prisma.workflow.findFirst({
       where: { id, tenantId: context.tenantId, deletedAt: null },
-      include: { steps: { orderBy: [{ positionX: "asc" }, { createdAt: "asc" }] } }
+      include: { steps: { orderBy: [{ positionX: "asc" }, { createdAt: "asc" }] } },
     });
     if (!workflow) {
-      throw new NotFoundException("Сценарий не найден.");
+      throw new NotFoundException("Workflow was not found.");
+    }
+
+    const issues = workflowExecutionIssues(workflow.steps);
+    const blockedMessage = workflowExecutionMessage(issues);
+    if (blockedMessage) {
+      await this.log(context, "workflow.test_blocked", id, {
+        reason: "unsupported_definition",
+        issueCodes: issues.map((issue) => issue.code),
+      });
+      return {
+        runId: null,
+        status: "BLOCKED",
+        message: blockedMessage,
+        events: 0,
+      };
+    }
+
+    const contextBoundStep = workflow.steps.find(
+      (step) => step.type === "HANDOFF" && stepEnabled(step),
+    );
+    if (contextBoundStep) {
+      const message = `Workflow test is blocked because step "${contextBoundStep.name}" requires a real conversation.`;
+      await this.log(context, "workflow.test_blocked", id, {
+        reason: "conversation_required",
+        stepId: contextBoundStep.id,
+      });
+      return {
+        runId: null,
+        status: "BLOCKED",
+        message,
+        events: 0,
+      };
     }
 
     const result = await this.executeWorkflow(workflow, {
       tenantId: context.tenantId,
       eventType: "workflow.test",
-      text: "Тестовое входящее сообщение клиента",
+      text: "Test inbound customer message",
       source: "automation-test",
       actorUserId: context.userId,
-      metadata: { mode: "test" }
+      metadata: { mode: "test" },
     });
 
-    await this.log(context, "workflow.tested", id, { runId: result.runId });
+    await this.log(context, "workflow.tested", id, {
+      runId: result.runId,
+      status: result.status,
+    });
     return {
       runId: result.runId,
       status: result.status,
       message: result.message,
-      events: result.events
+      events: result.events,
     };
   }
 
@@ -215,13 +314,19 @@ export class WorkflowsService {
     if (input.eventType === "workflow.test") return true;
 
     const trigger = workflow.steps.find((step) => step.type === "TRIGGER" && stepEnabled(step));
-    if (!trigger) return true;
+    if (!trigger) return false;
 
     const config = asRecord(trigger.config);
     const requestedChannel = optionalString(config.channel);
     const key = channelKey(input.channelType);
 
-    if (requestedChannel && requestedChannel !== "any" && key && requestedChannel !== key && requestedChannel !== input.channelType) {
+    if (
+      requestedChannel &&
+      requestedChannel !== "any" &&
+      key &&
+      requestedChannel !== key &&
+      requestedChannel !== input.channelType
+    ) {
       return false;
     }
 
@@ -241,105 +346,172 @@ export class WorkflowsService {
     return true;
   }
 
-  private async executeWorkflow(workflow: WorkflowWithSteps, input: WorkflowRuntimeInput): Promise<WorkflowRuntimeResult> {
+  private async executeWorkflow(
+    workflow: WorkflowWithSteps,
+    input: WorkflowRuntimeInput,
+  ): Promise<WorkflowRuntimeResult> {
     const startedAt = input.receivedAt ?? new Date();
-    const run = await this.prisma.workflowRun.create({
-      data: {
-        tenantId: input.tenantId,
-        workflowId: workflow.id,
-        conversationId: input.conversationId ?? null,
-        leadId: input.leadId ?? null,
-        status: "RUNNING",
-        startedAt,
-        metadata: this.runtimeMetadata(input)
-      }
-    });
-
-    let eventCount = 0;
-    const lead = input.leadId
-      ? await this.prisma.lead.findFirst({
-          where: { id: input.leadId, tenantId: input.tenantId, deletedAt: null },
-          select: {
-            id: true,
-            name: true,
-            interest: true,
-            status: true,
-            temperature: true,
-            valueAmount: true,
-            source: true,
-            summary: true
+    const inputHash = runtimeInputHash(input);
+    return this.prisma.$transaction(async (tx) => {
+      if (input.idempotencyKey) {
+        const lockKey = `workflow:${input.tenantId}:${workflow.id}:${input.idempotencyKey}`;
+        await tx.$queryRaw(Prisma.sql`
+          SELECT TRUE AS "locked"
+          FROM (SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))) AS advisory_lock
+        `);
+        const existing = await tx.workflowRun.findFirst({
+          where: {
+            tenantId: input.tenantId,
+            workflowId: workflow.id,
+            idempotencyKey: input.idempotencyKey,
+          },
+          include: { _count: { select: { events: true } } },
+        });
+        if (existing) {
+          if (existing.inputHash !== inputHash) {
+            throw new ConflictException(
+              "Workflow event idempotency key was reused with different input.",
+            );
           }
-        })
-      : null;
-
-    try {
-      for (const step of workflow.steps) {
-        const result = await this.executeStep(run.id, step, input, lead);
-        eventCount += 1;
-        if (result.stop) break;
+          if (existing.status !== "COMPLETED" && existing.status !== "FAILED") {
+            throw new Error("Workflow event has an incomplete persisted execution.");
+          }
+          const status = existing.status;
+          return {
+            workflowId: workflow.id,
+            runId: existing.id,
+            status,
+            message:
+              status === "COMPLETED"
+                ? `Workflow "${workflow.name}" already completed.`
+                : (existing.errorMessage ?? `Workflow "${workflow.name}" failed.`),
+            events: existing._count.events,
+          };
+        }
       }
 
-      await this.createRunEvent(run.id, null, "workflow.completed", `Сценарий "${workflow.name}" выполнен.`, {
-        workflowId: workflow.id,
-        stepEvents: eventCount
-      });
-      eventCount += 1;
-
-      await this.prisma.workflowRun.update({
-        where: { id: run.id },
-        data: {
-          status: "COMPLETED",
-          completedAt: new Date()
-        }
-      });
-      await this.incrementWorkflowUsage(input.tenantId, startedAt);
-      await this.createLeadRuntimeEvent(workflow, input, run.id, eventCount);
-      await this.prisma.auditLog.create({
+      const run = await tx.workflowRun.create({
         data: {
           tenantId: input.tenantId,
-          actorUserId: input.actorUserId ?? null,
-          action: "workflow.runtime_completed",
-          entityType: "workflow",
-          entityId: workflow.id,
-          payload: {
-            runId: run.id,
-            eventType: input.eventType,
-            conversationId: input.conversationId ?? null,
-            leadId: input.leadId ?? null,
-            events: eventCount
-          }
-        }
+          workflowId: workflow.id,
+          conversationId: input.conversationId ?? null,
+          leadId: input.leadId ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
+          inputHash: input.idempotencyKey ? inputHash : null,
+          status: "RUNNING",
+          startedAt,
+          metadata: this.runtimeMetadata(input),
+        },
       });
 
-      return {
-        workflowId: workflow.id,
-        runId: run.id,
-        status: "COMPLETED",
-        message: `Сценарий "${workflow.name}" выполнен: ${eventCount} событий.`,
-        events: eventCount
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown workflow runtime error";
-      await this.createRunEvent(run.id, null, "workflow.failed", message, { workflowId: workflow.id });
-      await this.prisma.workflowRun.update({
-        where: { id: run.id },
-        data: {
-          status: "FAILED",
-          errorMessage: message,
-          completedAt: new Date()
+      let eventCount = 0;
+      try {
+        const definitionIssues = workflowExecutionIssues(workflow.steps);
+        const blockedMessage = workflowExecutionMessage(definitionIssues);
+        if (blockedMessage) throw new Error(blockedMessage);
+
+        const lead = input.leadId
+          ? await tx.lead.findFirst({
+              where: { id: input.leadId, tenantId: input.tenantId, deletedAt: null },
+              select: {
+                id: true,
+                name: true,
+                interest: true,
+                status: true,
+                temperature: true,
+                valueAmount: true,
+                source: true,
+                summary: true,
+              },
+            })
+          : null;
+
+        for (const step of workflow.steps) {
+          const result = await this.executeStep(tx, run.id, step, input, lead);
+          eventCount += 1;
+          if (result.stop) break;
         }
-      });
-      return {
-        workflowId: workflow.id,
-        runId: run.id,
-        status: "FAILED",
-        message,
-        events: eventCount + 1
-      };
-    }
+
+        await this.createRunEvent(
+          tx,
+          run.id,
+          null,
+          "workflow.completed",
+          `Workflow "${workflow.name}" completed.`,
+          { workflowId: workflow.id, stepEvents: eventCount },
+        );
+        eventCount += 1;
+
+        await tx.workflowRun.update({
+          where: { id: run.id },
+          data: { status: "COMPLETED", completedAt: new Date() },
+        });
+        if (input.eventType !== "workflow.test") {
+          await this.incrementWorkflowUsage(tx, input.tenantId, startedAt);
+        }
+        await this.createLeadRuntimeEvent(tx, workflow, input, run.id, eventCount);
+        await tx.auditLog.create({
+          data: {
+            tenantId: input.tenantId,
+            actorUserId: input.actorUserId ?? null,
+            action: "workflow.runtime_completed",
+            entityType: "workflow",
+            entityId: workflow.id,
+            payload: {
+              runId: run.id,
+              eventType: input.eventType,
+              conversationId: input.conversationId ?? null,
+              leadId: input.leadId ?? null,
+              events: eventCount,
+            },
+          },
+        });
+
+        return {
+          workflowId: workflow.id,
+          runId: run.id,
+          status: "COMPLETED" as const,
+          message: `Workflow "${workflow.name}" completed with ${eventCount} events.`,
+          events: eventCount,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown workflow runtime error";
+        await this.createRunEvent(tx, run.id, null, "workflow.failed", message, {
+          workflowId: workflow.id,
+        });
+        await tx.workflowRun.update({
+          where: { id: run.id },
+          data: { status: "FAILED", errorMessage: message, completedAt: new Date() },
+        });
+        await tx.auditLog.create({
+          data: {
+            tenantId: input.tenantId,
+            actorUserId: input.actorUserId ?? null,
+            action: "workflow.runtime_failed",
+            entityType: "workflow",
+            entityId: workflow.id,
+            payload: {
+              runId: run.id,
+              eventType: input.eventType,
+              conversationId: input.conversationId ?? null,
+              leadId: input.leadId ?? null,
+              error: message,
+            },
+          },
+        });
+        return {
+          workflowId: workflow.id,
+          runId: run.id,
+          status: "FAILED" as const,
+          message,
+          events: eventCount + 1,
+        };
+      }
+    });
   }
 
   private async executeStep(
+    tx: Prisma.TransactionClient,
     runId: string,
     step: WorkflowStepRow,
     input: WorkflowRuntimeInput,
@@ -352,48 +524,84 @@ export class WorkflowsService {
       valueAmount: number | null;
       source: string | null;
       summary: string | null;
-    } | null
+    } | null,
   ) {
     const config = asRecord(step.config);
     const blockType = stepBlockType(step);
 
     if (!stepEnabled(step)) {
-      await this.createRunEvent(runId, step.id, "step.skipped", `${step.name}: шаг выключен.`, {
+      await this.createRunEvent(tx, runId, step.id, "step.skipped", `${step.name}: шаг выключен.`, {
         stepType: step.type,
         blockType,
-        reason: "disabled"
+        reason: "disabled",
       });
       return { stop: false };
     }
 
-    if (step.type === "CONDITION") {
-      const matched = this.conditionMatches(config, lead);
-      await this.createRunEvent(runId, step.id, matched ? "condition.matched" : "condition.skipped", step.name, {
-        stepType: step.type,
-        blockType,
-        matched
-      });
-      return { stop: !matched };
+    switch (step.type) {
+      case "TRIGGER":
+        await this.createRunEvent(tx, runId, step.id, "trigger.matched", step.name, {
+          stepType: step.type,
+          blockType,
+        });
+        return { stop: false };
+      case "CONDITION": {
+        const matched = this.conditionMatches(config, lead);
+        await this.createRunEvent(
+          tx,
+          runId,
+          step.id,
+          matched ? "condition.matched" : "condition.not_matched",
+          step.name,
+          { stepType: step.type, blockType, matched },
+        );
+        return { stop: !matched };
+      }
+      case "HANDOFF": {
+        const conversationId = input.conversationId;
+        if (input.eventType === "workflow.test" || !conversationId) {
+          throw new Error(`Workflow step "${step.name}" requires a real conversation.`);
+        }
+        const updated = await tx.conversation.updateMany({
+          where: {
+            id: conversationId,
+            tenantId: input.tenantId,
+            deletedAt: null,
+          },
+          data: { status: "WAITING_FOR_HUMAN", handoffRequested: true },
+        });
+        if (updated.count !== 1) {
+          throw new Error(`Workflow step "${step.name}" could not find its conversation.`);
+        }
+        await tx.workflowRunEvent.create({
+          data: {
+            workflowRunId: runId,
+            stepId: step.id,
+            type: "handoff.completed",
+            message: step.name,
+            metadata: { stepType: step.type, blockType },
+          },
+        });
+        return { stop: false };
+      }
+      case "END":
+        await this.createRunEvent(tx, runId, step.id, "workflow.end", step.name, {
+          stepType: step.type,
+          blockType,
+        });
+        return { stop: true };
+      default:
+        throw new Error(`Workflow step "${step.name}" is not executable.`);
     }
-
-    if (step.type === "HANDOFF" && input.conversationId && input.eventType !== "workflow.test") {
-      await this.prisma.conversation.update({
-        where: { id: input.conversationId },
-        data: { status: "WAITING_FOR_HUMAN", handoffRequested: true }
-      });
-    }
-
-    const message = this.stepRuntimeMessage(step, config, lead);
-    await this.createRunEvent(runId, step.id, this.stepRuntimeEventType(step), message, {
-      stepType: step.type,
-      blockType
-    });
-    return { stop: false };
   }
 
-  private conditionMatches(config: Record<string, unknown>, lead: { [key: string]: unknown } | null) {
+  private conditionMatches(
+    config: Record<string, unknown>,
+    lead: { [key: string]: unknown } | null,
+  ) {
     const rules = Array.isArray(config.rules) ? config.rules.filter(isRecord) : [];
-    if (rules.length === 0 || !lead) return true;
+    if (rules.length === 0) return true;
+    if (!lead) return false;
 
     return rules.every((rule) => {
       const field = optionalString(rule.field)?.toLowerCase();
@@ -436,63 +644,22 @@ export class WorkflowsService {
     return "";
   }
 
-  private stepRuntimeEventType(step: WorkflowStepRow) {
-    switch (step.type) {
-      case "TRIGGER":
-        return "trigger.matched";
-      case "AI_MESSAGE":
-        return "ai_message.prepared";
-      case "QUESTION":
-        return "qualification.prepared";
-      case "ACTION":
-        return "action.prepared";
-      case "DELAY":
-        return "followup.scheduled";
-      case "HANDOFF":
-        return "handoff.requested";
-      case "END":
-        return "workflow.end";
-      default:
-        return "step.completed";
-    }
-  }
-
-  private stepRuntimeMessage(step: WorkflowStepRow, config: Record<string, unknown>, lead: { name: string | null; interest: string | null } | null) {
-    if (step.type === "AI_MESSAGE") {
-      const template = optionalString(config.greetingText) ?? step.name;
-      return interpolateTemplate(template, lead);
-    }
-    if (step.type === "QUESTION") {
-      const questions = Array.isArray(config.questions)
-        ? config.questions.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-        : [];
-      return questions.length > 0 ? questions.join(" / ") : step.name;
-    }
-    if (step.type === "DELAY") {
-      const hours = optionalString(config.followupDelayHours) ?? "24";
-      return `Follow-up scheduled in ${hours}h`;
-    }
-    if (step.type === "ACTION") {
-      return optionalString(config.action) ?? optionalString(config.blockType) ?? step.name;
-    }
-    return step.name;
-  }
-
   private async createRunEvent(
+    tx: Prisma.TransactionClient,
     runId: string,
     stepId: string | null,
     type: string,
     message: string,
-    metadata: Prisma.InputJsonObject = {}
+    metadata: Prisma.InputJsonObject = {},
   ) {
-    await this.prisma.workflowRunEvent.create({
+    await tx.workflowRunEvent.create({
       data: {
         workflowRunId: runId,
         stepId,
         type,
         message,
-        metadata
-      }
+        metadata,
+      },
     });
   }
 
@@ -500,17 +667,24 @@ export class WorkflowsService {
     return {
       eventType: input.eventType,
       source: input.source ?? "api",
+      idempotencyKey: input.idempotencyKey ?? null,
       conversationId: input.conversationId ?? null,
       leadId: input.leadId ?? null,
       channelType: input.channelType ?? null,
       text: input.text ?? null,
-      ...(input.metadata ?? {})
+      ...(input.metadata ?? {}),
     };
   }
 
-  private async createLeadRuntimeEvent(workflow: WorkflowWithSteps, input: WorkflowRuntimeInput, runId: string, events: number) {
+  private async createLeadRuntimeEvent(
+    tx: Prisma.TransactionClient,
+    workflow: WorkflowWithSteps,
+    input: WorkflowRuntimeInput,
+    runId: string,
+    events: number,
+  ) {
     if (!input.leadId || input.eventType === "workflow.test") return;
-    await this.prisma.leadEvent.create({
+    await tx.leadEvent.create({
       data: {
         tenantId: input.tenantId,
         leadId: input.leadId,
@@ -521,44 +695,55 @@ export class WorkflowsService {
           workflowId: workflow.id,
           runId,
           eventType: input.eventType,
-          events
-        }
-      }
+          events,
+        },
+      },
     });
   }
 
-  private async incrementWorkflowUsage(tenantId: string, at: Date) {
+  private async incrementWorkflowUsage(tx: Prisma.TransactionClient, tenantId: string, at: Date) {
     const periodStart = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
     const periodEnd = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1));
-    await this.prisma.usageCounter.upsert({
+    await tx.usageCounter.upsert({
       where: {
         tenantId_periodStart_periodEnd: {
           tenantId,
           periodStart,
-          periodEnd
-        }
+          periodEnd,
+        },
       },
       create: {
         tenantId,
         periodStart,
         periodEnd,
-        workflowRuns: 1
+        workflowRuns: 1,
       },
       update: {
-        workflowRuns: { increment: 1 }
-      }
+        workflowRuns: { increment: 1 },
+      },
     });
   }
 
-  private async ensureWorkflow(tenantId: string, id: string) {
-    const workflow = await this.prisma.workflow.findFirst({ where: { id, tenantId, deletedAt: null }, select: { id: true } });
-    if (!workflow) {
-      throw new NotFoundException("Сценарий не найден.");
-    }
-    return workflow;
+  private assertWorkflowExecutable(steps: readonly (WorkflowStepRow | UpsertWorkflowStepDto)[]) {
+    const issues = workflowExecutionIssues(
+      steps.map((step, index) => ({
+        id: step.id ?? `candidate-step-${index}`,
+        type: step.type,
+        name: step.name,
+        config: step.config,
+      })),
+    );
+    const message = workflowExecutionMessage(issues);
+    if (!message) return;
+    throw new BadRequestException({
+      code: "WORKFLOW_NOT_EXECUTABLE",
+      message,
+      details: { issues },
+    });
   }
 
   private mapWorkflow(workflow: WorkflowWithSteps): Workflow {
+    const issues = workflowExecutionIssues(workflow.steps);
     return {
       id: workflow.id,
       tenantId: workflow.tenantId,
@@ -574,12 +759,20 @@ export class WorkflowsService {
         name: step.name,
         positionX: step.positionX,
         positionY: step.positionY,
-        config: step.config
-      }))
+        config: step.config,
+      })),
+      execution: {
+        executable: issues.length === 0,
+        issues,
+      },
     };
   }
 
-  private stepCreateData(context: RequestContext, step: UpsertWorkflowStepDto, index: number): Prisma.WorkflowStepCreateWithoutWorkflowInput {
+  private stepCreateData(
+    context: RequestContext,
+    step: UpsertWorkflowStepDto,
+    index: number,
+  ): Prisma.WorkflowStepCreateWithoutWorkflowInput {
     return {
       ...(step.id ? { id: step.id } : {}),
       tenantId: context.tenantId,
@@ -587,16 +780,19 @@ export class WorkflowsService {
       name: step.name,
       positionX: step.positionX ?? 80 + index * 240,
       positionY: step.positionY ?? 120,
-      ...(step.config ? { config: step.config as Prisma.InputJsonObject } : {})
+      ...(step.config ? { config: step.config as Prisma.InputJsonObject } : {}),
     };
   }
 
-  private stepUpdateData(step: UpsertWorkflowStepDto, index: number): Prisma.WorkflowStepUpdateInput {
+  private stepUpdateData(
+    step: UpsertWorkflowStepDto,
+    index: number,
+  ): Prisma.WorkflowStepUpdateInput {
     const data: Prisma.WorkflowStepUpdateInput = {
       type: step.type,
       name: step.name,
       positionX: step.positionX ?? 80 + index * 240,
-      positionY: step.positionY ?? 120
+      positionY: step.positionY ?? 120,
     };
 
     if (step.config) {
@@ -610,27 +806,32 @@ export class WorkflowsService {
     tx: Prisma.TransactionClient,
     context: RequestContext,
     workflowId: string,
-    steps: UpsertWorkflowStepDto[]
+    steps: UpsertWorkflowStepDto[],
   ) {
-    const incomingIds = steps.map((step) => step.id).filter((id): id is string => typeof id === "string" && id.length > 0);
+    const incomingIds = steps
+      .map((step) => step.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
 
     await tx.workflowStep.deleteMany({
       where: {
         tenantId: context.tenantId,
         workflowId,
-        ...(incomingIds.length > 0 ? { id: { notIn: incomingIds } } : {})
-      }
+        ...(incomingIds.length > 0 ? { id: { notIn: incomingIds } } : {}),
+      },
     });
 
     for (const [index, step] of steps.entries()) {
       const existing = step.id
-        ? await tx.workflowStep.findFirst({ where: { id: step.id, tenantId: context.tenantId, workflowId }, select: { id: true } })
+        ? await tx.workflowStep.findFirst({
+            where: { id: step.id, tenantId: context.tenantId, workflowId },
+            select: { id: true },
+          })
         : null;
 
       if (existing) {
         await tx.workflowStep.update({
           where: { id: existing.id },
-          data: this.stepUpdateData(step, index)
+          data: this.stepUpdateData(step, index),
         });
         continue;
       }
@@ -638,13 +839,18 @@ export class WorkflowsService {
       await tx.workflowStep.create({
         data: {
           ...this.stepCreateData(context, step, index),
-          workflow: { connect: { id: workflowId } }
-        }
+          workflow: { connect: { id: workflowId } },
+        },
       });
     }
   }
 
-  private async log(context: RequestContext, action: string, entityId: string, payload: Prisma.InputJsonObject) {
+  private async log(
+    context: RequestContext,
+    action: string,
+    entityId: string,
+    payload: Prisma.InputJsonObject,
+  ) {
     await this.prisma.auditLog.create({
       data: {
         tenantId: context.tenantId,
@@ -652,8 +858,8 @@ export class WorkflowsService {
         action,
         entityType: "workflow",
         entityId,
-        payload
-      }
+        payload,
+      },
     });
   }
 }

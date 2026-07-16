@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Matches, MaxLength } from "class-validator";
+import { IsOptional, IsString, IsUrl, Matches, MaxLength } from "class-validator";
 
 export class UpdateAccountSettingsDto {
   @IsOptional()
@@ -21,4 +21,20 @@ export class UpdateAccountSettingsDto {
   @MaxLength(100_000)
   @Matches(/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/=]+$/)
   logoDataUrl?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  description?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  phone?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  @IsUrl({ protocols: ["http", "https"], require_protocol: true, require_tld: false })
+  website?: string | null;
 }

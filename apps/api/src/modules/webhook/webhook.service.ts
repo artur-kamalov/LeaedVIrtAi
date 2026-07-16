@@ -1,12 +1,23 @@
 import { createHash } from "node:crypto";
 import { Inject, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { AI_PROVIDER_TOKEN, type AiMessage, type AiProvider } from "@leadvirt/ai";
-import type { Prisma } from "@leadvirt/db";
-import { WebhookAdapter, type NormalizedInboundMessage, type SendMessageResult } from "@leadvirt/integrations";
-import type { AiReplyJobData } from "@leadvirt/types";
+import { Prisma } from "@leadvirt/db";
+import {
+  decryptIntegrationCredentials,
+  WebhookAdapter,
+  type NormalizedInboundMessage,
+  type SendMessageResult,
+} from "@leadvirt/integrations";
+import type { AiReplyEnqueueRequest } from "@leadvirt/types";
 import { PrismaService } from "../database/prisma.service.js";
 import { WorkflowsService } from "../workflows/workflows.service.js";
 import { AiReplyQueueService } from "../ai/ai-reply-queue.service.js";
+import {
+  claimWebhookEvent,
+  completeWebhookEvent,
+  failWebhookEvent,
+} from "../../common/webhook-event-claim.js";
+import { assertTenantRuntimeActive } from "../../common/tenant-lifecycle.js";
 
 type GenericWebhookChannel = Prisma.ChannelGetPayload<{
   include: { tenant: true };
@@ -18,6 +29,10 @@ type GenericWebhookConversation = Prisma.ConversationGetPayload<{
     messages: { orderBy: { createdAt: "asc" } };
   };
 }>;
+
+type GenericWebhookAiDispatch =
+  | { queued: true; eventId: string; jobId: string }
+  | { queued: false; reason: string };
 
 export interface GenericWebhookResult {
   ok: true;
@@ -48,7 +63,9 @@ function optionalString(value: string | undefined): string | undefined {
 }
 
 function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim();
+  return values
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+    ?.trim();
 }
 
 function firstRecord(...values: unknown[]): Record<string, unknown> {
@@ -65,7 +82,8 @@ function shortSubject(text?: string) {
 
 function jsonPayload(body: unknown): Prisma.InputJsonValue {
   if (body === null) return { value: null };
-  if (typeof body === "string" || typeof body === "number" || typeof body === "boolean") return body;
+  if (typeof body === "string" || typeof body === "number" || typeof body === "boolean")
+    return body;
   if (Array.isArray(body) || isRecord(body)) return body as Prisma.InputJsonValue;
   return { unsupportedPayloadType: typeof body };
 }
@@ -74,9 +92,25 @@ function payloadSource(body: unknown) {
   const payload = asRecord(body);
   const message = asRecord(payload.message);
   const lead = asRecord(payload.lead);
-  const socialAccount = firstRecord(payload.socialAccount, payload.social_account, message.socialAccount, message.social_account, message.sa, lead.socialAccount);
+  const socialAccount = firstRecord(
+    payload.socialAccount,
+    payload.social_account,
+    message.socialAccount,
+    message.social_account,
+    message.sa,
+    lead.socialAccount,
+  );
   const source = firstRecord(payload.source, message.source);
-  const explicit = firstString(payload.source, lead.source, socialAccount.name, socialAccount.username, socialAccount.type, source.name, source.username, source.type);
+  const explicit = firstString(
+    payload.source,
+    lead.source,
+    socialAccount.name,
+    socialAccount.username,
+    socialAccount.type,
+    source.name,
+    source.username,
+    source.type,
+  );
   return explicit ?? "Webhook/API";
 }
 
@@ -86,19 +120,33 @@ export class WebhookService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AI_PROVIDER_TOKEN) private readonly aiProvider: AiProvider,
     @Inject(AiReplyQueueService) private readonly aiReplyQueue: AiReplyQueueService,
-    @Inject(WorkflowsService) private readonly workflowsService: WorkflowsService
+    @Inject(WorkflowsService) private readonly workflowsService: WorkflowsService,
   ) {}
 
   async handleEvent(
     publicKey: string,
     body: unknown,
-    headers: Record<string, string | string[] | undefined>
+    headers: Record<string, string | string[] | undefined>,
   ): Promise<GenericWebhookResult> {
     const channel = await this.loadWebhookChannel(publicKey);
     const settings = asRecord(channel.settings);
     const webhookSettings = asRecord(settings.webhook);
-    const secret = optionalString(firstString(webhookSettings.secret, webhookSettings.webhookSecret, settings.secret, settings.webhookSecret));
-    const verified = await adapter.verifyWebhook?.({ headers, body, ...(secret ? { secret } : {}) });
+    const secret = optionalString(
+      firstString(
+        webhookSettings.secret,
+        webhookSettings.webhookSecret,
+        settings.secret,
+        settings.webhookSecret,
+      ),
+    );
+    if (!secret) {
+      throw new UnauthorizedException("Webhook secret is not configured.");
+    }
+    const verified = await adapter.verifyWebhook?.({
+      headers,
+      body,
+      secret,
+    });
     if (!verified) {
       throw new UnauthorizedException("Webhook secret is invalid.");
     }
@@ -107,32 +155,63 @@ export class WebhookService {
     const payload = jsonPayload(body);
     const provider = `webhook:${channel.id}`;
     const externalEventId = this.externalEventId(body, normalized);
-    const existingEvent = await this.prisma.webhookEvent.findUnique({
-      where: { provider_externalEventId: { provider, externalEventId } }
+    const claim = await claimWebhookEvent(this.prisma, {
+      tenantId: channel.tenantId,
+      provider,
+      externalEventId,
+      payloadHash: payloadHash(payload),
+      payload,
+      receivedAt: new Date(),
     });
-    if (existingEvent) {
+    if (!claim.claimed) {
       return this.duplicateResponse(channel, normalized);
     }
-
-    const webhookEvent = await this.prisma.webhookEvent.create({
-      data: {
-        tenantId: channel.tenantId,
-        provider,
-        externalEventId,
-        payloadHash: payloadHash(payload),
-        payload,
-        status: "RECEIVED",
-        receivedAt: new Date()
-      }
-    });
+    const webhookEvent = claim.event;
+    const claimToken = claim.claimToken;
 
     try {
       const conversation = await this.upsertConversation(channel, normalized, body);
-      const inboundMessage = await this.createInboundMessage(channel, conversation, normalized);
-      const aiResult = await this.generateAndQueueReply(channel, conversation, normalized, inboundMessage?.id ?? normalized.externalMessageId);
+      const inbound = await this.createInboundMessage(channel, conversation, normalized);
+      let aiResult: {
+        messageId: string | null;
+        reply: string | null;
+        outbound: SendMessageResult | { externalMessageId: string; status: "skipped" };
+      };
+      if (this.aiReplyQueue.enabled) {
+        if (!inbound.aiDispatch) {
+          throw new Error("Webhook AI dispatch result was not persisted.");
+        }
+        if (inbound.aiDispatch.queued) {
+          this.aiReplyQueue.dispatchPersisted(inbound.aiDispatch.eventId);
+          aiResult = {
+            messageId: null,
+            reply: null,
+            outbound: {
+              externalMessageId: inbound.aiDispatch.jobId,
+              status: "queued",
+            },
+          };
+        } else {
+          aiResult = {
+            messageId: null,
+            reply: null,
+            outbound: { externalMessageId: "", status: "skipped" },
+          };
+        }
+      } else {
+        aiResult = await this.generateSyncReply(
+          channel,
+          conversation,
+          normalized,
+          inbound.message.id,
+        );
+      }
+      const aiDispatchRejectionReason =
+        inbound.aiDispatch && !inbound.aiDispatch.queued ? inbound.aiDispatch.reason : null;
       await this.workflowsService.runForEvent({
         tenantId: channel.tenantId,
         eventType: "message.received",
+        idempotencyKey: `generic-webhook:${webhookEvent.id}`,
         conversationId: conversation.id,
         leadId: conversation.leadId,
         channelType: "WEBHOOK",
@@ -142,28 +221,27 @@ export class WebhookService {
         metadata: {
           publicKey: channel.publicKey ?? "",
           externalConversationId: normalized.externalConversationId,
-          externalMessageId: normalized.externalMessageId
-        }
+          externalMessageId: normalized.externalMessageId,
+        },
       });
 
-      await this.prisma.webhookEvent.update({
-        where: { id: webhookEvent.id },
-        data: { status: "PROCESSED", processedAt: new Date() }
-      });
-
-      await this.prisma.auditLog.create({
-        data: {
-          tenantId: channel.tenantId,
-          action: "webhook.event.processed",
-          entityType: "conversation",
-          entityId: conversation.id,
-          payload: {
-            publicKey: channel.publicKey ?? "",
-            externalEventId,
-            externalMessageId: normalized.externalMessageId,
-            outboundStatus: aiResult.outbound.status
-          }
-        }
+      await this.prisma.$transaction(async (tx) => {
+        await completeWebhookEvent(tx, { eventId: webhookEvent.id, claimToken });
+        await tx.auditLog.create({
+          data: {
+            tenantId: channel.tenantId,
+            action: "webhook.event.processed",
+            entityType: "conversation",
+            entityId: conversation.id,
+            payload: {
+              publicKey: channel.publicKey ?? "",
+              externalEventId,
+              externalMessageId: normalized.externalMessageId,
+              outboundStatus: aiResult.outbound.status,
+              ...(aiDispatchRejectionReason ? { aiDispatchRejectionReason } : {}),
+            },
+          },
+        });
       });
 
       return {
@@ -171,19 +249,16 @@ export class WebhookService {
         duplicate: false,
         conversationId: conversation.id,
         leadId: conversation.leadId,
-        inboundMessageId: inboundMessage?.id ?? null,
+        inboundMessageId: inbound.message.id,
         aiMessageId: aiResult.messageId,
         outboundStatus: aiResult.outbound.status,
-        reply: aiResult.reply
+        reply: aiResult.reply,
       };
     } catch (error) {
-      await this.prisma.webhookEvent.update({
-        where: { id: webhookEvent.id },
-        data: {
-          status: "FAILED",
-          errorMessage: error instanceof Error ? error.message : "Unknown webhook processing error",
-          processedAt: new Date()
-        }
+      await failWebhookEvent(this.prisma, {
+        eventId: webhookEvent.id,
+        claimToken,
+        errorMessage: error instanceof Error ? error.message : "Unknown webhook processing error",
       });
       throw error;
     }
@@ -196,13 +271,14 @@ export class WebhookService {
         type: "WEBHOOK",
         status: "ACTIVE",
         deletedAt: null,
-        tenant: { deletedAt: null }
+        tenant: { deletedAt: null },
       },
-      include: { tenant: true }
+      include: { tenant: true },
     });
     if (!channel) {
       throw new NotFoundException("Webhook channel was not found.");
     }
+    assertTenantRuntimeActive(channel.tenant.status);
     return channel;
   }
 
@@ -215,15 +291,18 @@ export class WebhookService {
     return normalized?.externalMessageId ?? `webhook:payload:${payloadHash(jsonPayload(body))}`;
   }
 
-  private async duplicateResponse(channel: GenericWebhookChannel, normalized: NormalizedInboundMessage): Promise<GenericWebhookResult> {
+  private async duplicateResponse(
+    channel: GenericWebhookChannel,
+    normalized: NormalizedInboundMessage,
+  ): Promise<GenericWebhookResult> {
     const conversation = await this.prisma.conversation.findFirst({
       where: {
         tenantId: channel.tenantId,
         channelId: channel.id,
         externalConversationId: normalized.externalConversationId,
-        deletedAt: null
+        deletedAt: null,
       },
-      select: { id: true, leadId: true }
+      select: { id: true, leadId: true },
     });
     return {
       ok: true,
@@ -233,238 +312,338 @@ export class WebhookService {
       inboundMessageId: null,
       aiMessageId: null,
       outboundStatus: "skipped",
-      reply: null
+      reply: null,
     };
   }
 
   private async upsertConversation(
     channel: GenericWebhookChannel,
     inbound: NormalizedInboundMessage,
-    body: unknown
+    body: unknown,
   ): Promise<GenericWebhookConversation> {
-    const existing = await this.prisma.conversation.findFirst({
-      where: {
-        tenantId: channel.tenantId,
-        channelId: channel.id,
-        externalConversationId: inbound.externalConversationId,
-        deletedAt: null
-      },
-      include: { lead: true, messages: { orderBy: { createdAt: "asc" } } }
-    });
-    const receivedAt = new Date(inbound.timestamp);
-    const source = payloadSource(body);
-
-    if (existing) {
-      if (existing.leadId) {
-        await this.prisma.lead.update({
-          where: { id: existing.leadId },
-          data: {
-            lastMessageAt: receivedAt,
-            ...(inbound.customerName ? { name: inbound.customerName } : {}),
-            ...(inbound.customerPhone ? { phone: inbound.customerPhone } : {}),
-            ...(inbound.customerEmail ? { email: inbound.customerEmail } : {}),
-            interest: shortSubject(inbound.text)
-          }
-        });
-      }
-      await this.prisma.conversation.update({
-        where: { id: existing.id },
-        data: {
-          lastMessageAt: receivedAt,
-          status: existing.status === "CLOSED" ? "OPEN" : existing.status,
-          updatedAt: receivedAt
-        }
+    return this.prisma.$transaction(async (tx) => {
+      const lockKey = `conversation:${channel.tenantId}:${channel.id}:${inbound.externalConversationId}`;
+      await tx.$queryRaw(Prisma.sql`
+        SELECT TRUE AS "locked"
+        FROM (SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))) AS advisory_lock
+      `);
+      const channelState = await tx.$queryRaw<Array<{ automaticRepliesEnabled: boolean }>>(
+        Prisma.sql`
+          SELECT "automaticRepliesEnabled"
+          FROM "Channel"
+          WHERE "id" = ${channel.id}
+            AND "tenantId" = ${channel.tenantId}
+            AND "deletedAt" IS NULL
+          FOR SHARE
+        `,
+      );
+      const existing = await tx.conversation.findFirst({
+        where: {
+          tenantId: channel.tenantId,
+          channelId: channel.id,
+          externalConversationId: inbound.externalConversationId,
+          deletedAt: null,
+        },
+        include: { lead: true, messages: { orderBy: { createdAt: "asc" } } },
       });
-      return existing;
-    }
+      const receivedAt = new Date(inbound.timestamp);
+      const source = payloadSource(body);
 
-    const lead = await this.prisma.lead.create({
-      data: {
-        tenantId: channel.tenantId,
-        ...(inbound.customerName ? { name: inbound.customerName } : {}),
-        ...(inbound.customerPhone ? { phone: inbound.customerPhone } : {}),
-        ...(inbound.customerEmail ? { email: inbound.customerEmail } : {}),
-        source,
-        channelType: "WEBHOOK",
-        status: "NEW",
-        temperature: "WARM",
-        interest: shortSubject(inbound.text),
-        summary: "Новый лид из Webhook/API.",
-        customFields: {
-          webhookCustomerExternalId: inbound.customerExternalId,
-          webhookConversationExternalId: inbound.externalConversationId,
-          payloadSource: source
+      if (existing) return existing;
+
+      const lead = await tx.lead.create({
+        data: {
+          tenantId: channel.tenantId,
+          ...(inbound.customerName ? { name: inbound.customerName } : {}),
+          ...(inbound.customerPhone ? { phone: inbound.customerPhone } : {}),
+          ...(inbound.customerEmail ? { email: inbound.customerEmail } : {}),
+          source,
+          channelType: "WEBHOOK",
+          status: "NEW",
+          temperature: "WARM",
+          interest: shortSubject(inbound.text),
+          summary: "Новый лид из Webhook/API.",
+          customFields: {
+            webhookCustomerExternalId: inbound.customerExternalId,
+            webhookConversationExternalId: inbound.externalConversationId,
+            payloadSource: source,
+          },
+          lastMessageAt: receivedAt,
+          createdAt: receivedAt,
+          updatedAt: receivedAt,
         },
-        lastMessageAt: receivedAt,
-        createdAt: receivedAt,
-        updatedAt: receivedAt
-      }
-    });
+      });
 
-    const conversation = await this.prisma.conversation.create({
-      data: {
-        tenantId: channel.tenantId,
-        leadId: lead.id,
-        channelId: channel.id,
-        externalConversationId: inbound.externalConversationId,
-        status: "OPEN",
-        subject: shortSubject(inbound.text),
-        lastMessageAt: receivedAt,
-        aiEnabled: true,
-        metadata: {
-          webhookCustomerExternalId: inbound.customerExternalId,
-          webhookConversationExternalId: inbound.externalConversationId,
-          payloadSource: source
+      const conversation = await tx.conversation.create({
+        data: {
+          tenantId: channel.tenantId,
+          leadId: lead.id,
+          channelId: channel.id,
+          externalConversationId: inbound.externalConversationId,
+          status: "OPEN",
+          subject: shortSubject(inbound.text),
+          lastMessageAt: receivedAt,
+          aiEnabled: channelState[0]?.automaticRepliesEnabled ?? false,
+          metadata: {
+            webhookCustomerExternalId: inbound.customerExternalId,
+            webhookConversationExternalId: inbound.externalConversationId,
+            payloadSource: source,
+          },
+          createdAt: receivedAt,
+          updatedAt: receivedAt,
         },
-        createdAt: receivedAt,
-        updatedAt: receivedAt
-      },
-      include: { lead: true, messages: { orderBy: { createdAt: "asc" } } }
-    });
+        include: { lead: true, messages: { orderBy: { createdAt: "asc" } } },
+      });
 
-    await this.prisma.leadEvent.create({
-      data: {
-        tenantId: channel.tenantId,
-        leadId: lead.id,
-        type: "conversation_started",
-        title: "Webhook/API conversation started",
-        message: inbound.text ?? null,
-        metadata: { conversationId: conversation.id, externalConversationId: inbound.externalConversationId }
-      }
-    });
+      await tx.leadEvent.create({
+        data: {
+          tenantId: channel.tenantId,
+          leadId: lead.id,
+          type: "conversation_started",
+          title: "Webhook/API conversation started",
+          message: inbound.text ?? null,
+          metadata: {
+            conversationId: conversation.id,
+            externalConversationId: inbound.externalConversationId,
+          },
+        },
+      });
 
-    return conversation;
+      return conversation;
+    });
   }
 
   private async createInboundMessage(
     channel: GenericWebhookChannel,
     conversation: GenericWebhookConversation,
-    inbound: NormalizedInboundMessage
+    inbound: NormalizedInboundMessage,
   ) {
-    const existing = await this.prisma.message.findFirst({
-      where: {
-        tenantId: channel.tenantId,
-        conversationId: conversation.id,
-        externalMessageId: inbound.externalMessageId
-      },
-      select: { id: true }
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT "id" FROM "Conversation"
+        WHERE "id" = ${conversation.id} AND "tenantId" = ${channel.tenantId} AND "deletedAt" IS NULL
+        FOR UPDATE
+      `);
+      if (locked.length !== 1) throw new NotFoundException("Webhook conversation was not found.");
+      const existing = await tx.message.findFirst({
+        where: {
+          tenantId: channel.tenantId,
+          conversationId: conversation.id,
+          externalMessageId: inbound.externalMessageId,
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        return {
+          message: existing,
+          aiDispatch: await this.persistAiDispatch(
+            tx,
+            channel,
+            conversation,
+            existing.id,
+            inbound.text ?? "",
+          ),
+        };
+      }
+
+      const receivedAt = new Date(inbound.timestamp);
+      const currentConversation = await tx.conversation.findUniqueOrThrow({
+        where: { id: conversation.id },
+        select: { status: true },
+      });
+      if (conversation.leadId) {
+        await tx.lead.update({
+          where: { id: conversation.leadId },
+          data: {
+            lastMessageAt: receivedAt,
+            ...(inbound.customerName ? { name: inbound.customerName } : {}),
+            ...(inbound.customerPhone ? { phone: inbound.customerPhone } : {}),
+            ...(inbound.customerEmail ? { email: inbound.customerEmail } : {}),
+            interest: shortSubject(inbound.text),
+          },
+        });
+      }
+      await tx.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastMessageAt: receivedAt,
+          ...(currentConversation.status === "CLOSED" ? { status: "OPEN" as const } : {}),
+          updatedAt: receivedAt,
+        },
+      });
+
+      const message = await tx.message.create({
+        data: {
+          tenantId: channel.tenantId,
+          conversationId: conversation.id,
+          direction: "INBOUND",
+          senderType: "CUSTOMER",
+          externalMessageId: inbound.externalMessageId,
+          text: inbound.text ?? null,
+          status: "RECEIVED",
+          metadata: {
+            customerExternalId: inbound.customerExternalId,
+            raw: jsonPayload(inbound.raw),
+          },
+          createdAt: receivedAt,
+          updatedAt: receivedAt,
+        },
+      });
+
+      if (conversation.leadId) {
+        await tx.leadEvent.create({
+          data: {
+            tenantId: channel.tenantId,
+            leadId: conversation.leadId,
+            type: "webhook_message_received",
+            title: "Webhook/API message received",
+            message: inbound.text ?? null,
+            metadata: {
+              conversationId: conversation.id,
+              externalMessageId: inbound.externalMessageId,
+            },
+          },
+        });
+      }
+
+      return {
+        message,
+        aiDispatch: await this.persistAiDispatch(
+          tx,
+          channel,
+          conversation,
+          message.id,
+          inbound.text ?? "",
+        ),
+      };
+    });
+  }
+
+  private async persistAiDispatch(
+    tx: Prisma.TransactionClient,
+    channel: GenericWebhookChannel,
+    conversation: GenericWebhookConversation,
+    triggerMessageId: string,
+    text: string,
+  ): Promise<GenericWebhookAiDispatch | null> {
+    if (!this.aiReplyQueue.enabled) return null;
+
+    const jobId = `ai-reply:${conversation.id}:${triggerMessageId}`;
+    const existing = await tx.runtimeOutbox.findUnique({
+      where: { tenantId_dedupeKey: { tenantId: channel.tenantId, dedupeKey: jobId } },
+      select: { id: true, aggregateType: true, aggregateId: true, eventType: true },
     });
     if (existing) {
-      return null;
+      if (
+        existing.aggregateType !== "conversation" ||
+        existing.aggregateId !== triggerMessageId ||
+        existing.eventType !== "ai.reply.requested"
+      ) {
+        throw new Error(`AI reply outbox dedupe key ${jobId} has conflicting metadata.`);
+      }
+      return { queued: true, eventId: existing.id, jobId };
     }
 
-    const message = await this.prisma.message.create({
-      data: {
-        tenantId: channel.tenantId,
-        conversationId: conversation.id,
-        direction: "INBOUND",
-        senderType: "CUSTOMER",
-        externalMessageId: inbound.externalMessageId,
-        text: inbound.text ?? null,
-        status: "RECEIVED",
-        metadata: {
-          customerExternalId: inbound.customerExternalId,
-          raw: jsonPayload(inbound.raw)
-        },
-        createdAt: new Date(inbound.timestamp),
-        updatedAt: new Date(inbound.timestamp)
-      }
-    });
+    const result = await this.aiReplyQueue.createEvent(
+      tx,
+      this.aiReplyRequest(channel, conversation, triggerMessageId, text),
+    );
+    if (!result.created) return { queued: false, reason: result.reason };
 
     if (conversation.leadId) {
-      await this.prisma.leadEvent.create({
+      await tx.leadEvent.create({
         data: {
           tenantId: channel.tenantId,
           leadId: conversation.leadId,
-          type: "webhook_message_received",
-          title: "Webhook/API message received",
-          message: inbound.text ?? null,
-          metadata: { conversationId: conversation.id, externalMessageId: inbound.externalMessageId }
-        }
+          type: "webhook_ai_reply_queued",
+          title: "Webhook/API AI reply queued",
+          message: text,
+          metadata: {
+            conversationId: conversation.id,
+            externalMessageId: jobId,
+            outboundStatus: "queued",
+          },
+        },
       });
     }
-
-    return message;
+    return { queued: true, eventId: result.event.id, jobId };
   }
 
-  private async generateAndQueueReply(
+  private aiReplyRequest(
+    channel: GenericWebhookChannel,
+    conversation: GenericWebhookConversation,
+    triggerMessageId: string,
+    text: string,
+  ): AiReplyEnqueueRequest {
+    return {
+      tenantId: channel.tenantId,
+      conversationId: conversation.id,
+      triggerMessageId,
+      text,
+      source: "webhook",
+    };
+  }
+
+  private async generateSyncReply(
     channel: GenericWebhookChannel,
     conversation: GenericWebhookConversation,
     inbound: NormalizedInboundMessage,
-    triggerMessageId: string
+    triggerMessageId: string,
   ) {
     const text = inbound.text ?? "";
+    const jobData = this.aiReplyRequest(channel, conversation, triggerMessageId, text);
     const messages: AiMessage[] = [
       ...conversation.messages.map((message) => ({
         role: message.senderType === "AI" ? ("assistant" as const) : ("user" as const),
-        content: message.text ?? ""
+        content: message.text ?? "",
       })),
-      { role: "user", content: text }
+      { role: "user", content: text },
     ];
 
-    if (this.aiReplyQueue.enabled) {
-      const jobData: AiReplyJobData = {
-        tenantId: channel.tenantId,
-        conversationId: conversation.id,
-        triggerMessageId,
-        text,
-        businessName: channel.tenant.name,
-        ...(channel.tenant.businessType ? { businessType: channel.tenant.businessType } : {}),
-        leadId: conversation.leadId,
-        ...(conversation.lead?.status ? { leadStatus: conversation.lead.status } : {}),
-        source: "webhook",
-        receivedAt: inbound.timestamp
+    const syncAdmission = await this.aiReplyQueue.admit(jobData);
+    if (!syncAdmission.admitted) {
+      return {
+        messageId: null,
+        reply: null,
+        outbound: { externalMessageId: "", status: "skipped" as const },
       };
-      const queueResult = await this.aiReplyQueue.enqueue(jobData);
-      if (queueResult.queued) {
-        const outbound: SendMessageResult = {
-          externalMessageId: queueResult.jobId ?? `ai-reply:${conversation.id}:${triggerMessageId}`,
-          status: "queued"
-        };
-        if (conversation.leadId) {
-          await this.prisma.leadEvent.create({
-            data: {
-              tenantId: channel.tenantId,
-              leadId: conversation.leadId,
-              type: "webhook_ai_reply_queued",
-              title: "Webhook/API AI reply queued",
-              message: text,
-              metadata: {
-                conversationId: conversation.id,
-                externalMessageId: outbound.externalMessageId,
-                outboundStatus: outbound.status
-              }
-            }
-          });
-        }
-        return {
-          messageId: null,
-          reply: null,
-          outbound
-        };
-      }
     }
 
     const [extraction, aiReply, recommendation] = await Promise.all([
       this.aiProvider.extractLeadFields({
         tenantId: channel.tenantId,
         conversationId: conversation.id,
-        text
+        text,
       }),
       this.aiProvider.generateReply({
         tenantId: channel.tenantId,
         businessName: channel.tenant.name,
         ...(channel.tenant.businessType ? { businessType: channel.tenant.businessType } : {}),
         conversationId: conversation.id,
-        messages
+        messages,
       }),
       this.aiProvider.recommendNextAction({
         tenantId: channel.tenantId,
         conversationId: conversation.id,
         ...(conversation.lead?.status ? { leadStatus: conversation.lead.status } : {}),
-        text
-      })
+        text,
+      }),
     ]);
+
+    const finalAdmission = await this.aiReplyQueue.admit(jobData);
+    if (
+      !finalAdmission.admitted ||
+      finalAdmission.channelGeneration !== syncAdmission.channelGeneration ||
+      finalAdmission.publicationId !== syncAdmission.publicationId ||
+      finalAdmission.publicationEtag !== syncAdmission.publicationEtag ||
+      finalAdmission.channelFingerprint !== syncAdmission.channelFingerprint
+    ) {
+      return {
+        messageId: null,
+        reply: null,
+        outbound: { externalMessageId: "", status: "skipped" as const },
+      };
+    }
 
     const outbound = await adapter.sendMessage({
       tenantId: channel.tenantId,
@@ -473,11 +652,14 @@ export class WebhookService {
       externalConversationId: inbound.externalConversationId,
       text: aiReply.reply,
       settings: channel.settings,
+      ...(channel.encryptedCredentials
+        ? { credentials: decryptIntegrationCredentials(channel.encryptedCredentials) }
+        : {}),
       metadata: {
         triggerMessageId: inbound.externalMessageId,
         raw: jsonPayload(inbound.raw),
-        intent: aiReply.intent
-      }
+        intent: aiReply.intent,
+      },
     });
 
     const aiCreatedAt = new Date(new Date(inbound.timestamp).getTime() + 1000);
@@ -490,18 +672,19 @@ export class WebhookService {
         senderType: "AI",
         externalMessageId: outbound.externalMessageId,
         text: aiReply.reply,
-        status: outbound.status === "queued" ? "QUEUED" : outbound.status === "sent" ? "SENT" : "FAILED",
+        status:
+          outbound.status === "queued" ? "QUEUED" : outbound.status === "sent" ? "SENT" : "FAILED",
         metadata: {
           provider: "webhook",
           intent: aiReply.intent,
           confidence: aiReply.confidence,
           nextAction: recommendation.action,
           outboundStatus: outbound.status,
-          handoffRequired
+          handoffRequired,
         },
         createdAt: aiCreatedAt,
-        updatedAt: aiCreatedAt
-      }
+        updatedAt: aiCreatedAt,
+      },
     });
 
     await this.prisma.aiUsageLog.create({
@@ -520,9 +703,9 @@ export class WebhookService {
         metadata: {
           recommendation: recommendation.action,
           reason: recommendation.reason,
-          extractionConfidence: extraction.confidence
-        }
-      }
+          extractionConfidence: extraction.confidence,
+        },
+      },
     });
 
     await this.prisma.conversation.update({
@@ -531,20 +714,24 @@ export class WebhookService {
         lastMessageAt: aiCreatedAt,
         handoffRequested: conversation.handoffRequested || handoffRequired,
         status: handoffRequired ? "WAITING_FOR_HUMAN" : "OPEN",
-        updatedAt: aiCreatedAt
-      }
+        updatedAt: aiCreatedAt,
+      },
     });
 
     if (conversation.leadId) {
-      const summary = typeof extraction.fields.summary === "string" ? extraction.fields.summary : undefined;
+      const summary =
+        typeof extraction.fields.summary === "string" ? extraction.fields.summary : undefined;
       await this.prisma.lead.update({
         where: { id: conversation.leadId },
         data: {
           lastMessageAt: aiCreatedAt,
-          status: conversation.lead?.status === "NEW" ? "IN_PROGRESS" : (conversation.lead?.status ?? "IN_PROGRESS"),
+          status:
+            conversation.lead?.status === "NEW"
+              ? "IN_PROGRESS"
+              : (conversation.lead?.status ?? "IN_PROGRESS"),
           ...(summary ? { summary } : {}),
-          updatedAt: aiCreatedAt
-        }
+          updatedAt: aiCreatedAt,
+        },
       });
 
       await this.prisma.leadEvent.create({
@@ -559,16 +746,16 @@ export class WebhookService {
             messageId: aiMessage.id,
             externalMessageId: outbound.externalMessageId,
             outboundStatus: outbound.status,
-            intent: aiReply.intent
-          }
-        }
+            intent: aiReply.intent,
+          },
+        },
       });
     }
 
     return {
       messageId: aiMessage.id,
       reply: aiReply.reply,
-      outbound
+      outbound,
     };
   }
 }

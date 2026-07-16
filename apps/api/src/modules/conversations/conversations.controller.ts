@@ -1,5 +1,7 @@
 ﻿import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { CurrentContext } from "../../common/decorators/current-context.decorator.js";
+import { Roles } from "../../common/decorators/roles.decorator.js";
+import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { RequestContext } from "../../common/request-context.js";
 import { WorkspaceAuthGuard } from "../auth/workspace-auth.guard.js";
 import { AssignConversationDto } from "./dto/assign-conversation.dto.js";
@@ -8,7 +10,9 @@ import { SendMessageDto } from "./dto/send-message.dto.js";
 import { UpdateConversationStatusDto } from "./dto/update-conversation-status.dto.js";
 import { ConversationsService } from "./conversations.service.js";
 
-@UseGuards(WorkspaceAuthGuard)
+const conversationMutationRoles = ["OWNER", "ADMIN", "MANAGER", "AGENT"] as const;
+
+@UseGuards(WorkspaceAuthGuard, RolesGuard)
 @Controller("inbox/conversations")
 export class ConversationsController {
   constructor(@Inject(ConversationsService) private readonly conversationsService: ConversationsService) {}
@@ -19,7 +23,7 @@ export class ConversationsController {
   }
 }
 
-@UseGuards(WorkspaceAuthGuard)
+@UseGuards(WorkspaceAuthGuard, RolesGuard)
 @Controller("conversations")
 export class ConversationDetailController {
   constructor(@Inject(ConversationsService) private readonly conversationsService: ConversationsService) {}
@@ -29,16 +33,19 @@ export class ConversationDetailController {
     return { data: await this.conversationsService.get(context, id) };
   }
 
+  @Roles(...conversationMutationRoles)
   @Post(":id/messages")
   async sendMessage(@CurrentContext() context: RequestContext, @Param("id") id: string, @Body() dto: SendMessageDto) {
     return { data: await this.conversationsService.sendMessage(context, id, dto) };
   }
 
+  @Roles(...conversationMutationRoles)
   @Post(":id/ai/reply")
   async draftAiReply(@CurrentContext() context: RequestContext, @Param("id") id: string) {
     return { data: await this.conversationsService.draftAiReply(context, id) };
   }
 
+  @Roles(...conversationMutationRoles)
   @Patch(":id/status")
   async updateStatus(
     @CurrentContext() context: RequestContext,
@@ -48,11 +55,13 @@ export class ConversationDetailController {
     return { data: await this.conversationsService.updateStatus(context, id, dto) };
   }
 
+  @Roles(...conversationMutationRoles)
   @Post(":id/assign")
   async assign(@CurrentContext() context: RequestContext, @Param("id") id: string, @Body() dto: AssignConversationDto) {
     return { data: await this.conversationsService.assign(context, id, dto) };
   }
 
+  @Roles(...conversationMutationRoles)
   @Post(":id/handoff")
   async handoff(@CurrentContext() context: RequestContext, @Param("id") id: string) {
     return { data: await this.conversationsService.handoff(context, id) };

@@ -40,12 +40,16 @@ function lastForwardedIp(value: string | undefined) {
 export class AuthController {
   constructor(
     @Inject(AuthService) private readonly authService: AuthService,
-    @Inject(AuthRateLimitService) private readonly rateLimit: AuthRateLimitService
+    @Inject(AuthRateLimitService) private readonly rateLimit: AuthRateLimitService,
   ) {}
 
   @Post("auth/login")
   @HttpCode(200)
-  async login(@Body() dto: LoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
+  async login(
+    @Body() dto: LoginDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
     this.limit(request, "login", dto.email, 30, 10 * 60_000);
     const result = await this.authService.login(dto, this.metaFromRequest(request));
     this.authService.setSessionCookie(response, result.token);
@@ -54,7 +58,11 @@ export class AuthController {
 
   @Post("auth/signup")
   @HttpCode(200)
-  async signup(@Body() dto: SignupDto, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
+  async signup(
+    @Body() dto: SignupDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
     this.limit(request, "signup", dto.email, 12, 60 * 60_000);
     const result = await this.authService.signup(dto, this.metaFromRequest(request));
     this.authService.setSessionCookie(response, result.token);
@@ -63,7 +71,11 @@ export class AuthController {
 
   @Post("auth/telegram")
   @HttpCode(200)
-  async telegram(@Body() dto: TelegramAuthDto, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
+  async telegram(
+    @Body() dto: TelegramAuthDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
     this.limit(request, "telegram", String(dto.id), 30, 10 * 60_000);
     const result = await this.authService.loginWithTelegram(dto, this.metaFromRequest(request));
     this.authService.setSessionCookie(response, result.token);
@@ -72,7 +84,11 @@ export class AuthController {
 
   @Post("auth/telegram/oidc")
   @HttpCode(200)
-  async telegramOidc(@Body() dto: TelegramOidcAuthDto, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
+  async telegramOidc(
+    @Body() dto: TelegramOidcAuthDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
     this.limit(request, "telegram-oidc", dto.idToken.slice(0, 24), 30, 10 * 60_000);
     const result = await this.authService.loginWithTelegramOidc(dto, this.metaFromRequest(request));
     this.authService.setSessionCookie(response, result.token);
@@ -100,7 +116,11 @@ export class AuthController {
 
   @Post("auth/email-otp/verify")
   @HttpCode(200)
-  async verifyEmailOtp(@Body() dto: VerifyEmailOtpDto, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
+  async verifyEmailOtp(
+    @Body() dto: VerifyEmailOtpDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
     this.limit(request, "email-otp-verify", dto.challengeId, 12, 10 * 60_000);
     const result = await this.authService.verifyEmailOtp(dto, this.metaFromRequest(request));
     this.authService.setSessionCookie(response, result.token);
@@ -118,15 +138,21 @@ export class AuthController {
   @Post("auth/password-reset/request")
   @HttpCode(200)
   async requestPasswordReset(@Body() dto: RequestPasswordResetDto, @Req() request: Request) {
-    this.limit(request, "password-reset-request", dto.email, 8, 60 * 60_000);
-    return { data: await this.authService.requestPasswordReset(dto, this.metaFromRequest(request)) };
+    this.limit(request, "password-reset-request-ip", "all", 20, 10 * 60_000);
+    this.limitSubject(request, "password-reset-request-minute", dto.email, 1, 60_000);
+    this.limitSubject(request, "password-reset-request-hour", dto.email, 8, 60 * 60_000);
+    return {
+      data: await this.authService.requestPasswordReset(dto, this.metaFromRequest(request)),
+    };
   }
 
   @Post("auth/password-reset/confirm")
   @HttpCode(200)
   async confirmPasswordReset(@Body() dto: ConfirmPasswordResetDto, @Req() request: Request) {
     this.limit(request, "password-reset-confirm", dto.token.slice(0, 16), 20, 60 * 60_000);
-    return { data: await this.authService.confirmPasswordReset(dto, this.metaFromRequest(request)) };
+    return {
+      data: await this.authService.confirmPasswordReset(dto, this.metaFromRequest(request)),
+    };
   }
 
   @Get("me")
@@ -137,8 +163,8 @@ export class AuthController {
         ...context.user,
         role: context.role,
         tenantId: context.tenantId,
-        authMode: context.authMode
-      }
+        authMode: context.authMode,
+      },
     };
   }
 
@@ -155,12 +181,15 @@ export class AuthController {
     const userAgent = stringHeader(request.headers["user-agent"]);
     return {
       ...(ipAddress ? { ipAddress } : {}),
-      ...(userAgent ? { userAgent } : {})
+      ...(userAgent ? { userAgent } : {}),
     };
   }
 
   private limit(request: Request, scope: string, subject: string, limit: number, windowMs: number) {
-    if (process.env.NODE_ENV !== "production" && stringHeader(request.headers["x-leadvirt-qa"]) === "playwright") {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      stringHeader(request.headers["x-leadvirt-qa"]) === "playwright"
+    ) {
       return;
     }
 
@@ -171,8 +200,29 @@ export class AuthController {
       key: `${scope}:${ipAddress}:${normalizedSubject}`,
       limit,
       windowMs,
-      message: "Too many auth attempts. Please wait before trying again."
+      message: "Too many auth attempts. Please wait before trying again.",
+    });
+  }
+
+  private limitSubject(
+    request: Request,
+    scope: string,
+    subject: string,
+    limit: number,
+    windowMs: number,
+  ) {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      stringHeader(request.headers["x-leadvirt-qa"]) === "playwright"
+    ) {
+      return;
+    }
+
+    this.rateLimit.assert({
+      key: `${scope}:${subject.trim().toLowerCase()}`,
+      limit,
+      windowMs,
+      message: "Too many auth attempts. Please wait before trying again.",
     });
   }
 }
-

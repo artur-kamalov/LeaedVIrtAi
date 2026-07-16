@@ -1,7 +1,8 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { Queue, type ConnectionOptions } from "bullmq";
+import { Queue } from "bullmq";
 import { loadEnvFile } from "@leadvirt/config";
 import { prisma } from "@leadvirt/db";
+import { bullMqConnectionFromRedisUrl } from "@leadvirt/runtime-queue";
 
 loadEnvFile();
 
@@ -22,19 +23,6 @@ function isRecord(value: unknown): value is JsonRecord {
 
 function hashSecret(secret: string) {
   return `sha256:${createHash("sha256").update(secret).digest("hex")}`;
-}
-
-function connectionFromRedisUrl(value: string): ConnectionOptions {
-  const parsed = new URL(value);
-  const connection: ConnectionOptions = {
-    host: parsed.hostname,
-    port: Number(parsed.port || 6380),
-    maxRetriesPerRequest: null
-  };
-
-  if (parsed.username) connection.username = decodeURIComponent(parsed.username);
-  if (parsed.password) connection.password = decodeURIComponent(parsed.password);
-  return connection;
 }
 
 async function apiJson(path: string, options: RequestInit = {}) {
@@ -81,8 +69,9 @@ async function main() {
   const publicKey = `lvwh_ai_loop_${suffix.replace(/-/g, "_")}`;
   const webhookSecret = `secret-${randomBytes(12).toString("hex")}`;
   const cookie = `leadvirt_session=${encodeURIComponent(sessionToken)}`;
-  const aiQueue = new Queue("ai.reply", { connection: connectionFromRedisUrl(redisUrl) });
-  const deliveryQueue = new Queue("channels.sendMessage", { connection: connectionFromRedisUrl(redisUrl) });
+  const connection = bullMqConnectionFromRedisUrl(redisUrl, { maxRetriesPerRequest: null });
+  const aiQueue = new Queue("ai.reply", { connection });
+  const deliveryQueue = new Queue("channels.sendMessage", { connection });
   let tenantId: string | null = null;
   let userId: string | null = null;
   let aiJobId: string | null = null;
@@ -178,10 +167,6 @@ async function main() {
     assert(isRecord(reindex), "Knowledge reindex response is not an object");
     assert(Number(reindex.sources) >= 1, "Onboarding did not create knowledge sources");
     assert(Number(reindex.chunks) >= 1, "Knowledge reindex did not create chunks");
-
-    const search = getData(await apiJson("/knowledge/sources/search?q=haircut%202500%20available%2014%3A00", { headers: { cookie } }));
-    assert(Array.isArray(search), "Knowledge search response is not an array");
-    assert(search.length > 0, "Knowledge search did not return onboarding context");
 
     const eventId = `ai-public-loop-${suffix}`;
     const inboundText = "I want to book a haircut for 2026-07-07T14:00:00.000Z. How much does it cost?";

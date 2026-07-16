@@ -4,8 +4,13 @@ import { loginAsCleanUser } from "./helpers/auth";
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ context, page }) => {
   await loginAsCleanUser(page, apiBase);
+  const localeResponse = await page.request.patch(`${apiBase}/settings/preferences/locale`, {
+    data: { locale: "ru" },
+  });
+  expect(localeResponse.ok()).toBeTruthy();
+  await context.addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
 });
 
 type WorkflowRequestStep = {
@@ -44,22 +49,22 @@ function workflow(name = "API Workflow", status: "ACTIVE" | "PAUSED" | "DRAFT" |
         config: { channel: "any", keywordFilter: "seed" }
       },
       {
-        id: "step-question",
+        id: "step-condition",
         workflowId: "wf-1",
-        type: "QUESTION",
-        name: "API qualification",
+        type: "CONDITION",
+        name: "API condition",
         positionX: 320,
         positionY: 120,
-        config: { requiredFields: ["name", "phone"] }
+        config: { blockType: "condition", rules: [] }
       },
       {
-        id: "step-action",
+        id: "step-end",
         workflowId: "wf-1",
-        type: "ACTION",
-        name: "API CRM action",
+        type: "END",
+        name: "API end",
         positionX: 560,
         positionY: 120,
-        config: { action: "crm" }
+        config: { blockType: "end" }
       }
     ]
   };
@@ -98,6 +103,38 @@ function archivedWorkflow() {
   };
 }
 
+function unsupportedWorkflow() {
+  const base = workflow("Legacy unsupported workflow", "ACTIVE");
+  return {
+    ...base,
+    execution: {
+      executable: false,
+      issues: [
+        {
+          code: "UNSUPPORTED_STEP",
+          stepId: "step-ai",
+          stepName: "Legacy AI action",
+          stepType: "AI_MESSAGE",
+          message: "AI message delivery is not implemented for workflows."
+        }
+      ]
+    },
+    steps: [
+      base.steps[0],
+      {
+        id: "step-ai",
+        workflowId: "wf-1",
+        type: "AI_MESSAGE",
+        name: "Legacy AI action",
+        positionX: 320,
+        positionY: 120,
+        config: { blockType: "ai", enabled: true }
+      },
+      base.steps[2]
+    ]
+  };
+}
+
 test("automation page shows workflow status badges", async ({ page }) => {
   await page.route("**/api/workflows", async (route) => {
     await route.fulfill({
@@ -118,6 +155,24 @@ test("automation page shows workflow status badges", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Draft Workflow\s+Черновик/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Paused Workflow\s+Пауза/ })).toBeVisible();
   await expect(page.getByText("Активен").first()).toBeVisible();
+});
+
+test("automation page blocks unsupported legacy actions instead of presenting them as runnable", async ({ page }) => {
+  await page.route("**/api/workflows", async (route) => {
+    await route.fulfill({ json: { data: [unsupportedWorkflow()] } });
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${webBase}/app/automations`, { waitUntil: "networkidle" });
+
+  await expect(page.getByTestId("automation-runtime-blocked")).toBeVisible();
+  await expect(page.getByText("Заблокирован").first()).toBeVisible();
+  await expect(page.getByText("Только черновик").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Тест$/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /^Сохранить$/ })).toBeDisabled();
+
+  await page.getByRole("button", { name: "Заблокирован", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Сохранить/ })).toBeEnabled();
 });
 
 test("automation page saves, publishes, and tests API workflows", async ({ page }) => {
@@ -172,19 +227,20 @@ test("automation page saves, publishes, and tests API workflows", async ({ page 
   await keywordFilter.fill("vip");
   await expect(keywordFilter).toHaveValue("vip");
   await expect(page.getByText("Несохранено")).toBeVisible();
-  await page.getByRole("button", { name: "Добавить блок" }).click();
-  await expect(page.getByText("Новый блок").first()).toBeVisible();
 
   await page.getByRole("button", { name: /^Тест$/ }).click();
   await expect.poll(() => tested).toBe(true);
   await expect(page.getByText("Playwright workflow test completed")).toBeVisible();
+
+  await page.getByRole("button", { name: "Добавить блок" }).click();
+  await expect(page.getByText("Передать менеджеру").first()).toBeVisible();
 
   await page.getByLabel("Название сценария").fill("API Workflow Updated");
   await page.getByRole("button", { name: /^Сохранить изменения$/ }).click();
 
   await expect.poll(() => patchedName).toBe("API Workflow Updated");
   await expect.poll(() => patchedSteps.length).toBeGreaterThan(3);
-  expect(patchedSteps.some((step) => step.name === "Новый блок" && step.type === "AI_MESSAGE" && step.config?.blockType === "ai")).toBe(true);
+  expect(patchedSteps.some((step) => step.name === "Передать менеджеру" && step.type === "HANDOFF" && step.config?.blockType === "handoff")).toBe(true);
   expect(patchedSteps.find((step) => step.id === "step-trigger")?.config?.keywordFilter).toBe("vip");
   await expect.poll(() => published).toBe(true);
   await expect(page.getByLabel("Название сценария")).toHaveValue("API Workflow Updated");
@@ -228,7 +284,7 @@ test("automation page creates an API workflow from a copied scenario tab", async
   expect(createdBody?.steps?.some((step) => typeof step.id === "string")).toBe(false);
   expect(createdBody?.steps?.[0]?.type).toBe("TRIGGER");
   expect(createdBody?.steps?.[0]?.config?.blockType).toBe("trigger");
-  await expect.poll(() => publishedCreated).toBe(true);
+  expect(publishedCreated).toBe(false);
   await expect(page.getByLabel("Название сценария")).toHaveValue("Оформление заказа");
 });
 
@@ -302,5 +358,66 @@ test("automation page restores an archived workflow into the builder", async ({ 
   await expect.poll(() => restoreStatus).toBe("PAUSED");
   await expect(page.getByLabel("Название сценария")).toHaveValue("Archived Workflow");
   await expect(page.getByText("Восстановлен").first()).toBeVisible();
+});
+
+test("automation load failures are retryable and never become empty drafts", async ({ page }) => {
+  let failLoad = true;
+
+  await page.route("**/api/workflows", async (route) => {
+    if (failLoad) {
+      await route.fulfill({
+        status: 503,
+        json: { error: { code: "SERVICE_UNAVAILABLE", message: "Temporary outage" } },
+      });
+      return;
+    }
+    await route.fulfill({ json: { data: [workflow("Recovered Workflow")] } });
+  });
+
+  await page.goto(`${webBase}/app/automations`, { waitUntil: "networkidle" });
+
+  await expect(page.getByTestId("automation-load-error")).toBeVisible();
+  await expect(page.getByTestId("automation-editor")).toHaveCount(0);
+  await page.screenshot({
+    path: "artifacts/playwright/automation-load-error.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+
+  failLoad = false;
+  await page.getByTestId("automation-load-error").getByRole("button").click();
+
+  await expect(page.getByText("Recovered Workflow")).toBeVisible();
+  await expect(page.getByTestId("automation-load-error")).toHaveCount(0);
+});
+
+test("archived workflow failures are not presented as an empty archive", async ({ page }) => {
+  let failArchive = true;
+
+  await page.route("**/api/workflows?*", async (route) => {
+    if (failArchive) {
+      await route.fulfill({
+        status: 503,
+        json: { error: { code: "SERVICE_UNAVAILABLE", message: "Temporary archive outage" } },
+      });
+      return;
+    }
+    await route.fulfill({ json: { data: [workflow("Visible Workflow"), archivedWorkflow()] } });
+  });
+  await page.route("**/api/workflows", async (route) => {
+    await route.fulfill({ json: { data: [workflow("Visible Workflow")] } });
+  });
+
+  await page.goto(`${webBase}/app/automations`, { waitUntil: "networkidle" });
+  await page.getByTestId("automation-open-archive").click();
+
+  await expect(page.getByTestId("automation-archive-load-error")).toBeVisible();
+  await expect(page.getByText("Archived Workflow")).toHaveCount(0);
+
+  failArchive = false;
+  await page.getByTestId("automation-archive-load-error").getByRole("button").click();
+
+  await expect(page.getByText("Archived Workflow")).toBeVisible();
+  await expect(page.getByTestId("automation-archive-load-error")).toHaveCount(0);
 });
 

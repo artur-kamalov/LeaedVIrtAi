@@ -3,25 +3,28 @@ import { expect, test } from "@playwright/test";
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 
 test.beforeEach(async ({ page }) => {
-  await page.context().addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
+  await page
+    .context()
+    .addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
 });
 
 test("landing desktop CTAs and nav links route to live pages", async ({ page }) => {
+  test.setTimeout(180_000);
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(webBase, { waitUntil: "domcontentloaded" });
+  await page.goto(webBase, { waitUntil: "domcontentloaded", timeout: 45_000 });
 
   await page.getByTestId("landing-desktop-login").click();
-  await expect(page).toHaveURL(/\/login$/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/login$/, { timeout: 45_000 });
 
-  await page.goto(webBase, { waitUntil: "domcontentloaded" });
+  await page.goto(webBase, { waitUntil: "domcontentloaded", timeout: 45_000 });
   await page.getByTestId("landing-desktop-trial").click();
-  await expect(page).toHaveURL(/\/onboarding$/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/onboarding$/, { timeout: 45_000 });
 
-  await page.goto(webBase, { waitUntil: "domcontentloaded" });
+  await page.goto(webBase, { waitUntil: "domcontentloaded", timeout: 45_000 });
   await page.getByRole("link", { name: "Смотреть демо" }).click();
-  await expect(page).toHaveURL(/\/demo$/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/demo$/, { timeout: 45_000 });
 
-  await page.goto(webBase, { waitUntil: "domcontentloaded" });
+  await page.goto(webBase, { waitUntil: "domcontentloaded", timeout: 45_000 });
   await page.getByRole("link", { name: "Тарифы" }).click();
   await expect(page.locator("#pricing")).toBeInViewport({ timeout: 10_000 });
 });

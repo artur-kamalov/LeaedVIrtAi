@@ -15,8 +15,7 @@ export default [
       "apps/web/postcss.config.mjs",
       "**/*.config.cjs",
       "apps/web/src/components/leadvirt/**",
-      "apps/web/src/components/marketing/**",
-      "apps/web/src/design/**"
+      "apps/web/src/components/marketing/**"
     ]
   },
   {

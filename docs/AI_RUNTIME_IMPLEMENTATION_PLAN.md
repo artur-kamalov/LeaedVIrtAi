@@ -2,6 +2,10 @@
 
 Status: Phases 1-6 foundations implemented locally with CI acceptance coverage; next external gate is staging acceptance after deploy.
 
+Architecture note (2026-07-12): this file records the existing prototype foundation. The production business-knowledge lifecycle, typed truth model, immutable publication/index snapshots, shared retrieval path, ingestion security, and rollout are superseded by `docs/BUSINESS_KNOWLEDGE_SYSTEM_DESIGN.md`. Where the documents differ, the newer system design is authoritative; completed prototype phases do not imply production Knowledge readiness.
+
+Phase 0 compatibility status (2026-07-12): live replies, diagnostics, and evals now share the minimal immutable legacy publication retriever; normal source/onboarding writes publish automatically; irrelevant or unavailable retrieval fails closed; and reply/tool/channel execution uses durable outbox/inbox, idempotency ledgers, deadlines, cancellation, and generation/sequence delivery fences. Knowledge v2 typed truth, operator reconciliation, real Qdrant CI validation, secure ingestion, and the customer Knowledge workspace remain governed by the newer design.
+
 ## Goal
 
 Validate the main LeadVirt scenario end to end:
@@ -248,6 +252,8 @@ Status: foundation implemented.
 - Add tool schemas for lead update, note creation, status change, and booking proposal. Implemented as tenant-scoped zod-validated worker tools.
 - Add idempotency, retries, timeouts, and DLQ. Implemented for queued worker jobs with `WORKER_JOB_TIMEOUT_MS`, final-attempt DLQ audit logging, and `worker:dlq:inspect`.
 - Add full public-loop smoke. Implemented as `qa:ai:public-loop` for clean tenant session, onboarding knowledge, RAG reindex/search, public Webhook/API intake, queued LangGraph reply, channel delivery, booking draft, inbox, dashboard, and queue completion checks.
+- Channel connection is now inbound-only by default. Automatic replies require an explicit owner/admin activation bound to the exact active structured publication and current channel fingerprint.
+- Queue admission, retries, and final AI delivery revalidate that binding under ordered database locks. Revocation or drift fails closed without blocking inbound Inbox persistence or manual agent delivery.
 
 ### Phase 4: Quality And Evals
 
@@ -257,6 +263,11 @@ Status: foundation started.
 - Add RAGAS evaluation where it fits retrieval quality. Initial RAGAS-style metrics now include required-term recall and retrieved-chunk precision in eval reports.
 - Add custom business eval for booking correctness, escalation, and policy safety. Initial deterministic gate is implemented as `qa:ai:quality`; optional real-provider judge runs are available through `qa:ai:real-eval`.
 - Add CI quality gate with a small required eval subset. `qa:ai:quality` is part of the `leadvirt.com` deployment workflow and uploads `artifacts/reports/*.json` as `ai-eval-report`.
+- Knowledge v2 Test runs now use structured server-validated grounded generation with exact citations, tenant processor consent, one repair maximum, commit-time evidence revalidation, and PostgreSQL acceptance coverage.
+- Live `STRUCTURED_V2` replies now use that same orchestrator and gate, persist validated trace hashes/citations, default-deny state-changing tools, and revalidate evidence plus processor admission before commit and delivery.
+- PostgreSQL smoke coverage uses the production trace persister and verifies the stored publication/evidence citation plus message, audit, provider-policy, answer, and gate hash identities.
+- Knowledge dependency health covers PostgreSQL, Redis, Qdrant, object storage, configured model endpoints, and the OpenTelemetry Collector with fixed labels, cached single-flight probes, bounded deadlines, and no tenant or content dimensions.
+- Prometheus scrapes Collector internal metrics so Grafana and alerts expose unavailable or stale dependencies plus trace exporter failures and drops.
 
 ### Phase 5: Observability And Cost
 
@@ -267,6 +278,9 @@ Status: foundation started.
 - Add OpenTelemetry spans to API, worker, retrieval, LLM, and tool calls. Initial opt-in OTLP tracing is implemented for API requests, queue publishing, worker jobs, LangGraph graph/nodes, provider stages, tool execution, persistence, and channel delivery.
 - Add a trace backend profile. Initial Tempo service and Grafana trace datasource are available through the optional `observability` profile.
 - Add cost/quality dashboard panels on top of usage logs and metrics. Initial panels are implemented for quality-gate outcomes, budget blocks, and blocked-token volume.
+- Live Knowledge v2 worker metrics now cover retrieval latency/yield/outcomes and grounded-answer gate risk/citation coverage with fixed labels and strict locale buckets; the Knowledge dashboard exposes these without tenant or content dimensions.
+- Publication telemetry now measures durable activation outcomes/duration and p95 time from candidate, publication, and immutable item creation to active queryability; replayed and reconciled events do not double count.
+- Dependency observability now uses nonblocking cached probes for PostgreSQL, Redis, Qdrant, object storage, configured embedding/reranker/grounded-model endpoints, and the Collector. The optional profile routes OTLP through the Collector, scrapes its internal metrics, and provisions Knowledge availability, freshness, exporter-failure panels, and alerts.
 
 ### Phase 6: Security Hardening
 
@@ -277,6 +291,7 @@ Status: core security hardening and local clean-user acceptance smoke are implem
 - Initial PII/secret redaction is implemented for runtime logs, OpenTelemetry error payloads, and AI graph tool-call metadata.
 - PII tagging and broader prompt/eval artifact redaction are implemented via `redactAndTagSensitiveData`, sanitized quality/real-provider eval reports, sanitized real-provider judge payloads, and `qa:ai:eval-redaction`.
 - Initial RBAC guard is implemented for knowledge source writes/reindex as `qa:rbac:knowledge`.
+- The shared PostgreSQL tenant transaction boundary is implemented and proved against real pool reuse, rollback, concurrency, misuse, and runtime-role posture. RLS remains disabled until every tenant-bearing API/worker DB phase is migrated and deployment uses a non-owner `NOBYPASSRLS` role.
 - Initial channel action RBAC is implemented as `qa:rbac:channels`.
 - Initial AI tool ABAC is implemented as `qa:ai:tool-abac`, covering tenant conversation ownership, lead-conversation consistency, and same-tenant task assignees.
 - Billing, integrations, and workflows RBAC matrix is implemented as `qa:rbac:product-matrix`.

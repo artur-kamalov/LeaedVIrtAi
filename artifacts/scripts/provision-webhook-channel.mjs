@@ -1,12 +1,17 @@
 import { writeFile } from "node:fs/promises";
 
 const apiBase = normalizeApiBase(process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api");
-const publicApiBase = normalizeApiBase(process.env.LEADVIRT_PUBLIC_API_BASE ?? process.env.LEADVIRT_PROVISION_PUBLIC_API_BASE ?? apiBase);
+const publicApiBase = normalizeApiBase(
+  process.env.LEADVIRT_PUBLIC_API_BASE ?? process.env.LEADVIRT_PROVISION_PUBLIC_API_BASE ?? apiBase,
+);
 const apiOrigin = apiBase.replace(/\/api$/, "");
 const publicApiOrigin = publicApiBase.replace(/\/api$/, "");
 const email = normalizeEmail(process.env.LEADVIRT_PROVISION_EMAIL ?? "admin@leadvirt.ai");
-const password = process.env.LEADVIRT_PROVISION_PASSWORD ?? (isLocalUrl(apiBase) ? "demo-demo" : "");
+const password =
+  process.env.LEADVIRT_PROVISION_PASSWORD ?? (isLocalUrl(apiBase) ? "demo-demo" : "");
 const twoFactorCode = process.env.LEADVIRT_PROVISION_2FA_CODE;
+const knownWebhookSecret =
+  process.env.LEADVIRT_PROVISION_WEBHOOK_SECRET ?? process.env.LEADVIRT_PUBLIC_WEBHOOK_SECRET ?? "";
 const channelName = process.env.LEADVIRT_PROVISION_CHANNEL_NAME ?? "Master Budet Webhook";
 const strict = isTruthy(process.env.LEADVIRT_PROVISION_STRICT) || !isLocalUrl(apiBase);
 const outputPath = process.env.LEADVIRT_PROVISION_OUT;
@@ -34,17 +39,6 @@ function isLocalUrl(value) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
-}
-
-function asRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
-}
-
-function webhookSecret(channel) {
-  const settings = asRecord(channel?.settings);
-  const webhook = asRecord(settings.webhook);
-  const secret = webhook.secret ?? webhook.webhookSecret ?? settings.secret ?? settings.webhookSecret;
-  return typeof secret === "string" ? secret : "";
 }
 
 function webhookEndpoint(publicKey) {
@@ -96,8 +90,25 @@ async function createWebhookChannel(cookie) {
       status: "ACTIVE",
     },
   });
-  assert(result.response.ok, `Could not create Webhook/API channel: HTTP ${result.response.status}`);
+  assert(
+    result.response.ok,
+    `Could not create Webhook/API channel: HTTP ${result.response.status}`,
+  );
   return result.payload?.data;
+}
+
+async function rotateWebhookSecret(cookie, channel) {
+  const result = await apiRequest(
+    `/channels/${encodeURIComponent(channel.id)}/webhook-secret/rotate`,
+    { method: "POST", cookie },
+  );
+  assert(result.response.ok, `Could not rotate Webhook/API secret: HTTP ${result.response.status}`);
+  assert(result.payload?.data?.channel, "Webhook/API rotation did not return a channel.");
+  assert(
+    typeof result.payload?.data?.oneTimeSecret === "string",
+    "Webhook/API rotation did not return its one-time secret.",
+  );
+  return result.payload.data;
 }
 
 async function activateChannel(cookie, channel) {
@@ -108,13 +119,15 @@ async function activateChannel(cookie, channel) {
     cookie,
     data: { status: "ACTIVE" },
   });
-  assert(result.response.ok, `Could not activate Webhook/API channel: HTTP ${result.response.status}`);
+  assert(
+    result.response.ok,
+    `Could not activate Webhook/API channel: HTTP ${result.response.status}`,
+  );
   return result.payload?.data;
 }
 
-function packet(channel) {
+function packet(channel, secret) {
   const publicKey = channel.publicKey ?? "";
-  const secret = webhookSecret(channel);
   const endpoint = webhookEndpoint(publicKey);
   return {
     channelId: channel.id,
@@ -166,32 +179,50 @@ async function main() {
   console.log(`User: ${email}`);
   console.log("");
 
-  const health = await fetch(`${apiOrigin}/health`, { signal: AbortSignal.timeout(3_000) }).catch(() => null);
+  const health = await fetch(`${apiOrigin}/health`, { signal: AbortSignal.timeout(3_000) }).catch(
+    () => null,
+  );
   assert(health?.ok, `LeadVirt API is not healthy at ${apiOrigin}.`);
 
   const cookie = await login();
   const channels = await listChannels(cookie);
   let channel = channels.find((item) => item?.type === "WEBHOOK");
+  let secret = knownWebhookSecret.trim();
 
   if (channel) {
     channel = await activateChannel(cookie, channel);
+    if (!secret) {
+      const rotated = await rotateWebhookSecret(cookie, channel);
+      channel = rotated.channel;
+      secret = rotated.oneTimeSecret;
+    }
   } else {
     channel = await createWebhookChannel(cookie);
+    secret = channel?.oneTimeSecret ?? "";
   }
 
   assert(channel?.type === "WEBHOOK", "Provisioning did not return a Webhook/API channel.");
   assert(channel?.publicKey, "Webhook/API channel does not have a public key.");
 
-  const details = packet(channel);
-  assert(details.secret, "Webhook/API channel does not expose a webhook secret in settings.");
+  const details = packet(channel, secret);
+  assert(
+    details.secret,
+    "Webhook/API provisioning did not obtain a one-time or operator-supplied secret.",
+  );
 
   const demoKey = details.publicKey.startsWith("demo-") || details.publicKey.includes("demo");
   if (demoKey && strict) {
-    throw new Error(`Refusing to use demo Webhook/API public key in strict/non-local provisioning: ${details.publicKey}`);
+    throw new Error(
+      `Refusing to use demo Webhook/API public key in strict/non-local provisioning: ${details.publicKey}`,
+    );
   }
   if (demoKey) {
-    console.log(`WARN Existing local Webhook/API channel uses demo public key: ${details.publicKey}`);
-    console.log("WARN Run this against staging/public or a clean workspace to provision an lvwh_ key.");
+    console.log(
+      `WARN Existing local Webhook/API channel uses demo public key: ${details.publicKey}`,
+    );
+    console.log(
+      "WARN Run this against staging/public or a clean workspace to provision an lvwh_ key.",
+    );
     console.log("");
   }
 

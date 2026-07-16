@@ -36,24 +36,30 @@ import {
   sendConversationMessage,
   updateConversationStatus,
 } from "@/lib/api/conversations";
-import {
-  bookLeadAppointment,
-  createLeadTask,
-  sendLeadToCrm,
-  updateLead,
-} from "@/lib/api/leads";
-import type { ConversationDetail, ConversationStatus, Lead as ApiLead, LeadEvent } from "@leadvirt/types";
+import { bookLeadAppointment, createLeadTask, sendLeadToCrm, updateLead } from "@/lib/api/leads";
+import type {
+  ConversationDetail,
+  ConversationStatus,
+  Lead as ApiLead,
+  LeadEvent,
+} from "@leadvirt/types";
 import { leadFromConversation, messagesFromConversation, relativeTimeLabel } from "../apiAdapters";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { Locale } from "@/i18n/config";
+import type { TranslationKey } from "@/i18n/messages";
+import { useProductPermissions } from "../CurrentUser";
+import { ResourceErrorState } from "../ResourceErrorState";
+import { ApiClientError } from "@/lib/api/client";
 
 /* ── helpers ─────────────────────────────────────────────────── */
-function formatValue(v: number) {
-  return v.toLocaleString("ru-RU");
-}
+type Translate = ReturnType<typeof useI18n>["t"];
+type FormatDate = ReturnType<typeof useI18n>["formatDate"];
+type FormatNumber = ReturnType<typeof useI18n>["formatNumber"];
 
-function formatAttachmentSize(sizeBytes?: number | null) {
+function formatAttachmentSize(sizeBytes: number | null | undefined, formatNumber: FormatNumber) {
   if (!sizeBytes) return "";
-  if (sizeBytes < 1024) return `${sizeBytes} B`;
-  return `${Math.round(sizeBytes / 1024)} KB`;
+  if (sizeBytes < 1024) return `${formatNumber(sizeBytes)} B`;
+  return `${formatNumber(Math.round(sizeBytes / 1024))} KB`;
 }
 
 function chatMessagesEqual(current: ChatMessage[], next: ChatMessage[]) {
@@ -101,13 +107,13 @@ type TimelineItem = {
   color: string;
 };
 
-const quickReplies = [
-  "Уточнить услугу",
-  "Предложить время",
-  "Отправить прайс",
-  "Подтвердить запись",
-  "Передать менеджеру",
-];
+const quickReplyKeys = [
+  "ops.conversation.quickService",
+  "ops.conversation.quickTime",
+  "ops.conversation.quickPrice",
+  "ops.conversation.quickConfirm",
+  "ops.conversation.quickHandoff",
+] satisfies TranslationKey[];
 
 const emojiOptions = ["🙂", "👍", "🔥", "✅", "🙏", "❤️", "📅", "💬"];
 
@@ -125,77 +131,104 @@ type PendingAttachment = {
   sizeBytes: number;
 };
 
-function liveTime() {
-  return new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+type ConversationScope = {
+  conversationId: string;
+  generation: number;
+};
+
+type ConversationMutationToken = ConversationScope & {
+  mutationEpoch: number;
+};
+
+function liveTime(formatDate: FormatDate) {
+  return formatDate(new Date(), { hour: "2-digit", minute: "2-digit" });
 }
 
-function liveDemoMessage(id: string, from: ChatMessage["from"], text: string): ChatMessage {
-  return { id, from, text, time: liveTime() };
+function liveDemoMessage(
+  id: string,
+  from: ChatMessage["from"],
+  text: string,
+  formatDate: FormatDate,
+): ChatMessage {
+  return { id, from, text, time: liveTime(formatDate) };
 }
 
-function demoReplayScript(conversationId: string, sourceMessages: ChatMessage[]) {
+function demoReplayScript(
+  conversationId: string,
+  sourceMessages: ChatMessage[],
+  t: Translate,
+  formatDate: FormatDate,
+) {
   if (conversationId === "demo-conv-anna") {
     return [
-      liveDemoMessage("demo-replay-anna-1", "client", "Здравствуйте! Хочу окрашивание и стрижку. В пятницу после 17:00 есть свободное время?"),
-      liveDemoMessage("demo-replay-anna-2", "ai", "Здравствуйте! Есть пятница 18:00 у мастера Алины. Чтобы точнее сориентировать по цене: волосы до плеч или длиннее?"),
-      liveDemoMessage("demo-replay-anna-3", "client", "До плеч. Хочу тёплый блонд без сильного осветления."),
-      liveDemoMessage("demo-replay-anna-4", "ai", "Тогда ориентир 8 000-10 000 ₽ и около 3 часов. Забронировать пятницу 18:00?"),
-      liveDemoMessage("demo-replay-anna-5", "client", "Да, забронируйте. Телефон +7 999 123-45-67."),
-      liveDemoMessage("demo-replay-anna-6", "ai", "Готово: закрепила пятницу 18:00, создала лид и передала менеджеру карточку с услугой, бюджетом и телефоном."),
+      liveDemoMessage("demo-replay-anna-1", "client", t("ops.conversation.demo1"), formatDate),
+      liveDemoMessage("demo-replay-anna-2", "ai", t("ops.conversation.demo2"), formatDate),
+      liveDemoMessage("demo-replay-anna-3", "client", t("ops.conversation.demo3"), formatDate),
+      liveDemoMessage("demo-replay-anna-4", "ai", t("ops.conversation.demo4"), formatDate),
+      liveDemoMessage("demo-replay-anna-5", "client", t("ops.conversation.demo5"), formatDate),
+      liveDemoMessage("demo-replay-anna-6", "ai", t("ops.conversation.demo6"), formatDate),
     ];
   }
 
-  const normalized = sourceMessages.map((message, index) => ({ ...message, id: `demo-replay-${conversationId}-${index}`, time: liveTime() }));
+  const normalized = sourceMessages.map((message, index) => ({
+    ...message,
+    id: `demo-replay-${conversationId}-${index}`,
+    time: liveTime(formatDate),
+  }));
   if (normalized.length > 0 && normalized[normalized.length - 1].from === "client") {
     normalized.push(
       liveDemoMessage(
         `demo-replay-${conversationId}-ai-followup`,
         "ai",
-        "Спасибо! Я уточню детали, предложу ближайшее время и сохраню лид для менеджера."
-      )
+        t("ops.conversation.demoFollowup"),
+        formatDate,
+      ),
     );
   }
   return normalized;
 }
 
-function demoTypingLabel(from: ChatMessage["from"]) {
-  if (from === "client") return "Клиент печатает...";
-  if (from === "ai") return "AI отвечает...";
-  return "Менеджер печатает...";
+function demoTypingLabel(from: ChatMessage["from"], t: Translate) {
+  if (from === "client") return t("ops.conversation.typingClient");
+  if (from === "ai") return t("ops.conversation.typingAi");
+  return t("ops.conversation.typingManager");
 }
 
 function eventIconAndColor(type: string): Pick<TimelineItem, "icon" | "color"> {
   if (type.includes("crm")) return { icon: Database, color: "text-emerald-400" };
   if (type.includes("task")) return { icon: CheckSquare, color: "text-sky-400" };
-  if (type.includes("booking") || type.includes("appointment")) return { icon: CalendarPlus, color: "text-violet-400" };
-  if (type.includes("qualified") || type.includes("updated")) return { icon: BadgeCheck, color: "text-emerald-400" };
+  if (type.includes("booking") || type.includes("appointment"))
+    return { icon: CalendarPlus, color: "text-violet-400" };
+  if (type.includes("qualified") || type.includes("updated"))
+    return { icon: BadgeCheck, color: "text-emerald-400" };
   if (type.includes("ai")) return { icon: Bot, color: "text-emerald-400" };
   if (type.includes("message")) return { icon: User, color: "text-zinc-400" };
   return { icon: Zap, color: "text-amber-400" };
 }
 
-function localizeEventTitle(event: LeadEvent) {
-  const labels: Record<string, string> = {
-    "Message sent": "Сообщение отправлено",
-    "AI reply queued": "AI-ответ поставлен в очередь",
-    "Lead sent to CRM": "Лид отправлен в CRM",
+function localizeEventTitle(event: LeadEvent, t: Translate) {
+  const labels: Record<string, TranslationKey> = {
+    "Message sent": "ops.conversation.eventMessage",
+    "AI reply queued": "ops.conversation.eventAiQueued",
+    "Lead sent to CRM": "ops.conversation.eventCrm",
   };
-  return labels[event.title] ?? event.title;
+  const key = labels[event.title];
+  return key ? t(key) : event.title;
 }
 
-function timelineFromEvents(events?: LeadEvent[]) {
+function timelineFromEvents(events: LeadEvent[] | undefined, locale: Locale, t: Translate) {
   if (!events?.length) return [];
   return events.slice(0, 6).map((event) => ({
     ...eventIconAndColor(event.type),
-    label: localizeEventTitle(event),
-    time: relativeTimeLabel(event.createdAt),
+    label: localizeEventTitle(event, t),
+    time: relativeTimeLabel(event.createdAt, locale),
   }));
 }
 
-function senderLabel(from: ChatMessage["from"]) {
-  if (from === "client") return "Клиент";
+function senderLabel(from: ChatMessage["from"], t: Translate) {
+  if (from === "client") return t("ops.conversation.senderClient");
   if (from === "ai") return "AI";
-  return "Менеджер";
+  return t("ops.conversation.senderManager");
 }
 
 function sanitizeFilePart(value: string) {
@@ -207,19 +240,27 @@ function sanitizeFilePart(value: string) {
   return normalized || "conversation";
 }
 
-function buildTranscript(lead: Lead, messages: ChatMessage[], conversationId: string, status: ConversationStatus) {
+function buildTranscript(
+  lead: Lead,
+  messages: ChatMessage[],
+  conversationId: string,
+  status: ConversationStatus,
+  t: Translate,
+) {
   const header = [
     "LeadVirt conversation export",
-    `Conversation ID: ${conversationId}`,
-    `Lead: ${lead.name}`,
-    `Service: ${lead.service}`,
-    `Source: ${lead.source}`,
-    `Status: ${status}`,
+    `${t("ops.conversation.transcriptId")}: ${conversationId}`,
+    `${t("ops.conversation.transcriptLead")}: ${lead.name}`,
+    `${t("ops.conversation.transcriptService")}: ${lead.service}`,
+    `${t("ops.conversation.transcriptSource")}: ${lead.source}`,
+    `${t("ops.conversation.transcriptStatus")}: ${status}`,
     "",
-    "Messages:",
+    `${t("ops.conversation.transcriptMessages")}:`,
   ];
 
-  const body = messages.map((message) => `[${message.time}] ${senderLabel(message.from)}: ${message.text}`);
+  const body = messages.map(
+    (message) => `[${message.time}] ${senderLabel(message.from, t)}: ${message.text}`,
+  );
   return [...header, ...body, ""].join("\n");
 }
 
@@ -236,7 +277,16 @@ function downloadTextFile(filename: string, content: string) {
 }
 
 /* ── Message bubble ──────────────────────────────────────────── */
-function MessageBubble({ msg, index, customerInitial }: { msg: ChatMessage; index: number; customerInitial: string }) {
+function MessageBubble({
+  msg,
+  index,
+  customerInitial,
+}: {
+  msg: ChatMessage;
+  index: number;
+  customerInitial: string;
+}) {
+  const { formatNumber, t } = useI18n();
   const isClient = msg.from === "client";
   const isAI = msg.from === "ai";
   const isManager = msg.from === "manager";
@@ -248,7 +298,7 @@ function MessageBubble({ msg, index, customerInitial }: { msg: ChatMessage; inde
       transition={{ duration: 0.35, delay: index * 0.04, ease: "easeOut" }}
       className={cn(
         "flex gap-2.5 max-w-[85%] sm:max-w-[72%]",
-        isClient ? "self-start" : "self-end flex-row-reverse"
+        isClient ? "self-start" : "self-end flex-row-reverse",
       )}
     >
       {isClient && (
@@ -268,7 +318,7 @@ function MessageBubble({ msg, index, customerInitial }: { msg: ChatMessage; inde
       {isManager && (
         <div className="shrink-0 mt-1">
           <div className="w-7 h-7 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-300 text-xs font-semibold">
-            М
+            {t("ops.conversation.senderManager").charAt(0).toUpperCase()}
           </div>
         </div>
       )}
@@ -278,14 +328,16 @@ function MessageBubble({ msg, index, customerInitial }: { msg: ChatMessage; inde
           <span className="text-[10px] font-semibold text-emerald-400 self-end pr-1">AI</span>
         )}
         {isManager && (
-          <span className="text-[10px] font-semibold text-indigo-400 self-end pr-1">Менеджер</span>
+          <span className="text-[10px] font-semibold text-indigo-400 self-end pr-1">
+            {t("ops.conversation.senderManager")}
+          </span>
         )}
         <div
           className={cn(
             "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
             isClient && "bg-zinc-800 text-zinc-100 rounded-tl-sm",
             isAI && "bg-emerald-500/15 border border-emerald-500/20 text-zinc-100 rounded-tr-sm",
-            isManager && "bg-indigo-500/15 border border-indigo-500/20 text-zinc-100 rounded-tr-sm"
+            isManager && "bg-indigo-500/15 border border-indigo-500/20 text-zinc-100 rounded-tr-sm",
           )}
         >
           {msg.text ? <p>{msg.text}</p> : null}
@@ -295,14 +347,18 @@ function MessageBubble({ msg, index, customerInitial }: { msg: ChatMessage; inde
                 <a
                   key={attachment.id}
                   href={attachment.url}
-                  download={attachment.filename ?? "attachment"}
+                  download={attachment.filename ?? t("ops.conversation.attachFile")}
                   data-testid={`conversation-message-attachment-${attachment.id}`}
                   className="flex max-w-64 items-center gap-2 rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-xs text-zinc-200 transition-colors hover:border-emerald-400/30 hover:text-emerald-200"
                 >
                   <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{attachment.filename ?? "attachment"}</span>
-                  {formatAttachmentSize(attachment.sizeBytes) ? (
-                    <span className="shrink-0 text-zinc-500">{formatAttachmentSize(attachment.sizeBytes)}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {attachment.filename ?? t("ops.conversation.attachFile")}
+                  </span>
+                  {formatAttachmentSize(attachment.sizeBytes, formatNumber) ? (
+                    <span className="shrink-0 text-zinc-500">
+                      {formatAttachmentSize(attachment.sizeBytes, formatNumber)}
+                    </span>
                   ) : null}
                 </a>
               ))}
@@ -315,7 +371,14 @@ function MessageBubble({ msg, index, customerInitial }: { msg: ChatMessage; inde
   );
 }
 
-function TypingBubble({ from, customerInitial }: { from: ChatMessage["from"]; customerInitial: string }) {
+function TypingBubble({
+  from,
+  customerInitial,
+}: {
+  from: ChatMessage["from"];
+  customerInitial: string;
+}) {
+  const { t } = useI18n();
   const isClient = from === "client";
   const isAI = from === "ai";
 
@@ -324,7 +387,10 @@ function TypingBubble({ from, customerInitial }: { from: ChatMessage["from"]; cu
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 6 }}
-      className={cn("flex gap-2.5 max-w-[85%] sm:max-w-[72%]", isClient ? "self-start" : "self-end flex-row-reverse")}
+      className={cn(
+        "flex gap-2.5 max-w-[85%] sm:max-w-[72%]",
+        isClient ? "self-start" : "self-end flex-row-reverse",
+      )}
     >
       {isClient ? (
         <div className="shrink-0 mt-1">
@@ -344,11 +410,11 @@ function TypingBubble({ from, customerInitial }: { from: ChatMessage["from"]; cu
         className={cn(
           "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
           isClient && "bg-zinc-800 text-zinc-100 rounded-tl-sm",
-          isAI && "bg-emerald-500/15 border border-emerald-500/20 text-zinc-100 rounded-tr-sm"
+          isAI && "bg-emerald-500/15 border border-emerald-500/20 text-zinc-100 rounded-tr-sm",
         )}
       >
         <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-400">{demoTypingLabel(from)}</span>
+          <span className="text-xs text-zinc-400">{demoTypingLabel(from, t)}</span>
           <span className="flex items-center gap-1">
             {[0, 1, 2].map((dot) => (
               <motion.span
@@ -374,12 +440,15 @@ function LeadInfoPanel({
   timelineItems,
   pendingAction,
   onAction,
+  canManage,
 }: {
   lead: Lead;
   timelineItems: TimelineItem[];
   pendingAction: LeadAction | null;
   onAction: (action: LeadAction) => void;
+  canManage: boolean;
 }) {
+  const { formatCurrency, t } = useI18n();
   const isPending = (action: LeadAction) => pendingAction === action;
 
   return (
@@ -387,61 +456,100 @@ function LeadInfoPanel({
       {/* Info card */}
       <Card className="p-5">
         <h3 className="text-sm font-semibold text-zinc-300 tracking-tight mb-4">
-          Информация о лиде
+          {t("ops.conversation.leadInfo")}
         </h3>
         <div className="space-y-3">
-          <InfoRow label="Статус">
+          <InfoRow label={t("ops.conversation.status")}>
             <StatusPill stage={lead.stage} />
           </InfoRow>
-          <InfoRow label="Температура">
+          <InfoRow label={t("ops.conversation.temperature")}>
             <TempPill t={lead.temp} />
           </InfoRow>
-          <InfoRow label="Менеджер">
+          <InfoRow label={t("ops.common.manager")}>
             <span className="text-sm text-zinc-300">{lead.manager}</span>
           </InfoRow>
-          <InfoRow label="Источник">
+          <InfoRow label={t("ops.common.source")}>
             <span className="text-sm text-zinc-300">{lead.source}</span>
           </InfoRow>
-          <InfoRow label="Услуга">
+          <InfoRow label={t("ops.common.service")}>
             <span className="text-sm text-zinc-300">{lead.service}</span>
           </InfoRow>
-          <InfoRow label="Сумма">
+          <InfoRow label={t("ops.common.value")}>
             <span className="text-sm font-semibold text-emerald-400">
-              {formatValue(lead.value)} ₽
+              {lead.value > 0 ? formatCurrency(lead.value) : "—"}
             </span>
           </InfoRow>
-          <InfoRow label="Канал">
+          <InfoRow label={t("ops.common.channel")}>
             <ChannelBadge id={lead.channel} withLabel />
           </InfoRow>
         </div>
       </Card>
 
       {/* Actions */}
-      <Card className="p-5">
-        <h3 className="text-sm font-semibold text-zinc-300 tracking-tight mb-3">Действия</h3>
-        <div className="flex flex-col gap-2">
-          <Button size="sm" className="w-full justify-start gap-2" disabled={Boolean(pendingAction)} onClick={() => onAction("crm")}>
-            {isPending("crm") ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
-            Отправить в CRM
-          </Button>
-          <button disabled={Boolean(pendingAction)} onClick={() => onAction("task")} className="w-full flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 transition-colors px-3 py-2 text-sm font-medium text-zinc-200 disabled:opacity-60 disabled:cursor-not-allowed">
-            {isPending("task") ? <Loader2 className="w-4 h-4 animate-spin text-zinc-400" /> : <CheckSquare className="w-4 h-4 text-zinc-400" />}
-            Создать задачу
-          </button>
-          <button disabled={Boolean(pendingAction)} onClick={() => onAction("appointment")} className="w-full flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 transition-colors px-3 py-2 text-sm font-medium text-zinc-200 disabled:opacity-60 disabled:cursor-not-allowed">
-            {isPending("appointment") ? <Loader2 className="w-4 h-4 animate-spin text-zinc-400" /> : <CalendarPlus className="w-4 h-4 text-zinc-400" />}
-            Записать на приём
-          </button>
-          <button disabled={Boolean(pendingAction)} onClick={() => onAction("qualified")} className="w-full flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/15 transition-colors px-3 py-2 text-sm font-medium text-emerald-300 disabled:opacity-60 disabled:cursor-not-allowed">
-            {isPending("qualified") ? <Loader2 className="w-4 h-4 animate-spin" /> : <BadgeCheck className="w-4 h-4" />}
-            Отметить квалифицированным
-          </button>
-        </div>
-      </Card>
+      {canManage ? (
+        <Card className="p-5">
+          <h3 className="text-sm font-semibold text-zinc-300 tracking-tight mb-3">
+            {t("ops.common.actions")}
+          </h3>
+          <div className="flex flex-col gap-2">
+            <Button
+              size="sm"
+              className="w-full justify-start gap-2"
+              disabled={Boolean(pendingAction)}
+              onClick={() => onAction("crm")}
+            >
+              {isPending("crm") ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Database className="w-4 h-4" />
+              )}
+              {t("ops.conversation.sendToCrm")}
+            </Button>
+            <button
+              disabled={Boolean(pendingAction)}
+              onClick={() => onAction("task")}
+              className="w-full flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 transition-colors px-3 py-2 text-sm font-medium text-zinc-200 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isPending("task") ? (
+                <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+              ) : (
+                <CheckSquare className="w-4 h-4 text-zinc-400" />
+              )}
+              {t("ops.common.createTask")}
+            </button>
+            <button
+              disabled={Boolean(pendingAction)}
+              onClick={() => onAction("appointment")}
+              className="w-full flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 transition-colors px-3 py-2 text-sm font-medium text-zinc-200 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isPending("appointment") ? (
+                <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+              ) : (
+                <CalendarPlus className="w-4 h-4 text-zinc-400" />
+              )}
+              {t("ops.common.bookAppointment")}
+            </button>
+            <button
+              disabled={Boolean(pendingAction)}
+              onClick={() => onAction("qualified")}
+              className="w-full flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/15 transition-colors px-3 py-2 text-sm font-medium text-emerald-300 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isPending("qualified") ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <BadgeCheck className="w-4 h-4" />
+              )}
+              {t("ops.common.qualified")}
+            </button>
+          </div>
+        </Card>
+      ) : null}
 
       {/* Timeline */}
       <Card className="p-5">
-        <h3 className="text-sm font-semibold text-zinc-300 tracking-tight mb-4">Таймлайн</h3>
+        <h3 className="text-sm font-semibold text-zinc-300 tracking-tight mb-4">
+          {t("ops.conversation.timeline")}
+        </h3>
         <div className="relative">
           <div className="absolute left-[13px] top-1 bottom-1 w-px bg-white/5" />
           <div className="space-y-4">
@@ -458,7 +566,7 @@ function LeadInfoPanel({
                   <div
                     className={cn(
                       "w-6 h-6 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center shrink-0 z-10",
-                      item.color
+                      item.color,
                     )}
                   >
                     <Icon className="w-3 h-3" />
@@ -493,52 +601,88 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 export function ConversationPage() {
   const { demo } = useProductMode();
   const { params } = useNav();
+  const { formatDate, formatNumber, locale, t } = useI18n();
+  const permissions = useProductPermissions();
   const conversationId = typeof params.id === "string" && params.id.length > 0 ? params.id : "";
 
   const [apiConversation, setApiConversation] = useState<ConversationDetail | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [demoReplayMessages, setDemoReplayMessages] = useState<ChatMessage[]>([]);
-  const [demoReplayState, setDemoReplayState] = useState<"idle" | "playing" | "paused" | "done" | "skipped">("idle");
+  const [demoReplayState, setDemoReplayState] = useState<
+    "idle" | "playing" | "paused" | "done" | "skipped"
+  >("idle");
   const [demoTypingFrom, setDemoTypingFrom] = useState<ChatMessage["from"] | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [showLeadInfo, setShowLeadInfo] = useState(false);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
+  const [conversationLoadStatus, setConversationLoadStatus] = useState<
+    "loading" | "success" | "not-found" | "error"
+  >("loading");
+  const [conversationReloadRevision, setConversationReloadRevision] = useState(0);
   const [isSending, setIsSending] = useState(false);
   const [isDraftingAiReply, setIsDraftingAiReply] = useState(false);
   const [pendingLeadAction, setPendingLeadAction] = useState<LeadAction | null>(null);
-  const [pendingConversationAction, setPendingConversationAction] = useState<ConversationAction | null>(null);
+  const [pendingConversationAction, setPendingConversationAction] =
+    useState<ConversationAction | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const demoReplayTimersRef = useRef<number[]>([]);
+  const loadedConversationIdRef = useRef<string | null>(null);
+  const successfulConversationIdRef = useRef<string | null>(null);
+  const conversationGenerationRef = useRef(0);
   const mutationEpochRef = useRef(0);
   const mutationsInFlightRef = useRef(0);
   const shouldAutoScrollRef = useRef(true);
-  const lead = apiConversation ? leadFromConversation(apiConversation) : null;
+  const lead = apiConversation ? leadFromConversation(apiConversation, locale) : null;
   const apiLeadId = apiConversation?.lead?.id ?? null;
-  const timelineItems = timelineFromEvents(apiConversation?.events);
+  const timelineItems = timelineFromEvents(apiConversation?.events, locale, t);
   const conversationStatus = apiConversation?.status ?? "OPEN";
   const conversationModeLabel =
     conversationStatus === "WAITING_FOR_HUMAN"
-      ? "Передано менеджеру"
+      ? t("ops.conversation.modeHandoff")
       : conversationStatus === "CLOSED"
-        ? "Диалог закрыт"
+        ? t("ops.conversation.modeClosed")
         : apiConversation?.aiEnabled === false
-          ? "AI выключен"
-          : "AI ведёт диалог";
-  const customerInitial = lead?.name.trim().charAt(0).toUpperCase() || "К";
+          ? t("ops.conversation.modeAiOff")
+          : t("ops.conversation.modeAi");
+  const customerInitial =
+    lead?.name.trim().charAt(0).toUpperCase() ||
+    t("ops.conversation.senderClient").charAt(0).toUpperCase();
   const isDemoConversation = demo && conversationId.startsWith("demo-conv-");
   const hasDemoReplay = isDemoConversation && demoReplayMessages.length > 0;
 
-  function beginServerMutation() {
-    mutationsInFlightRef.current += 1;
-    mutationEpochRef.current += 1;
-    return mutationEpochRef.current;
+  function captureConversationScope(targetConversationId: string): ConversationScope {
+    return {
+      conversationId: targetConversationId,
+      generation: conversationGenerationRef.current,
+    };
   }
 
-  function endServerMutation() {
+  function isCurrentConversationScope(scope: ConversationScope) {
+    return (
+      scope.conversationId === loadedConversationIdRef.current &&
+      scope.generation === conversationGenerationRef.current
+    );
+  }
+
+  function beginServerMutation(targetConversationId: string): ConversationMutationToken {
+    mutationsInFlightRef.current += 1;
+    mutationEpochRef.current += 1;
+    return {
+      ...captureConversationScope(targetConversationId),
+      mutationEpoch: mutationEpochRef.current,
+    };
+  }
+
+  function isCurrentServerMutation(token: ConversationMutationToken) {
+    return isCurrentConversationScope(token) && token.mutationEpoch === mutationEpochRef.current;
+  }
+
+  function endServerMutation(token: ConversationMutationToken) {
+    if (!isCurrentConversationScope(token)) return;
     mutationsInFlightRef.current = Math.max(0, mutationsInFlightRef.current - 1);
   }
 
@@ -610,14 +754,29 @@ export function ConversationPage() {
   useEffect(() => {
     let active = true;
     let refreshInFlight = false;
+    const conversationChanged = loadedConversationIdRef.current !== conversationId;
+    loadedConversationIdRef.current = conversationId;
 
-    setApiConversation(null);
-    setMessages([]);
-    shouldAutoScrollRef.current = true;
-    setPendingAttachments([]);
+    if (conversationChanged) {
+      conversationGenerationRef.current += 1;
+      mutationEpochRef.current += 1;
+      mutationsInFlightRef.current = 0;
+      setApiConversation(null);
+      setMessages([]);
+      setInputValue("");
+      setPendingAttachments([]);
+      setEmojiOpen(false);
+      setIsSending(false);
+      setIsDraftingAiReply(false);
+      setPendingLeadAction(null);
+      setPendingConversationAction(null);
+      setConversationLoadStatus("loading");
+      shouldAutoScrollRef.current = true;
+    }
 
     if (!conversationId) {
       setIsLoadingConversation(false);
+      setConversationLoadStatus("not-found");
       return () => {
         active = false;
       };
@@ -626,6 +785,7 @@ export function ConversationPage() {
     async function loadConversation(initial: boolean) {
       if (refreshInFlight || mutationsInFlightRef.current > 0) return;
       refreshInFlight = true;
+      const requestScope = captureConversationScope(conversationId);
       const requestEpoch = mutationEpochRef.current;
       if (initial) setIsLoadingConversation(true);
 
@@ -633,15 +793,18 @@ export function ConversationPage() {
         const conversation = await getConversation(conversationId);
         if (
           !active ||
+          !isCurrentConversationScope(requestScope) ||
           requestEpoch !== mutationEpochRef.current ||
           mutationsInFlightRef.current > 0
         ) {
           return;
         }
         setApiConversation(conversation);
-        const nextMessages = messagesFromConversation(conversation);
+        successfulConversationIdRef.current = conversationId;
+        setConversationLoadStatus("success");
+        const nextMessages = messagesFromConversation(conversation, locale);
         if (demo && conversationId.startsWith("demo-conv-")) {
-          const replayMessages = demoReplayScript(conversationId, nextMessages);
+          const replayMessages = demoReplayScript(conversationId, nextMessages, t, formatDate);
           setDemoReplayMessages(replayMessages);
           setMessages([]);
           setDemoTypingFrom(null);
@@ -656,15 +819,28 @@ export function ConversationPage() {
             return nextMessages;
           });
         }
-      } catch {
-        if (!active) return;
-        if (initial) {
+      } catch (caught) {
+        if (
+          !active ||
+          !isCurrentConversationScope(requestScope) ||
+          requestEpoch !== mutationEpochRef.current ||
+          mutationsInFlightRef.current > 0
+        ) {
+          return;
+        }
+        if (caught instanceof ApiClientError && caught.status === 404) {
+          successfulConversationIdRef.current = null;
           setApiConversation(null);
           setMessages([]);
+          setConversationLoadStatus("not-found");
+        } else {
+          setConversationLoadStatus("error");
         }
       } finally {
         refreshInFlight = false;
-        if (active && initial) setIsLoadingConversation(false);
+        if (active && initial && isCurrentConversationScope(requestScope)) {
+          setIsLoadingConversation(false);
+        }
       }
     }
 
@@ -672,7 +848,9 @@ export function ConversationPage() {
       if (!demo && document.visibilityState === "visible") void loadConversation(false);
     }
 
-    void loadConversation(true);
+    void loadConversation(
+      conversationChanged || successfulConversationIdRef.current !== conversationId,
+    );
     const timer = window.setInterval(refreshWhenVisible, LIVE_REFRESH_INTERVAL_MS);
     window.addEventListener("focus", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
@@ -683,48 +861,75 @@ export function ConversationPage() {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [conversationId, demo]);
+  }, [conversationId, conversationReloadRevision, demo, formatDate, locale, t]);
 
   if (!lead) {
     return (
-      <ProductLayout title="Диалог">
-        <BackButton to="inbox" label="Назад во входящие" />
-        <div className="flex min-h-[50vh] items-center justify-center">
-          <EmptyState
-            icon={MessageSquare}
-            title={isLoadingConversation ? "Загружаем диалог" : "Диалог не найден"}
-            description={
-              isLoadingConversation
-                ? "Проверяем обращение в базе workspace."
-                : "Откройте диалог из списка входящих. В рабочем пространстве показываются только реальные обращения из вашей базы."
-            }
-          />
+      <ProductLayout title={t("ops.conversation.title")}>
+        <BackButton to="inbox" label={t("ops.conversation.back")} />
+        <div
+          className="flex min-h-[50vh] items-center justify-center"
+          data-testid={
+            conversationLoadStatus === "loading"
+              ? "conversation-loading"
+              : conversationLoadStatus === "not-found"
+                ? "conversation-not-found"
+                : undefined
+          }
+        >
+          {conversationLoadStatus === "error" ? (
+            <ResourceErrorState
+              testId="conversation-load-error"
+              onRetry={() => {
+                setConversationLoadStatus("loading");
+                setConversationReloadRevision((current) => current + 1);
+              }}
+            />
+          ) : (
+            <EmptyState
+              icon={MessageSquare}
+              title={
+                conversationLoadStatus === "loading" || isLoadingConversation
+                  ? t("ops.conversation.loadingTitle")
+                  : t("ops.conversation.notFound")
+              }
+              description={
+                conversationLoadStatus === "loading" || isLoadingConversation
+                  ? t("ops.conversation.loadingDetail")
+                  : t("ops.conversation.notFoundDetail")
+              }
+            />
+          )}
         </div>
       </ProductLayout>
     );
   }
 
   async function handleAttachmentSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    if (!permissions.canManageConversations) return;
+    const scope = captureConversationScope(conversationId);
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
 
     if (!acceptedAttachmentTypes.includes(file.type)) {
-      toast.error("Можно прикрепить PNG, JPG, PDF или TXT");
+      toast.error(t("ops.conversation.attachTypeError"));
       return;
     }
     if (file.size > ATTACHMENT_MAX_BYTES) {
-      toast.error("Файл должен быть до 60 КБ");
+      toast.error(t("ops.conversation.attachSizeError"));
       return;
     }
 
     try {
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => (typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("empty")));
+        reader.onload = () =>
+          typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("empty"));
         reader.onerror = () => reject(reader.error ?? new Error("read failed"));
         reader.readAsDataURL(file);
       });
+      if (!isCurrentConversationScope(scope)) return;
       setPendingAttachments([
         {
           id: `pending-${Date.now()}`,
@@ -734,23 +939,24 @@ export function ConversationPage() {
           sizeBytes: file.size,
         },
       ]);
-      toast.success("Файл прикреплён");
+      toast.success(t("ops.conversation.attachSuccess"));
     } catch {
-      toast.error("Не удалось прочитать файл");
+      if (!isCurrentConversationScope(scope)) return;
+      toast.error(t("ops.conversation.attachReadError"));
     }
   }
 
   async function handleSend() {
+    if (!permissions.canManageConversations) return;
     const text = inputValue.trim();
     if ((!text && pendingAttachments.length === 0) || isSending) return;
     pauseDemoReplayForInteraction();
     const attachments = pendingAttachments;
-    const mutationEpoch = apiConversation ? beginServerMutation() : null;
     const newMsg: ChatMessage = {
       id: `m${Date.now()}`,
       from: "manager",
       text,
-      time: new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
+      time: formatDate(new Date(), { hour: "2-digit", minute: "2-digit" }),
       attachments: attachments.map((attachment) => ({
         id: attachment.id,
         filename: attachment.filename,
@@ -766,6 +972,8 @@ export function ConversationPage() {
 
     if (!apiConversation) return;
 
+    const targetConversationId = apiConversation.id;
+    const mutationToken = beginServerMutation(targetConversationId);
     setIsSending(true);
     try {
       const attachmentPayload: ConversationAttachmentDraft[] = attachments.map((attachment) => ({
@@ -774,38 +982,46 @@ export function ConversationPage() {
         dataUrl: attachment.url,
         sizeBytes: attachment.sizeBytes,
       }));
-      const updated = await sendConversationMessage(apiConversation.id, text, attachmentPayload);
-      if (mutationEpoch === mutationEpochRef.current) {
+      const updated = await sendConversationMessage(targetConversationId, text, attachmentPayload);
+      if (isCurrentServerMutation(mutationToken)) {
         setApiConversation(updated);
-        const nextMessages = messagesFromConversation(updated);
+        const nextMessages = messagesFromConversation(updated, locale);
         shouldAutoScrollRef.current = true;
         setMessages(nextMessages.length > 0 ? nextMessages : [newMsg]);
       }
-      toast.success("Сообщение отправлено");
+      if (isCurrentConversationScope(mutationToken)) {
+        toast.success(t("ops.conversation.messageSent"));
+      }
     } catch (caught) {
-      setMessages((current) => current.filter((message) => message.id !== newMsg.id));
-      setInputValue(text);
-      setPendingAttachments(attachments);
-      toast.error(caught instanceof Error ? caught.message : "Не удалось отправить сообщение");
+      if (isCurrentConversationScope(mutationToken)) {
+        setMessages((current) => current.filter((message) => message.id !== newMsg.id));
+        setInputValue(text);
+        setPendingAttachments(attachments);
+        toast.error(caught instanceof Error ? caught.message : t("ops.conversation.messageFailed"));
+      }
     } finally {
-      endServerMutation();
-      setIsSending(false);
+      endServerMutation(mutationToken);
+      if (isCurrentConversationScope(mutationToken)) {
+        setIsSending(false);
+      }
     }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   }
 
   function handleQuickReply(text: string) {
+    if (!permissions.canManageConversations) return;
     pauseDemoReplayForInteraction();
     setInputValue(text);
   }
 
   function handleEmojiSelect(emoji: string) {
+    if (!permissions.canManageConversations) return;
     pauseDemoReplayForInteraction();
     setInputValue((value) => `${value}${emoji}`);
     setEmojiOpen(false);
@@ -813,44 +1029,59 @@ export function ConversationPage() {
 
   function handleExportTranscript() {
     const filename = `leadvirt-${sanitizeFilePart(lead.name)}-${sanitizeFilePart(conversationId)}.txt`;
-    downloadTextFile(filename, buildTranscript(lead, messages, conversationId, conversationStatus));
-    toast.success("Экспорт переписки готов");
+    downloadTextFile(
+      filename,
+      buildTranscript(lead, messages, conversationId, conversationStatus, t),
+    );
+    toast.success(t("ops.conversation.exportReady"));
   }
 
   async function handleDraftAiReply() {
+    if (!permissions.canManageConversations) return;
     if (isDraftingAiReply) return;
     pauseDemoReplayForInteraction();
 
     if (!apiConversation) {
-      toast.error("AI-подсказка доступна для API-диалога");
+      toast.error(t("ops.conversation.apiOnly"));
       return;
     }
 
+    const targetConversationId = apiConversation.id;
+    const scope = captureConversationScope(targetConversationId);
     setIsDraftingAiReply(true);
     try {
-      const draft = await draftAiReply(apiConversation.id);
+      const draft = await draftAiReply(targetConversationId);
+      if (!isCurrentConversationScope(scope)) return;
       setInputValue(draft.reply);
-      toast.success("AI-подсказка готова", {
-        description: draft.handoffRequired ? "Проверьте текст: AI рекомендует менеджера." : "Можно отредактировать и отправить.",
+      toast.success(t("ops.conversation.aiDraftReady"), {
+        description: draft.handoffRequired
+          ? t("ops.conversation.aiDraftHandoff")
+          : t("ops.conversation.aiDraftEdit"),
       });
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "Не удалось подготовить AI-подсказку");
+      if (!isCurrentConversationScope(scope)) return;
+      toast.error(caught instanceof Error ? caught.message : t("ops.conversation.aiDraftFailed"));
     } finally {
-      setIsDraftingAiReply(false);
+      if (isCurrentConversationScope(scope)) {
+        setIsDraftingAiReply(false);
+      }
     }
   }
 
-  function applyApiLead(updatedLead: ApiLead, mutationEpoch: number) {
-    if (mutationEpoch !== mutationEpochRef.current) return;
+  function applyApiLead(updatedLead: ApiLead, mutationToken: ConversationMutationToken) {
+    if (!isCurrentServerMutation(mutationToken)) return;
     setApiConversation((current) => (current ? { ...current, lead: updatedLead } : current));
   }
 
-  async function refreshConversation(mutationEpoch: number) {
-    if (!apiConversation) return;
-    const updated = await getConversation(apiConversation.id);
-    if (mutationEpoch !== mutationEpochRef.current) return;
+  async function refreshConversation(
+    targetConversationId: string,
+    mutationToken: ConversationMutationToken,
+  ) {
+    if (!isCurrentServerMutation(mutationToken)) return;
+    const updated = await getConversation(targetConversationId);
+    if (!isCurrentServerMutation(mutationToken)) return;
     setApiConversation(updated);
-    const nextMessages = messagesFromConversation(updated);
+    const nextMessages = messagesFromConversation(updated, locale);
     setMessages((current) => {
       if (chatMessagesEqual(current, nextMessages)) return current;
       shouldAutoScrollRef.current = isNearConversationBottom(messagesScrollRef.current);
@@ -858,10 +1089,13 @@ export function ConversationPage() {
     });
   }
 
-  function applyConversationUpdate(updated: ConversationDetail, mutationEpoch: number) {
-    if (mutationEpoch !== mutationEpochRef.current) return;
+  function applyConversationUpdate(
+    updated: ConversationDetail,
+    mutationToken: ConversationMutationToken,
+  ) {
+    if (!isCurrentServerMutation(mutationToken)) return;
     setApiConversation(updated);
-    const nextMessages = messagesFromConversation(updated);
+    const nextMessages = messagesFromConversation(updated, locale);
     setMessages((current) => {
       if (chatMessagesEqual(current, nextMessages)) return current;
       shouldAutoScrollRef.current = isNearConversationBottom(messagesScrollRef.current);
@@ -869,97 +1103,144 @@ export function ConversationPage() {
     });
   }
 
-  async function changeConversationStatus(status: ConversationStatus) {
-    if (!apiConversation) return null;
-    return updateConversationStatus(apiConversation.id, status);
+  async function changeConversationStatus(
+    targetConversationId: string,
+    status: ConversationStatus,
+  ) {
+    if (!permissions.canManageConversations) return null;
+    return updateConversationStatus(targetConversationId, status);
   }
 
   async function handleConversationAction(action: ConversationAction) {
+    if (!permissions.canManageConversations) return;
     if (pendingConversationAction) return;
     pauseDemoReplayForInteraction();
 
     if (!apiConversation) {
-      toast.error("Действие доступно для API-диалога");
+      toast.error(t("ops.conversation.apiOnly"));
       return;
     }
 
     setPendingConversationAction(action);
-    const mutationEpoch = beginServerMutation();
+    const targetConversationId = apiConversation.id;
+    const mutationToken = beginServerMutation(targetConversationId);
     try {
       if (action === "handoff") {
-        const updated = await handoffConversation(apiConversation.id);
-        applyConversationUpdate(updated, mutationEpoch);
-        toast.success("Диалог передан менеджеру");
+        const updated = await handoffConversation(targetConversationId);
+        applyConversationUpdate(updated, mutationToken);
+        if (isCurrentConversationScope(mutationToken)) {
+          toast.success(t("ops.conversation.handoffDone"));
+        }
       }
 
       if (action === "close") {
-        const updated = await changeConversationStatus("CLOSED");
-        if (updated) applyConversationUpdate(updated, mutationEpoch);
-        toast.success("Диалог закрыт");
+        const updated = await changeConversationStatus(targetConversationId, "CLOSED");
+        if (updated) applyConversationUpdate(updated, mutationToken);
+        if (isCurrentConversationScope(mutationToken)) {
+          toast.success(t("ops.conversation.closedDone"));
+        }
       }
 
       if (action === "open") {
-        const updated = await changeConversationStatus("OPEN");
-        if (updated) applyConversationUpdate(updated, mutationEpoch);
-        toast.success("Диалог открыт");
+        const updated = await changeConversationStatus(targetConversationId, "OPEN");
+        if (updated) applyConversationUpdate(updated, mutationToken);
+        if (isCurrentConversationScope(mutationToken)) {
+          toast.success(t("ops.conversation.openedDone"));
+        }
       }
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "Действие с диалогом не выполнено");
+      if (isCurrentConversationScope(mutationToken)) {
+        toast.error(caught instanceof Error ? caught.message : t("ops.conversation.actionFailed"));
+      }
     } finally {
-      endServerMutation();
-      setPendingConversationAction(null);
+      endServerMutation(mutationToken);
+      if (isCurrentConversationScope(mutationToken)) {
+        setPendingConversationAction(null);
+      }
     }
   }
 
   async function handleLeadAction(action: LeadAction) {
+    if (!permissions.canManageLeads) return;
     pauseDemoReplayForInteraction();
     if (!apiLeadId) {
-      toast.error("Действие доступно для API-лида");
+      toast.error(t("ops.common.apiLeadOnly"));
       return;
     }
 
     setPendingLeadAction(action);
-    const mutationEpoch = beginServerMutation();
+    const targetConversationId = apiConversation?.id ?? conversationId;
+    const targetLeadId = apiLeadId;
+    const mutationToken = beginServerMutation(targetConversationId);
     try {
       if (action === "crm") {
-        const updated = await sendLeadToCrm(apiLeadId);
-        applyApiLead(updated, mutationEpoch);
-        toast.success("Лид отправлен в CRM");
+        const updated = await sendLeadToCrm(targetLeadId);
+        applyApiLead(updated, mutationToken);
+        if (isCurrentConversationScope(mutationToken)) {
+          toast.success(t("ops.common.crmSent"));
+        }
       }
 
       if (action === "task") {
-        await createLeadTask(apiLeadId, "Связаться с лидом из диалога");
-        toast.success("Задача создана");
+        await createLeadTask(targetLeadId, t("ops.conversation.taskTitle"));
+        if (isCurrentConversationScope(mutationToken)) {
+          toast.success(t("ops.common.taskCreated"));
+        }
       }
 
       if (action === "appointment") {
         await bookLeadAppointment(
-          apiLeadId,
-          lead.service || "Запись",
-          new Date(Date.now() + 24 * 60 * 60_000).toISOString()
+          targetLeadId,
+          lead.service || t("ops.common.bookingFallback"),
+          new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
         );
-        await refreshConversation(mutationEpoch);
-        toast.success("Запись создана");
+        await refreshConversation(targetConversationId, mutationToken);
+        if (isCurrentConversationScope(mutationToken)) {
+          toast.success(t("ops.conversation.appointmentCreated"));
+        }
       }
 
       if (action === "qualified") {
-        const updated = await updateLead(apiLeadId, { status: "QUALIFIED" });
-        applyApiLead(updated, mutationEpoch);
-        toast.success("Лид квалифицирован");
+        const updated = await updateLead(targetLeadId, { status: "QUALIFIED" });
+        applyApiLead(updated, mutationToken);
+        if (isCurrentConversationScope(mutationToken)) {
+          toast.success(t("ops.conversation.leadQualified"));
+        }
       }
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "Действие не выполнено");
+      if (isCurrentConversationScope(mutationToken)) {
+        toast.error(caught instanceof Error ? caught.message : t("ops.common.actionFailed"));
+      }
     } finally {
-      endServerMutation();
-      setPendingLeadAction(null);
+      endServerMutation(mutationToken);
+      if (isCurrentConversationScope(mutationToken)) {
+        setPendingLeadAction(null);
+      }
     }
   }
 
   return (
-    <ProductLayout title="Диалог">
-      <BackButton to="inbox" label="Назад во входящие" />
+    <ProductLayout title={t("ops.conversation.title")}>
+      <BackButton to="inbox" label={t("ops.conversation.back")} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 h-[calc(100vh-10rem)] lg:h-[calc(100vh-9rem)]">
+      {conversationLoadStatus === "error" ? (
+        <div className="mb-4">
+          <ResourceErrorState
+            testId="conversation-refresh-error"
+            onRetry={() => {
+              setConversationLoadStatus("loading");
+              setConversationReloadRevision((current) => current + 1);
+            }}
+          />
+        </div>
+      ) : null}
+
+      <div
+        className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 h-[calc(100vh-10rem)] lg:h-[calc(100vh-9rem)]"
+        data-testid={
+          permissions.canManageConversations ? "conversation-operator" : "conversation-read-only"
+        }
+      >
         {/* ── LEFT: Chat column ── */}
         <div className="flex flex-col min-h-0">
           <Card className="flex flex-col flex-1 min-h-0 overflow-hidden rounded-3xl">
@@ -986,7 +1267,9 @@ export function ConversationPage() {
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                     <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
                   </span>
-                  <span className="text-xs font-medium text-emerald-300">{conversationModeLabel}</span>
+                  <span className="text-xs font-medium text-emerald-300">
+                    {conversationModeLabel}
+                  </span>
                 </div>
 
                 {/* Mobile toggle for lead info */}
@@ -994,7 +1277,7 @@ export function ConversationPage() {
                   className="lg:hidden flex flex-1 sm:flex-none items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300"
                   onClick={() => setShowLeadInfo((v) => !v)}
                 >
-                  Информация о лиде
+                  {t("ops.conversation.leadInfo")}
                   {showLeadInfo ? (
                     <ChevronUp className="w-3.5 h-3.5" />
                   ) : (
@@ -1006,32 +1289,46 @@ export function ConversationPage() {
                 <Dropdown
                   trigger={
                     <button
-                      aria-label="Действия с диалогом"
+                      aria-label={t("ops.conversation.menuLabel")}
                       className="w-8 h-8 flex items-center justify-center rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-zinc-200 transition-all"
                     >
                       <MoreVertical className="w-4 h-4" />
                     </button>
                   }
                 >
-                  <DropdownItem onClick={() => void handleConversationAction("handoff")}>
-                    {pendingConversationAction === "handoff" ? "Передаём..." : "Передать менеджеру"}
-                  </DropdownItem>
-                  <DropdownItem onClick={() => void handleDraftAiReply()}>
-                    {isDraftingAiReply ? "Готовим AI-подсказку..." : "AI-подсказка"}
-                  </DropdownItem>
+                  {permissions.canManageConversations ? (
+                    <>
+                      <DropdownItem onClick={() => void handleConversationAction("handoff")}>
+                        {pendingConversationAction === "handoff"
+                          ? t("ops.conversation.handingOff")
+                          : t("ops.conversation.handoff")}
+                      </DropdownItem>
+                      <DropdownItem onClick={() => void handleDraftAiReply()}>
+                        {isDraftingAiReply
+                          ? t("ops.conversation.aiDrafting")
+                          : t("ops.conversation.aiDraft")}
+                      </DropdownItem>
+                    </>
+                  ) : null}
                   <DropdownItem onClick={handleExportTranscript}>
-                    Экспорт переписки
+                    {t("ops.conversation.export")}
                   </DropdownItem>
-                  <DropdownSeparator />
-                  {conversationStatus === "CLOSED" ? (
-                    <DropdownItem onClick={() => void handleConversationAction("open")}>
-                      {pendingConversationAction === "open" ? "Открываем..." : "Открыть диалог"}
-                    </DropdownItem>
-                  ) : (
-                    <DropdownItem danger onClick={() => void handleConversationAction("close")}>
-                      {pendingConversationAction === "close" ? "Закрываем..." : "Закрыть диалог"}
-                    </DropdownItem>
-                  )}
+                  {permissions.canManageConversations ? <DropdownSeparator /> : null}
+                  {permissions.canManageConversations ? (
+                    conversationStatus === "CLOSED" ? (
+                      <DropdownItem onClick={() => void handleConversationAction("open")}>
+                        {pendingConversationAction === "open"
+                          ? t("ops.conversation.opening")
+                          : t("ops.conversation.open")}
+                      </DropdownItem>
+                    ) : (
+                      <DropdownItem danger onClick={() => void handleConversationAction("close")}>
+                        {pendingConversationAction === "close"
+                          ? t("ops.conversation.closing")
+                          : t("ops.conversation.close")}
+                      </DropdownItem>
+                    )
+                  ) : null}
                 </Dropdown>
               </div>
             </div>
@@ -1040,11 +1337,15 @@ export function ConversationPage() {
               <div className="flex flex-col gap-2 border-b border-emerald-500/10 bg-emerald-500/[0.04] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-2 text-xs text-emerald-200">
                   <span className="relative flex h-2 w-2 shrink-0">
-                    {demoReplayState === "playing" ? <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /> : null}
+                    {demoReplayState === "playing" ? (
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                    ) : null}
                     <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
                   </span>
                   <span className="truncate">
-                    {demoReplayState === "playing" ? "Live demo: клиент и AI общаются сейчас" : "Live demo диалога готов к повтору"}
+                    {demoReplayState === "playing"
+                      ? t("ops.conversation.demoPlaying")
+                      : t("ops.conversation.demoReady")}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1054,7 +1355,7 @@ export function ConversationPage() {
                       onClick={() => revealDemoReplay("skipped")}
                       className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/10 hover:text-zinc-100"
                     >
-                      Пропустить
+                      {t("ops.conversation.skip")}
                     </button>
                   ) : null}
                   <button
@@ -1062,7 +1363,7 @@ export function ConversationPage() {
                     onClick={restartDemoReplay}
                     className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 transition-colors hover:bg-emerald-400/15"
                   >
-                    Повторить demo
+                    {t("ops.conversation.replay")}
                   </button>
                 </div>
               </div>
@@ -1084,6 +1385,7 @@ export function ConversationPage() {
                       timelineItems={timelineItems}
                       pendingAction={pendingLeadAction}
                       onAction={(action) => void handleLeadAction(action)}
+                      canManage={permissions.canManageLeads}
                     />
                   </div>
                 </motion.div>
@@ -1099,130 +1401,152 @@ export function ConversationPage() {
               <div className="flex flex-col gap-3">
                 {isLoadingConversation && (
                   <div className="self-center rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-400">
-                    Загрузка диалога...
+                    {t("ops.conversation.loading")}
                   </div>
                 )}
                 {messages.map((msg, i) => (
-                  <MessageBubble key={msg.id} msg={msg} index={i} customerInitial={customerInitial} />
+                  <MessageBubble
+                    key={msg.id}
+                    msg={msg}
+                    index={i}
+                    customerInitial={customerInitial}
+                  />
                 ))}
                 <AnimatePresence>
-                  {demoTypingFrom ? <TypingBubble from={demoTypingFrom} customerInitial={customerInitial} /> : null}
+                  {demoTypingFrom ? (
+                    <TypingBubble from={demoTypingFrom} customerInitial={customerInitial} />
+                  ) : null}
                 </AnimatePresence>
                 <div ref={messagesEndRef} />
               </div>
             </div>
 
             {/* Quick replies */}
-            <div className="px-5 py-2 border-t border-white/5 shrink-0">
-              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-                {quickReplies.map((qr) => (
-                  <button
-                    key={qr}
-                    onClick={() => handleQuickReply(qr)}
-                    className="shrink-0 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 hover:border-emerald-500/30 transition-colors px-3 py-1.5 text-xs font-medium text-zinc-300"
-                  >
-                    {qr}
-                  </button>
-                ))}
+            {permissions.canManageConversations ? (
+              <div className="px-5 py-2 border-t border-white/5 shrink-0">
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+                  {quickReplyKeys.map((key) => {
+                    const quickReply = t(key);
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => handleQuickReply(quickReply)}
+                        className="shrink-0 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 hover:border-emerald-500/30 transition-colors px-3 py-1.5 text-xs font-medium text-zinc-300"
+                      >
+                        {quickReply}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            ) : null}
 
             {/* Input bar */}
-            <div className="px-4 pb-4 pt-2 shrink-0">
-              {pendingAttachments.length ? (
-                <div className="mb-2 flex flex-wrap gap-2">
-                  {pendingAttachments.map((attachment) => (
-                    <div
-                      key={attachment.id}
-                      data-testid="conversation-pending-attachment"
-                      className="flex max-w-full items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100"
-                    >
-                      <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                      <span className="min-w-0 truncate">{attachment.filename}</span>
-                      <span className="shrink-0 text-emerald-300/70">{formatAttachmentSize(attachment.sizeBytes)}</span>
-                      <button
-                        type="button"
-                        aria-label="Удалить файл"
-                        onClick={() => setPendingAttachments([])}
-                        className="ml-1 rounded-md px-1 text-emerald-200/70 transition-colors hover:bg-white/10 hover:text-white"
+            {permissions.canManageConversations ? (
+              <div className="px-4 pb-4 pt-2 shrink-0">
+                {pendingAttachments.length ? (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {pendingAttachments.map((attachment) => (
+                      <div
+                        key={attachment.id}
+                        data-testid="conversation-pending-attachment"
+                        className="flex max-w-full items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100"
                       >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              <div className="flex items-end gap-2 rounded-2xl border border-white/10 bg-zinc-900 px-3 py-2 focus-within:border-emerald-500/40 transition-colors">
-                <input
-                  ref={attachmentInputRef}
-                  type="file"
-                  accept={acceptedAttachmentTypes.join(",")}
-                  className="hidden"
-                  data-testid="conversation-attachment-input"
-                  onChange={(event) => void handleAttachmentSelected(event)}
-                />
-                <button
-                  type="button"
-                  aria-label="Прикрепить файл"
-                  data-testid="conversation-attach-file"
-                  onClick={() => attachmentInputRef.current?.click()}
-                  className="mb-1 shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors"
-                >
-                  <Paperclip className="w-4.5 h-4.5 w-[18px] h-[18px]" />
-                </button>
-                <textarea
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Написать сообщение..."
-                  rows={1}
-                  className="flex-1 resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-600 outline-none leading-relaxed max-h-28 overflow-y-auto py-1"
-                />
-                <div className="relative flex items-center gap-1.5 mb-1 shrink-0">
+                        <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                        <span className="min-w-0 truncate">{attachment.filename}</span>
+                        <span className="shrink-0 text-emerald-300/70">
+                          {formatAttachmentSize(attachment.sizeBytes, formatNumber)}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={t("ops.conversation.removeFile")}
+                          onClick={() => setPendingAttachments([])}
+                          className="ml-1 rounded-md px-1 text-emerald-200/70 transition-colors hover:bg-white/10 hover:text-white"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="flex items-end gap-2 rounded-2xl border border-white/10 bg-zinc-900 px-3 py-2 focus-within:border-emerald-500/40 transition-colors">
+                  <input
+                    ref={attachmentInputRef}
+                    type="file"
+                    accept={acceptedAttachmentTypes.join(",")}
+                    className="hidden"
+                    data-testid="conversation-attachment-input"
+                    onChange={(event) => void handleAttachmentSelected(event)}
+                  />
                   <button
                     type="button"
-                    aria-label="Открыть эмодзи"
-                    data-testid="conversation-emoji"
-                    onClick={() => setEmojiOpen((open) => !open)}
-                    className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                    aria-label={t("ops.conversation.attachFile")}
+                    data-testid="conversation-attach-file"
+                    onClick={() => attachmentInputRef.current?.click()}
+                    className="mb-1 shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors"
                   >
-                    <Smile className="w-[18px] h-[18px]" />
+                    <Paperclip className="w-4.5 h-4.5 w-[18px] h-[18px]" />
                   </button>
-                  {emojiOpen && (
-                    <div
-                      data-testid="conversation-emoji-panel"
-                      className="absolute bottom-10 right-0 z-50 grid w-36 grid-cols-4 gap-1 rounded-2xl border border-white/10 bg-zinc-950 p-2 shadow-2xl shadow-black/50"
+                  <textarea
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={t("ops.conversation.placeholder")}
+                    rows={1}
+                    className="flex-1 resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-600 outline-none leading-relaxed max-h-28 overflow-y-auto py-1"
+                  />
+                  <div className="relative flex items-center gap-1.5 mb-1 shrink-0">
+                    <button
+                      type="button"
+                      aria-label={t("ops.conversation.openEmoji")}
+                      data-testid="conversation-emoji"
+                      onClick={() => setEmojiOpen((open) => !open)}
+                      className="text-zinc-500 hover:text-zinc-300 transition-colors"
                     >
-                      {emojiOptions.map((emoji, index) => (
-                        <button
-                          key={emoji}
-                          type="button"
-                          data-testid={`conversation-emoji-option-${index}`}
-                          aria-label={`Добавить ${emoji}`}
-                          onClick={() => handleEmojiSelect(emoji)}
-                          className="flex h-8 w-8 items-center justify-center rounded-xl text-lg transition-colors hover:bg-white/10"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <button
-                    aria-label="Отправить сообщение"
-                    onClick={handleSend}
-                    disabled={(!inputValue.trim() && pendingAttachments.length === 0) || isSending}
-                    className={cn(
-                      "w-8 h-8 rounded-xl flex items-center justify-center transition-all",
-                      (inputValue.trim() || pendingAttachments.length > 0) && !isSending
-                        ? "bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-[0_0_16px_rgba(52,211,153,0.4)]"
-                        : "bg-white/5 text-zinc-600 cursor-not-allowed"
+                      <Smile className="w-[18px] h-[18px]" />
+                    </button>
+                    {emojiOpen && (
+                      <div
+                        data-testid="conversation-emoji-panel"
+                        className="absolute bottom-10 right-0 z-50 grid w-36 grid-cols-4 gap-1 rounded-2xl border border-white/10 bg-zinc-950 p-2 shadow-2xl shadow-black/50"
+                      >
+                        {emojiOptions.map((emoji, index) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            data-testid={`conversation-emoji-option-${index}`}
+                            aria-label={t("ops.conversation.addEmoji", { emoji })}
+                            onClick={() => handleEmojiSelect(emoji)}
+                            className="flex h-8 w-8 items-center justify-center rounded-xl text-lg transition-colors hover:bg-white/10"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
                     )}
-                  >
-                    {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  </button>
+                    <button
+                      aria-label={t("ops.conversation.send")}
+                      onClick={() => void handleSend()}
+                      disabled={
+                        (!inputValue.trim() && pendingAttachments.length === 0) || isSending
+                      }
+                      className={cn(
+                        "w-8 h-8 rounded-xl flex items-center justify-center transition-all",
+                        (inputValue.trim() || pendingAttachments.length > 0) && !isSending
+                          ? "bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-[0_0_16px_rgba(52,211,153,0.4)]"
+                          : "bg-white/5 text-zinc-600 cursor-not-allowed",
+                      )}
+                    >
+                      {isSending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : null}
           </Card>
         </div>
 
@@ -1233,23 +1557,43 @@ export function ConversationPage() {
             timelineItems={timelineItems}
             pendingAction={pendingLeadAction}
             onAction={(action) => void handleLeadAction(action)}
+            canManage={permissions.canManageLeads}
           />
         </div>
       </div>
 
       {/* Sticky mobile actions */}
-      <div className="lg:hidden fixed bottom-16 inset-x-0 z-30 px-4 pb-2 pt-2 bg-gradient-to-t from-zinc-950 via-zinc-950/90 to-transparent pointer-events-none">
-        <div className="flex gap-2 pointer-events-auto">
-          <Button size="sm" className="flex-1 justify-center gap-2" disabled={Boolean(pendingLeadAction)} onClick={() => void handleLeadAction("crm")}>
-            {pendingLeadAction === "crm" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
-            В CRM
-          </Button>
-          <button disabled={Boolean(pendingLeadAction)} onClick={() => void handleLeadAction("appointment")} className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-white/10 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-            {pendingLeadAction === "appointment" ? <Loader2 className="w-4 h-4 animate-spin text-zinc-400" /> : <CalendarPlus className="w-4 h-4 text-zinc-400" />}
-            Записать
-          </button>
+      {permissions.canManageLeads ? (
+        <div className="lg:hidden fixed bottom-16 inset-x-0 z-30 px-4 pb-2 pt-2 bg-gradient-to-t from-zinc-950 via-zinc-950/90 to-transparent pointer-events-none">
+          <div className="flex gap-2 pointer-events-auto">
+            <Button
+              size="sm"
+              className="flex-1 justify-center gap-2"
+              disabled={Boolean(pendingLeadAction)}
+              onClick={() => void handleLeadAction("crm")}
+            >
+              {pendingLeadAction === "crm" ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Database className="w-4 h-4" />
+              )}
+              {t("ops.common.toCrm")}
+            </Button>
+            <button
+              disabled={Boolean(pendingLeadAction)}
+              onClick={() => void handleLeadAction("appointment")}
+              className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-white/10 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {pendingLeadAction === "appointment" ? (
+                <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+              ) : (
+                <CalendarPlus className="w-4 h-4 text-zinc-400" />
+              )}
+              {t("ops.common.bookAppointment")}
+            </button>
+          </div>
         </div>
-      </div>
+      ) : null}
     </ProductLayout>
   );
 }

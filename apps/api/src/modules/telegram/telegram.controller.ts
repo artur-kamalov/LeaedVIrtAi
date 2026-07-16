@@ -9,8 +9,10 @@ export class TelegramController {
   async webhook(
     @Param("publicKey") publicKey: string,
     @Body() body: unknown,
-    @Headers() headers: Record<string, string | string[] | undefined>
+    @Headers() headers: Record<string, string | string[] | undefined>,
   ) {
-    return { data: await this.telegramService.handleWebhook(publicKey, body, headers) };
+    return {
+      data: await this.telegramService.handleWebhook(publicKey, body, headers, "TELEGRAM_WEBHOOK"),
+    };
   }
 }

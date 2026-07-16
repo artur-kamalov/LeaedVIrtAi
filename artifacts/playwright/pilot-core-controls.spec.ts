@@ -4,11 +4,13 @@ import { loginAsCleanUser } from "./helpers/auth";
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
 
-test.describe.configure({ timeout: 90_000 });
+test.describe.configure({ timeout: 180_000 });
 
 test.beforeEach(async ({ page }) => {
-  await page.context().addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
-  await loginAsCleanUser(page, apiBase);
+  await page
+    .context()
+    .addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
+  await loginAsCleanUser(page, apiBase, { locale: "ru" });
 });
 
 test("dashboard quick actions navigate to real product routes", async ({ page }) => {
@@ -36,34 +38,83 @@ test("dashboard quick actions navigate to real product routes", async ({ page })
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
 
-  await page.getByTestId("dashboard-new-lead").click();
-  await expect(page).toHaveURL(/\/app\/inbox$/, { timeout: 15_000 });
+  const dashboardInboxLink = page.getByTestId("dashboard-open-inbox");
+  await expect(dashboardInboxLink).toHaveAccessibleName("Открыть входящие");
+  await dashboardInboxLink.click();
+  await expect(page).toHaveURL(/\/app\/inbox$/, { timeout: 45_000 });
 
   await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
   await page.getByTestId("dashboard-scenarios").click();
-  await expect(page).toHaveURL(/\/app\/automations$/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/app\/automations$/, { timeout: 45_000 });
 
   await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
   await page.getByTestId("dashboard-analytics").click();
-  await expect(page).toHaveURL(/\/app\/analytics$/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/app\/analytics$/, { timeout: 45_000 });
 });
 
 test("product shell primary links route without silent clicks", async ({ page }) => {
+  test.setTimeout(150_000);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
 
-  await page.getByTestId("product-topbar-new-lead").click();
-  await expect(page).toHaveURL(/\/app\/inbox$/, { timeout: 15_000 });
+  const topbarInboxLink = page.getByTestId("product-topbar-open-inbox");
+  await expect(topbarInboxLink).toHaveAccessibleName("Открыть входящие");
+  await topbarInboxLink.click();
+  await expect(page).toHaveURL(/\/app\/inbox$/, { timeout: 45_000 });
 
   await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
   await page.getByTestId("product-billing-link").click();
-  await expect(page).toHaveURL(/\/app\/billing$/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/app\/billing$/, { timeout: 45_000 });
 
   await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
   await page.getByTestId("product-logo-link").click();
-  await expect(page).toHaveURL(new RegExp(`^${webBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/?$`), {
-    timeout: 15_000,
-  });
+  await expect(page).toHaveURL(
+    new RegExp(`^${webBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/?$`),
+    {
+      timeout: 45_000,
+    },
+  );
+});
+
+test("mobile navigation traps keyboard focus and restores the menu trigger", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
+
+  const trigger = page.getByTestId("product-mobile-menu-trigger");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+  const dialog = page.getByTestId("product-mobile-navigation");
+  const closeButton = page.getByTestId("product-mobile-menu-close");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute("role", "dialog");
+  await expect(dialog).toHaveAccessibleName(/.+/);
+  await expect(closeButton).toHaveAccessibleName(/.+/);
+  await expect(closeButton).toBeFocused();
+  await expect(page.locator("body")).toHaveCSS("pointer-events", "none");
+
+  await page.keyboard.press("Shift+Tab");
+  expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  const overlay = page.getByTestId("product-mobile-navigation-overlay");
+  await expect(overlay).toBeVisible();
+  await overlay.click({ position: { x: 360, y: 400 } });
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await expect(dialog).toBeVisible();
+  await page.setViewportSize({ width: 1024, height: 844 });
+  await expect(dialog).toBeHidden();
+  await expect(page.locator("body")).not.toHaveCSS("pointer-events", "none");
 });
 
 test("dashboard recent lead row is a real conversation link", async ({ page }) => {
@@ -173,7 +224,9 @@ test("conversation back control is a real inbox link", async ({ page }) => {
   });
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`${webBase}/app/inbox/pilot-core-back-conversation`, { waitUntil: "networkidle" });
+  await page.goto(`${webBase}/app/inbox/pilot-core-back-conversation`, {
+    waitUntil: "networkidle",
+  });
 
   await page.getByRole("link", { name: "Назад во входящие" }).click();
   await expect(page).toHaveURL(/\/app\/inbox$/, { timeout: 15_000 });

@@ -12,22 +12,16 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { ProductLayout } from "../ProductLayout";
-import {
-  Avatar,
-  ChannelBadge,
-  TempPill,
-  stages,
-  stageOrder,
-  type StageId,
-} from "../shared";
+import { Avatar, ChannelBadge, TempPill, stages, stageOrder, type StageId } from "../shared";
 import type { Lead } from "../types";
 import { useNav } from "../nav";
 import { cn } from "../../lib/utils";
-import { Dropdown, DropdownItem, DropdownSeparator, Tip } from "../ui";
+import { Dropdown, DropdownItem, DropdownSeparator, Skeleton, Tip } from "../ui";
 import { toast } from "sonner";
 import {
   bookLeadAppointment,
   createLeadTask,
+  getLead,
   getPipelineSummary,
   sendLeadToCrm,
   updateLead,
@@ -35,19 +29,28 @@ import {
 } from "@/lib/api/leads";
 import { listInboxConversations } from "@/lib/api/inbox";
 import { leadFromApiLead, statusFromStage } from "../apiAdapters";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { Locale } from "@/i18n/config";
+import { useProductPermissions } from "../CurrentUser";
+import { ResourceErrorState } from "../ResourceErrorState";
 
 /* ─────────────────────────────────────────────
    Summary helpers
 ───────────────────────────────────────────── */
-function fmt(n: number) {
-  return n.toLocaleString("ru-RU");
-}
-
 type LeadAction = "qualified" | "crm" | "task" | "booking" | "closed";
 
-function leadsFromPipelineSummary(summary: PipelineSummary, conversationByLeadId: Map<string, string>) {
+type LeadMutationToken = {
+  leadId: string;
+  generation: number;
+};
+
+function leadsFromPipelineSummary(
+  summary: PipelineSummary,
+  conversationByLeadId: Map<string, string>,
+  locale: Locale,
+) {
   return summary.stages.flatMap((stage) =>
-    stage.leads.map((lead) => leadFromApiLead(lead, conversationByLeadId.get(lead.id)))
+    stage.leads.map((lead) => leadFromApiLead(lead, conversationByLeadId.get(lead.id), locale)),
   );
 }
 
@@ -82,13 +85,19 @@ function fallbackPatchForAction(action: LeadAction): Partial<Lead> {
 /* ─────────────────────────────────────────────
    Lead card
 ───────────────────────────────────────────── */
-const LeadCard = React.forwardRef<HTMLDivElement, {
-  lead: Lead;
-  onAdvance: (id: string) => void;
-  onAction: (id: string, action: LeadAction) => void;
-  isLast: boolean;
-}>(function LeadCard({ lead, onAdvance, onAction, isLast }, ref) {
+const LeadCard = React.forwardRef<
+  HTMLDivElement,
+  {
+    lead: Lead;
+    onAdvance: (id: string) => void;
+    onAction: (id: string, action: LeadAction) => void;
+    isLast: boolean;
+    canManage: boolean;
+    pending: boolean;
+  }
+>(function LeadCard({ lead, onAdvance, onAction, isLast, canManage, pending }, ref) {
   const { go } = useNav();
+  const { formatCurrency, t } = useI18n();
   const conversationId = lead.conversationId ?? lead.id;
 
   return (
@@ -103,6 +112,7 @@ const LeadCard = React.forwardRef<HTMLDivElement, {
       transition={{ type: "spring", stiffness: 320, damping: 28 }}
       className="group cursor-pointer select-none"
       onClick={() => go("conversation", { id: conversationId })}
+      aria-busy={pending}
     >
       <div className="rounded-2xl bg-zinc-900/70 border border-white/[0.06] p-4 hover:border-white/[0.12] hover:bg-zinc-900/80 transition-all duration-200">
         {/* Header row */}
@@ -120,32 +130,37 @@ const LeadCard = React.forwardRef<HTMLDivElement, {
               trigger={
                 <button
                   onClick={(e) => e.stopPropagation()}
-                  aria-label={`Действия лида: ${lead.name}`}
-                  className="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
+                  aria-label={t("ops.pipeline.leadActions", { name: lead.name })}
+                  disabled={pending}
+                  className="w-6 h-6 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all disabled:cursor-wait disabled:opacity-40"
                 >
                   <MoreHorizontal className="w-3.5 h-3.5" />
                 </button>
               }
             >
               <DropdownItem onClick={() => go("conversation", { id: conversationId })}>
-                Открыть диалог
+                {t("ops.inbox.openConversation")}
               </DropdownItem>
-              <DropdownItem onClick={() => onAction(lead.id, "qualified")}>
-                Отметить квалифицированным
-              </DropdownItem>
-              <DropdownItem onClick={() => onAction(lead.id, "crm")}>
-                Отправить в CRM
-              </DropdownItem>
-              <DropdownItem onClick={() => onAction(lead.id, "task")}>
-                Создать задачу
-              </DropdownItem>
-              <DropdownItem onClick={() => onAction(lead.id, "booking")}>
-                Записать на приём
-              </DropdownItem>
-              <DropdownSeparator />
-              <DropdownItem danger onClick={() => onAction(lead.id, "closed")}>
-                Закрыть лид
-              </DropdownItem>
+              {canManage ? (
+                <>
+                  <DropdownItem onClick={() => onAction(lead.id, "qualified")}>
+                    {t("ops.common.qualified")}
+                  </DropdownItem>
+                  <DropdownItem onClick={() => onAction(lead.id, "crm")}>
+                    {t("ops.conversation.sendToCrm")}
+                  </DropdownItem>
+                  <DropdownItem onClick={() => onAction(lead.id, "task")}>
+                    {t("ops.common.createTask")}
+                  </DropdownItem>
+                  <DropdownItem onClick={() => onAction(lead.id, "booking")}>
+                    {t("ops.common.bookAppointment")}
+                  </DropdownItem>
+                  <DropdownSeparator />
+                  <DropdownItem danger onClick={() => onAction(lead.id, "closed")}>
+                    {t("ops.pipeline.close")}
+                  </DropdownItem>
+                </>
+              ) : null}
             </Dropdown>
           </div>
         </div>
@@ -164,21 +179,23 @@ const LeadCard = React.forwardRef<HTMLDivElement, {
         <div className="flex items-center justify-between gap-2">
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-bold text-emerald-400 tracking-tight">
-              {lead.value > 0 ? `${fmt(lead.value)} ₽` : "—"}
+              {lead.value > 0 ? formatCurrency(lead.value) : "—"}
             </span>
             <span className="text-[10px] text-zinc-600 truncate max-w-[120px]">{lead.source}</span>
           </div>
 
           {/* Advance stage button */}
-          {!isLast && (
-            <Tip content="Переместить на следующий этап">
+          {!isLast && canManage && (
+            <Tip content={t("ops.pipeline.advance")}>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onAdvance(lead.id);
                 }}
-                aria-label={`Переместить лид: ${lead.name}`}
-                className="flex items-center gap-1 rounded-xl bg-white/[0.05] hover:bg-emerald-500/15 border border-white/[0.06] hover:border-emerald-500/30 px-2.5 py-1.5 text-[11px] text-zinc-400 hover:text-emerald-400 transition-all duration-150 group/btn shrink-0"
+                aria-label={t("ops.pipeline.advanceLead", { name: lead.name })}
+                data-testid={`pipeline-advance-${lead.id}`}
+                disabled={pending}
+                className="flex items-center gap-1 rounded-xl bg-white/[0.05] hover:bg-emerald-500/15 border border-white/[0.06] hover:border-emerald-500/30 px-2.5 py-1.5 text-[11px] text-zinc-400 hover:text-emerald-400 transition-all duration-150 group/btn shrink-0 disabled:cursor-wait disabled:opacity-40"
               >
                 <ArrowRight className="w-3 h-3 group-hover/btn:translate-x-0.5 transition-transform" />
               </button>
@@ -198,12 +215,17 @@ function KanbanColumn({
   columnLeads,
   onAdvance,
   onAction,
+  canManage,
+  pendingLeadIds,
 }: {
   stageId: StageId;
   columnLeads: Lead[];
   onAdvance: (id: string) => void;
   onAction: (id: string, action: LeadAction) => void;
+  canManage: boolean;
+  pendingLeadIds: ReadonlySet<string>;
 }) {
+  const { formatCurrency, t } = useI18n();
   const stage = stages[stageId];
   const isLast = stageId === "closed";
   const total = columnLeads.reduce((s, l) => s + l.value, 0);
@@ -214,13 +236,13 @@ function KanbanColumn({
       <div
         className={cn(
           "flex items-center justify-between px-4 py-3 rounded-2xl mb-3 bg-zinc-900/40 border",
-          stage.border
+          stage.border,
         )}
       >
         <div className="flex items-center gap-2 min-w-0">
           <span className={cn("w-2.5 h-2.5 rounded-full shrink-0", stage.dot)} />
           <span className={cn("text-sm font-semibold truncate", stage.color)}>
-            {stage.label}
+            {t(stage.labelKey)}
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0 ml-2">
@@ -232,9 +254,7 @@ function KanbanColumn({
 
       {/* Value sub-line */}
       {total > 0 && (
-        <p className="text-[11px] text-zinc-500 font-medium px-1 mb-2">
-          {fmt(total)} ₽
-        </p>
+        <p className="text-[11px] text-zinc-500 font-medium px-1 mb-2">{formatCurrency(total)}</p>
       )}
 
       {/* Cards */}
@@ -249,7 +269,7 @@ function KanbanColumn({
               className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.05] py-10 gap-2"
             >
               <Inbox className="w-5 h-5 text-zinc-700" />
-              <span className="text-xs text-zinc-700">Нет лидов</span>
+              <span className="text-xs text-zinc-700">{t("ops.pipeline.noLeads")}</span>
             </motion.div>
           ) : (
             columnLeads.map((lead) => (
@@ -259,6 +279,8 @@ function KanbanColumn({
                 onAdvance={onAdvance}
                 onAction={onAction}
                 isLast={isLast}
+                canManage={canManage}
+                pending={pendingLeadIds.has(lead.id)}
               />
             ))
           )}
@@ -271,15 +293,38 @@ function KanbanColumn({
 /* ─────────────────────────────────────────────
    List view (table fallback)
 ───────────────────────────────────────────── */
-function ListView({ leads, onAdvance }: { leads: Lead[]; onAdvance: (id: string) => void }) {
+function ListView({
+  leads,
+  onAdvance,
+  canManage,
+  pendingLeadIds,
+}: {
+  leads: Lead[];
+  onAdvance: (id: string) => void;
+  canManage: boolean;
+  pendingLeadIds: ReadonlySet<string>;
+}) {
   const { go } = useNav();
+  const { formatCurrency, t } = useI18n();
+  const headings = [
+    t("ops.pipeline.lead"),
+    t("ops.pipeline.stage"),
+    t("ops.common.channel"),
+    t("ops.common.value"),
+    t("ops.common.manager"),
+    t("ops.pipeline.temperature"),
+    "",
+  ];
   return (
     <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/40 overflow-hidden">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-white/[0.06]">
-            {["Лид", "Этап", "Канал", "Сумма", "Менеджер", "Температура", ""].map((h) => (
-              <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-zinc-500 whitespace-nowrap">
+            {headings.map((h, index) => (
+              <th
+                key={`${h}:${index}`}
+                className="text-left px-4 py-3 text-xs font-semibold text-zinc-500 whitespace-nowrap"
+              >
                 {h}
               </th>
             ))}
@@ -311,25 +356,30 @@ function ListView({ leads, onAdvance }: { leads: Lead[]; onAdvance: (id: string)
                   </td>
                   <td className="px-4 py-3">
                     <span className={cn("text-xs font-medium", stage.color)}>
-                      {stage.label}
+                      {t(stage.labelKey)}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <ChannelBadge id={lead.channel} />
                   </td>
                   <td className="px-4 py-3 font-bold text-emerald-400 whitespace-nowrap">
-                    {lead.value > 0 ? `${fmt(lead.value)} ₽` : "—"}
+                    {lead.value > 0 ? formatCurrency(lead.value) : "—"}
                   </td>
                   <td className="px-4 py-3 text-zinc-400 text-xs">{lead.manager}</td>
                   <td className="px-4 py-3">
                     <TempPill t={lead.temp} />
                   </td>
                   <td className="px-4 py-3">
-                    {!isLast && (
+                    {!isLast && canManage && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); onAdvance(lead.id); }}
-                        aria-label={`Переместить лид: ${lead.name}`}
-                        className="flex items-center gap-1 rounded-lg bg-white/[0.05] hover:bg-emerald-500/15 border border-white/[0.06] hover:border-emerald-500/30 px-2 py-1 text-[11px] text-zinc-400 hover:text-emerald-400 transition-all"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAdvance(lead.id);
+                        }}
+                        aria-label={t("ops.pipeline.advanceLead", { name: lead.name })}
+                        data-testid={`pipeline-advance-${lead.id}`}
+                        disabled={pendingLeadIds.has(lead.id)}
+                        className="flex items-center gap-1 rounded-lg bg-white/[0.05] hover:bg-emerald-500/15 border border-white/[0.06] hover:border-emerald-500/30 px-2 py-1 text-[11px] text-zinc-400 hover:text-emerald-400 transition-all disabled:cursor-wait disabled:opacity-40"
                       >
                         <ArrowRight className="w-3 h-3" />
                       </button>
@@ -366,7 +416,7 @@ function StatChip({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       className={cn(
-        "flex items-center gap-3 rounded-2xl px-4 py-3 border border-white/[0.06] bg-zinc-900/70"
+        "flex items-center gap-3 rounded-2xl px-4 py-3 border border-white/[0.06] bg-zinc-900/70",
       )}
     >
       <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center shrink-0", bg)}>
@@ -384,42 +434,48 @@ function StatChip({
    Main Page
 ───────────────────────────────────────────── */
 export function PipelinePage() {
+  const { formatCurrency, formatNumber, locale, t } = useI18n();
+  const permissions = useProductPermissions();
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [pipelineLoaded, setPipelineLoaded] = useState(false);
   const [apiBacked, setApiBacked] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loadStatus, setLoadStatus] = useState<"loading" | "success" | "error">("loading");
+  const [reloadRevision, setReloadRevision] = useState(0);
   const [view, setView] = useState<"kanban" | "list">("kanban");
+  const [pendingLeadIds, setPendingLeadIds] = useState<ReadonlySet<string>>(() => new Set());
+  const pendingLeadIdsRef = React.useRef(new Set<string>());
+  const leadMutationGenerationRef = React.useRef(new Map<string, number>());
 
   React.useEffect(() => {
     let active = true;
 
-    setIsLoading(true);
+    setLoadStatus("loading");
     void getPipelineSummary()
       .then(async (summary) => {
         let conversationByLeadId = new Map<string, string>();
+        let conversationMapFailed = false;
         try {
           conversationByLeadId = await loadConversationMap();
         } catch {
-          conversationByLeadId = new Map<string, string>();
+          conversationMapFailed = true;
         }
 
         if (!active) return;
-        const apiLeads = leadsFromPipelineSummary(summary, conversationByLeadId);
+        const apiLeads = leadsFromPipelineSummary(summary, conversationByLeadId, locale);
         setLeads(apiLeads);
+        setPipelineLoaded(true);
         setApiBacked(true);
+        setLoadStatus(conversationMapFailed ? "error" : "success");
       })
       .catch(() => {
         if (!active) return;
-        setLeads([]);
-        setApiBacked(false);
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
+        setLoadStatus("error");
       });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [locale, reloadRevision]);
 
   function replaceLead(id: string, patch: Partial<Lead>) {
     setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, ...patch } : lead)));
@@ -428,104 +484,207 @@ export function PipelinePage() {
   function replaceWithApiLead(id: string, apiLead: Parameters<typeof leadFromApiLead>[0]) {
     setLeads((prev) =>
       prev.map((lead) =>
-        lead.id === id ? leadFromApiLead(apiLead, lead.conversationId) : lead
-      )
+        lead.id === id ? leadFromApiLead(apiLead, lead.conversationId, locale) : lead,
+      ),
     );
+  }
+
+  function beginLeadMutation(leadId: string): LeadMutationToken | null {
+    if (pendingLeadIdsRef.current.has(leadId)) return null;
+    const generation = (leadMutationGenerationRef.current.get(leadId) ?? 0) + 1;
+    leadMutationGenerationRef.current.set(leadId, generation);
+    pendingLeadIdsRef.current.add(leadId);
+    setPendingLeadIds(new Set(pendingLeadIdsRef.current));
+    return { leadId, generation };
+  }
+
+  function isCurrentLeadMutation(token: LeadMutationToken) {
+    return (
+      pendingLeadIdsRef.current.has(token.leadId) &&
+      leadMutationGenerationRef.current.get(token.leadId) === token.generation
+    );
+  }
+
+  function endLeadMutation(token: LeadMutationToken) {
+    if (leadMutationGenerationRef.current.get(token.leadId) !== token.generation) return;
+    pendingLeadIdsRef.current.delete(token.leadId);
+    setPendingLeadIds(new Set(pendingLeadIdsRef.current));
+  }
+
+  async function reconcileLead(token: LeadMutationToken) {
+    try {
+      const refreshed = await getLead(token.leadId);
+      if (!isCurrentLeadMutation(token)) return;
+      replaceWithApiLead(token.leadId, refreshed);
+    } catch {
+      // Keep the last confirmed UI state when reconciliation is unavailable.
+    }
   }
 
   /* Advance a lead to the next stage */
   async function advanceStage(id: string) {
+    if (!permissions.canManageLeads) return;
     const lead = leads.find((item) => item.id === id);
     if (!lead) return;
     const idx = stageOrder.indexOf(lead.stage);
     if (idx === stageOrder.length - 1) return;
     const next = stageOrder[idx + 1];
-    replaceLead(id, { stage: next });
 
     if (!apiBacked) {
-      toast.success(`Лид перемещён: ${stages[next].label}`);
+      replaceLead(id, { stage: next });
+      toast.success(t("ops.pipeline.moved", { stage: t(stages[next].labelKey) }));
       return;
     }
 
+    const mutationToken = beginLeadMutation(id);
+    if (!mutationToken) return;
     try {
       const updated = await updateLead(id, { status: statusFromStage(next) });
+      if (!isCurrentLeadMutation(mutationToken)) return;
       replaceWithApiLead(id, updated);
-      toast.success(`Лид перемещён: ${stages[next].label}`);
+      toast.success(t("ops.pipeline.moved", { stage: t(stages[next].labelKey) }));
     } catch (caught) {
-      replaceLead(id, lead);
-      toast.error(caught instanceof Error ? caught.message : "Не удалось обновить этап лида");
+      await reconcileLead(mutationToken);
+      if (isCurrentLeadMutation(mutationToken)) {
+        toast.error(caught instanceof Error ? caught.message : t("ops.pipeline.moveFailed"));
+      }
+    } finally {
+      endLeadMutation(mutationToken);
     }
   }
 
   async function runLeadAction(id: string, action: LeadAction) {
+    if (!permissions.canManageLeads) return;
     const lead = leads.find((item) => item.id === id);
     if (!lead) return;
     const localPatch = fallbackPatchForAction(action);
-    replaceLead(id, localPatch);
 
     if (!apiBacked) {
-      toast.success(action === "task" ? "Задача создана" : "Действие выполнено");
+      replaceLead(id, localPatch);
+      toast.success(action === "task" ? t("ops.common.taskCreated") : t("ops.pipeline.actionDone"));
       return;
     }
 
+    const mutationToken = beginLeadMutation(id);
+    if (!mutationToken) return;
     try {
       if (action === "qualified") {
         const updated = await updateLead(id, { status: "QUALIFIED" });
+        if (!isCurrentLeadMutation(mutationToken)) return;
         replaceWithApiLead(id, updated);
-        toast.success("Лид квалифицирован");
+        toast.success(t("ops.pipeline.leadQualified"));
         return;
       }
 
       if (action === "crm") {
         const updated = await sendLeadToCrm(id);
+        if (!isCurrentLeadMutation(mutationToken)) return;
         replaceWithApiLead(id, updated);
-        toast.success("Лид отправлен в CRM");
+        toast.success(t("ops.common.crmSent"));
         return;
       }
 
       if (action === "task") {
-        await createLeadTask(id, "Связаться с лидом из воронки");
-        toast.success("Задача создана");
+        await createLeadTask(id, t("ops.pipeline.taskTitle"));
+        if (!isCurrentLeadMutation(mutationToken)) return;
+        toast.success(t("ops.common.taskCreated"));
         return;
       }
 
       if (action === "booking") {
-        await bookLeadAppointment(id, lead.service || "Запись", new Date(Date.now() + 24 * 60 * 60_000).toISOString());
-        replaceLead(id, { stage: "booked" });
-        toast.success("Запись создана");
+        await bookLeadAppointment(
+          id,
+          lead.service || t("ops.common.bookingFallback"),
+          new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+        );
+        await reconcileLead(mutationToken);
+        if (!isCurrentLeadMutation(mutationToken)) return;
+        toast.success(t("ops.pipeline.appointmentCreated"));
         return;
       }
 
       const updated = await updateLead(id, { status: "CLOSED" });
+      if (!isCurrentLeadMutation(mutationToken)) return;
       replaceWithApiLead(id, updated);
-      toast.success("Лид закрыт");
+      toast.success(t("ops.pipeline.leadClosed"));
     } catch (caught) {
-      replaceLead(id, lead);
-      toast.error(caught instanceof Error ? caught.message : "Не удалось выполнить действие");
+      await reconcileLead(mutationToken);
+      if (isCurrentLeadMutation(mutationToken)) {
+        toast.error(caught instanceof Error ? caught.message : t("ops.common.actionFailed"));
+      }
+    } finally {
+      endLeadMutation(mutationToken);
     }
   }
 
   /* Summary stats */
   const totalLeads = leads.length;
   const totalValue = useMemo(() => leads.reduce((s, l) => s + l.value, 0), [leads]);
-  const bookedLeads = leads.filter((l) => l.stage === "booked" || l.stage === "crm" || l.stage === "closed").length;
+  const bookedLeads = leads.filter(
+    (l) => l.stage === "booked" || l.stage === "crm" || l.stage === "closed",
+  ).length;
   const convRate = totalLeads > 0 ? Math.round((bookedLeads / totalLeads) * 100) : 0;
-  const avgCheck = bookedLeads > 0
-    ? Math.round(leads.filter((l) => l.value > 0).reduce((s, l) => s + l.value, 0) / leads.filter((l) => l.value > 0).length)
-    : 0;
+  const avgCheck =
+    bookedLeads > 0
+      ? Math.round(
+          leads.filter((l) => l.value > 0).reduce((s, l) => s + l.value, 0) /
+            leads.filter((l) => l.value > 0).length,
+        )
+      : 0;
 
   /* Group leads by stage */
   const byStage = useMemo(() => {
     const map: Record<StageId, Lead[]> = {
-      new: [], progress: [], qualified: [], booked: [], crm: [], closed: [],
+      new: [],
+      progress: [],
+      qualified: [],
+      booked: [],
+      crm: [],
+      closed: [],
     };
     leads.forEach((l) => map[l.stage].push(l));
     return map;
   }, [leads]);
 
+  if (!pipelineLoaded) {
+    return (
+      <ProductLayout title={t("ops.pipeline.title")}>
+        {loadStatus === "loading" ? (
+          <div className="space-y-6" data-testid="pipeline-loading">
+            <div className="flex items-center justify-between gap-4">
+              <Skeleton className="h-14 w-64 max-w-full" />
+              <Skeleton className="h-10 w-44" />
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <Skeleton key={index} className="h-16" />
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-6">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Skeleton key={index} className="h-80" />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <ResourceErrorState
+            testId="pipeline-load-error"
+            onRetry={() => setReloadRevision((current) => current + 1)}
+          />
+        )}
+      </ProductLayout>
+    );
+  }
+
   return (
-    <ProductLayout title="Воронка / CRM">
+    <ProductLayout title={t("ops.pipeline.title")}>
       <div className="flex flex-col gap-6 min-h-full">
+        {loadStatus === "error" ? (
+          <ResourceErrorState
+            testId="pipeline-refresh-error"
+            onRetry={() => setReloadRevision((current) => current + 1)}
+          />
+        ) : null}
 
         {/* ── Summary header ── */}
         <motion.div
@@ -538,10 +697,15 @@ export function PipelinePage() {
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>
               <h1 className="text-2xl font-bold text-zinc-50 tracking-tight">
-                Воронка продаж
+                {t("ops.pipeline.heading")}
               </h1>
               <p className="text-sm text-zinc-500 mt-0.5">
-                {totalLeads} лидов · {isLoading ? "загружаем данные" : apiBacked ? "синхронизировано с API" : "не удалось загрузить данные"}
+                {t("ops.pipeline.count", { count: formatNumber(totalLeads) })} ·{" "}
+                {loadStatus === "loading"
+                  ? t("ops.pipeline.loading")
+                  : apiBacked && loadStatus === "success"
+                    ? t("ops.pipeline.synced")
+                    : t("ops.pipeline.loadFailed")}
               </p>
             </div>
 
@@ -553,11 +717,11 @@ export function PipelinePage() {
                   "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
                   view === "kanban"
                     ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/25"
-                    : "text-zinc-500 hover:text-zinc-300"
+                    : "text-zinc-500 hover:text-zinc-300",
                 )}
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
-                Канбан
+                {t("ops.pipeline.kanban")}
               </button>
               <button
                 onClick={() => setView("list")}
@@ -565,11 +729,11 @@ export function PipelinePage() {
                   "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
                   view === "list"
                     ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/25"
-                    : "text-zinc-500 hover:text-zinc-300"
+                    : "text-zinc-500 hover:text-zinc-300",
                 )}
               >
                 <List className="w-3.5 h-3.5" />
-                Список
+                {t("ops.pipeline.list")}
               </button>
             </div>
           </div>
@@ -578,29 +742,33 @@ export function PipelinePage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatChip
               icon={Users}
-              label="Всего лидов"
-              value={String(totalLeads)}
+              label={t("ops.pipeline.total")}
+              value={formatNumber(totalLeads)}
               accent="text-sky-400"
               bg="bg-sky-500/10"
             />
             <StatChip
               icon={Wallet}
-              label="Сумма воронки"
-              value={`${fmt(totalValue)} ₽`}
+              label={t("ops.pipeline.value")}
+              value={formatCurrency(totalValue)}
               accent="text-emerald-400"
               bg="bg-emerald-500/10"
             />
             <StatChip
               icon={TrendingUp}
-              label="Конверсия"
-              value={`${convRate}%`}
+              label={t("ops.pipeline.conversion")}
+              value={formatNumber(convRate / 100, {
+                style: "percent",
+                maximumFractionDigits: 0,
+                minimumFractionDigits: 0,
+              })}
               accent="text-violet-400"
               bg="bg-violet-500/10"
             />
             <StatChip
               icon={BarChart3}
-              label="Средний чек"
-              value={avgCheck > 0 ? `${fmt(avgCheck)} ₽` : "—"}
+              label={t("ops.pipeline.average")}
+              value={avgCheck > 0 ? formatCurrency(avgCheck) : "—"}
               accent="text-amber-400"
               bg="bg-amber-500/10"
             />
@@ -618,7 +786,10 @@ export function PipelinePage() {
               transition={{ duration: 0.2 }}
               /* Horizontal scroll on desktop; vertical stack on mobile */
               className="flex flex-col md:flex-row gap-4 overflow-x-visible md:overflow-x-auto pb-4 -mx-1 px-1"
-              style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.08) transparent" }}
+              style={{
+                scrollbarWidth: "thin",
+                scrollbarColor: "rgba(255,255,255,0.08) transparent",
+              }}
             >
               {stageOrder.map((stageId, i) => (
                 <motion.div
@@ -630,8 +801,10 @@ export function PipelinePage() {
                   <KanbanColumn
                     stageId={stageId}
                     columnLeads={byStage[stageId]}
-                    onAdvance={advanceStage}
-                    onAction={runLeadAction}
+                    onAdvance={(id) => void advanceStage(id)}
+                    onAction={(id, action) => void runLeadAction(id, action)}
+                    canManage={permissions.canManageLeads}
+                    pendingLeadIds={pendingLeadIds}
                   />
                 </motion.div>
               ))}
@@ -644,7 +817,12 @@ export function PipelinePage() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
             >
-              <ListView leads={leads} onAdvance={advanceStage} />
+              <ListView
+                leads={leads}
+                onAdvance={(id) => void advanceStage(id)}
+                canManage={permissions.canManageLeads}
+                pendingLeadIds={pendingLeadIds}
+              />
             </motion.div>
           )}
         </AnimatePresence>
@@ -657,7 +835,7 @@ export function PipelinePage() {
           className="rounded-2xl bg-zinc-900/40 border border-white/[0.06] p-4"
         >
           <p className="text-xs font-semibold text-zinc-500 mb-3 uppercase tracking-wider">
-            Распределение по этапам
+            {t("ops.pipeline.distribution")}
           </p>
           <div className="flex gap-1.5 h-2 rounded-full overflow-hidden">
             {stageOrder.map((s) => {
@@ -670,10 +848,14 @@ export function PipelinePage() {
                   key={s}
                   initial={{ scaleX: 0 }}
                   animate={{ scaleX: 1 }}
-                  transition={{ duration: 0.6, delay: stageOrder.indexOf(s) * 0.07, ease: "easeOut" }}
+                  transition={{
+                    duration: 0.6,
+                    delay: stageOrder.indexOf(s) * 0.07,
+                    ease: "easeOut",
+                  }}
                   style={{ width: `${pct}%`, originX: 0 }}
                   className={cn("rounded-full h-full", dotColor)}
-                  title={`${stages[s].label}: ${count}`}
+                  title={`${t(stages[s].labelKey)}: ${formatNumber(count)}`}
                 />
               );
             })}
@@ -683,14 +865,15 @@ export function PipelinePage() {
               <div key={s} className="flex items-center gap-1.5">
                 <span className={cn("w-2 h-2 rounded-full shrink-0", stages[s].dot)} />
                 <span className="text-[11px] text-zinc-500">
-                  {stages[s].label}
-                  <span className="ml-1 font-semibold text-zinc-300">{byStage[s].length}</span>
+                  {t(stages[s].labelKey)}
+                  <span className="ml-1 font-semibold text-zinc-300">
+                    {formatNumber(byStage[s].length)}
+                  </span>
                 </span>
               </div>
             ))}
           </div>
         </motion.div>
-
       </div>
     </ProductLayout>
   );

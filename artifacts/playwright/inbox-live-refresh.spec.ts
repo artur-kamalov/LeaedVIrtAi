@@ -5,6 +5,8 @@ const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
 const conversationId = "pw-live-telegram-conversation";
 const leadId = "pw-live-telegram-lead";
+const nextConversationId = "pw-live-next-conversation";
+const nextLeadId = "pw-live-next-lead";
 
 test.beforeEach(async ({ page }) => {
   await loginAsCleanUser(page, apiBase);
@@ -106,6 +108,33 @@ function telegramConversationWithManagerMessage(text: string) {
   };
 }
 
+function nextTelegramConversation() {
+  const conversation = telegramConversation(false);
+  const initialMessage = conversation.messages[0];
+  return {
+    ...conversation,
+    id: nextConversationId,
+    leadId: nextLeadId,
+    subject: "Next Telegram dialog",
+    lead: {
+      ...conversation.lead,
+      id: nextLeadId,
+      name: "Next Telegram Client",
+      interest: "Separate Telegram inquiry",
+      summary: "Must not receive state from the previous conversation",
+    },
+    lastMessage: "Next conversation inbound message",
+    messages: [
+      {
+        ...initialMessage,
+        id: "pw-live-next-message",
+        conversationId: nextConversationId,
+        text: "Next conversation inbound message",
+      },
+    ],
+  };
+}
+
 function telegramConversationWithHistory(includeLaterMessage = false) {
   const conversation = telegramConversation(false);
   const history = Array.from({ length: 36 }, (_, index) =>
@@ -129,10 +158,9 @@ function telegramConversationWithHistory(includeLaterMessage = false) {
   };
 }
 
-test("Inbox refreshes Telegram conversations and preserves stale data after a failed poll", async (
-  { page },
-  testInfo,
-) => {
+test("Inbox refreshes Telegram conversations and preserves stale data after a failed poll", async ({
+  page,
+}) => {
   let state: "empty" | "conversation" | "failure" = "empty";
   let requestCount = 0;
   let failedRequestCount = 0;
@@ -171,14 +199,29 @@ test("Inbox refreshes Telegram conversations and preserves stale data after a fa
   state = "conversation";
   await expect(page.getByText("Telegram Live Client").first()).toBeVisible({ timeout: 12_000 });
   await expect(page.getByText("Initial Telegram message").first()).toBeVisible();
-  await page.waitForTimeout(2_000);
-  await page.screenshot({ path: testInfo.outputPath("inbox-live-refresh.png"), fullPage: true });
 
   state = "failure";
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => failedRequestCount, { timeout: 12_000 }).toBeGreaterThan(0);
+  await expect(page.getByTestId("inbox-refresh-error")).toBeVisible();
   await expect(page.getByText("Telegram Live Client").first()).toBeVisible();
   await expect(page.getByText("Initial Telegram message").first()).toBeVisible();
+
+  const failuresBeforeLocaleChange = failedRequestCount;
+  const switcher = page.locator('[data-testid="language-switcher"]:visible').first();
+  const nextLocale = (await switcher.getAttribute("data-locale")) === "fr" ? "de" : "fr";
+  await switcher.click();
+  await page.getByTestId(`language-option-${nextLocale}`).click();
+  await expect
+    .poll(() => failedRequestCount, { timeout: 12_000 })
+    .toBeGreaterThan(failuresBeforeLocaleChange);
+  await expect(page.getByText("Telegram Live Client").first()).toBeVisible();
+  await expect(page.getByText("Initial Telegram message").first()).toBeVisible();
+
+  state = "conversation";
+  await page.getByTestId("inbox-refresh-error").getByRole("button").click();
+  await expect(page.getByTestId("inbox-refresh-error")).toBeHidden();
+  await expect(page.getByText("Telegram Live Client").first()).toBeVisible();
 });
 
 test("open conversation refreshes a later Telegram inbound message without reload", async ({
@@ -247,6 +290,58 @@ test("a delayed poll cannot overwrite a message sent while it was in flight", as
   await expect.poll(() => pollReleased).toBe(true);
   await page.waitForTimeout(250);
   await expect(page.getByText(sentText).first()).toBeVisible();
+});
+
+test("a delayed failed send cannot contaminate the next conversation", async ({ page }) => {
+  const previousText = "Private reply for the previous conversation";
+  const nextDraft = "Draft for the next conversation";
+  const previousError = "Previous conversation send failed";
+  let sendStarted = false;
+  let sendReleased = false;
+  let releaseSend!: () => void;
+  const sendGate = new Promise<void>((resolve) => {
+    releaseSend = resolve;
+  });
+
+  await page.route(`**/api/conversations/${conversationId}/messages`, async (route) => {
+    sendStarted = true;
+    await sendGate;
+    await route.fulfill({
+      status: 500,
+      json: { error: { code: "HTTP_ERROR", message: previousError } },
+    });
+    sendReleased = true;
+  });
+  await page.route(`**/api/conversations/${conversationId}`, async (route) => {
+    await route.fulfill({ json: { data: telegramConversation(false) } });
+  });
+  await page.route(`**/api/conversations/${nextConversationId}`, async (route) => {
+    await route.fulfill({ json: { data: nextTelegramConversation() } });
+  });
+
+  await page.goto(`${webBase}/app/inbox/${conversationId}`);
+  await expect(page.getByText("Telegram Live Client")).toBeVisible();
+  await page.locator("textarea").fill(previousText);
+  await page.locator("textarea").press("Enter");
+  await expect.poll(() => sendStarted).toBe(true);
+
+  await page.evaluate(
+    (path) => window.history.pushState(null, "", path),
+    `/app/inbox/${nextConversationId}`,
+  );
+  await expect(page).toHaveURL(`${webBase}/app/inbox/${nextConversationId}`);
+  await expect(page.getByText("Next Telegram Client")).toBeVisible();
+  await expect(page.getByText("Next conversation inbound message")).toBeVisible();
+  await page.locator("textarea").fill(nextDraft);
+
+  releaseSend();
+  await expect.poll(() => sendReleased).toBe(true);
+  await page.waitForTimeout(250);
+
+  await expect(page.locator("textarea")).toHaveValue(nextDraft);
+  await expect(page.getByText(previousText)).toHaveCount(0);
+  await expect(page.getByText(previousError)).toHaveCount(0);
+  await expect(page.getByText("Next Telegram Client")).toBeVisible();
 });
 
 test("polling preserves scroll position while a manager reads message history", async ({

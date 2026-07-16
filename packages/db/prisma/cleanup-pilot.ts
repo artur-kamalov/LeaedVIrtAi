@@ -1,9 +1,31 @@
 import { PrismaClient, type Prisma } from "@prisma/client";
+import { parseArgs } from "node:util";
 
 process.env.DATABASE_URL ??= "postgresql://postgres:postgres@localhost:5432/leadvirt?schema=public";
 
 const prisma = new PrismaClient();
-const confirm = process.argv.includes("--confirm");
+const { values: options } = parseArgs({
+  args: process.argv.slice(2).filter((argument) => argument !== "--"),
+  options: {
+    confirm: { type: "boolean", default: false },
+    "tenant-id": { type: "string" },
+    "tenant-slug": { type: "string" },
+  },
+  strict: true,
+});
+
+function tenantSelector() {
+  const tenantId = options["tenant-id"]?.trim();
+  const tenantSlug = options["tenant-slug"]?.trim();
+  if (tenantId && tenantSlug) throw new Error("Use either --tenant-id or --tenant-slug, not both.");
+  if (tenantId && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(tenantId)) {
+    throw new Error("--tenant-id is invalid.");
+  }
+  if (tenantSlug && !/^[a-z0-9][a-z0-9-]{0,126}[a-z0-9]$|^[a-z0-9]$/u.test(tenantSlug)) {
+    throw new Error("--tenant-slug is invalid.");
+  }
+  return tenantId ? { id: tenantId } : { slug: tenantSlug || "demo-company" };
+}
 
 function pilotLeadWhere(tenantId: string): Prisma.LeadWhereInput {
   return {
@@ -22,12 +44,12 @@ function idList<T extends { id: string }>(items: T[]) {
 
 async function main() {
   const tenant = await prisma.tenant.findFirst({
-    where: { slug: "demo-company", deletedAt: null },
+    where: { ...tenantSelector(), deletedAt: null },
     select: { id: true, name: true, slug: true },
   });
 
   if (!tenant) {
-    console.log("Demo tenant was not found. Nothing to clean.");
+    console.log("Selected tenant was not found. Nothing to clean.");
     return;
   }
 
@@ -79,6 +101,7 @@ async function main() {
   });
 
   const counts = {
+    tenantId: tenant.id,
     tenant: tenant.slug,
     leads: leadIds.length,
     conversations: conversationIds.length,
@@ -87,25 +110,29 @@ async function main() {
     webhookEvents: webhookEvents.length,
   };
 
-  if (!confirm) {
+  if (!options.confirm) {
     console.log("Pilot cleanup dry run:");
     console.log(JSON.stringify(counts, null, 2));
-    console.log("Run with --confirm to delete only these prefixed pilot records.");
+    console.log("Run with the same tenant selector plus --confirm to delete only these records.");
     return;
   }
 
   await prisma.$transaction(async (tx) => {
     await tx.workflowRunEvent.deleteMany({ where: { workflowRunId: { in: workflowRunIds } } });
-    await tx.messageAttachment.deleteMany({ where: { message: { conversationId: { in: conversationIds } } } });
+    await tx.messageAttachment.deleteMany({
+      where: { message: { conversationId: { in: conversationIds } } },
+    });
+    await tx.channelDeliveryOperation.deleteMany({
+      where: { conversationId: { in: conversationIds } },
+    });
+    await tx.externalOperation.deleteMany({ where: { conversationId: { in: conversationIds } } });
+    await tx.aiReplyRun.deleteMany({ where: { conversationId: { in: conversationIds } } });
     await tx.message.deleteMany({ where: { conversationId: { in: conversationIds } } });
     await tx.leadEvent.deleteMany({ where: { leadId: { in: leadIds } } });
     await tx.aiUsageLog.deleteMany({
       where: {
         tenantId: tenant.id,
-        OR: [
-          { leadId: { in: leadIds } },
-          { conversationId: { in: conversationIds } },
-        ],
+        OR: [{ leadId: { in: leadIds } }, { conversationId: { in: conversationIds } }],
       },
     });
     await tx.task.deleteMany({ where: { tenantId: tenant.id, leadId: { in: leadIds } } });

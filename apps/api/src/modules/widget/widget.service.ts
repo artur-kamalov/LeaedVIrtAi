@@ -1,12 +1,20 @@
 import { createHash } from "node:crypto";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { AI_PROVIDER_TOKEN, type AiMessage, type AiProvider } from "@leadvirt/ai";
-import type { Prisma } from "@leadvirt/db";
-import type { AiReplyJobData, WidgetConfig, WidgetConversationMessage, WidgetMessageResponse, WidgetPosition } from "@leadvirt/types";
+import { Prisma } from "@leadvirt/db";
+import type {
+  AiReplyEnqueueRequest,
+  WidgetConfig,
+  WidgetConversationMessage,
+  WidgetMessageResponse,
+  WidgetPosition,
+} from "@leadvirt/types";
 import { PrismaService } from "../database/prisma.service.js";
 import { WorkflowsService } from "../workflows/workflows.service.js";
 import { AiReplyQueueService } from "../ai/ai-reply-queue.service.js";
 import type { SendWidgetMessageDto, WidgetCustomerDto } from "./dto/send-widget-message.dto.js";
+import { claimWebhookEvent } from "../../common/webhook-event-claim.js";
+import { assertTenantRuntimeActive } from "../../common/tenant-lifecycle.js";
 
 type WidgetChannel = Prisma.ChannelGetPayload<{
   include: { tenant: true };
@@ -35,7 +43,7 @@ const defaultAiState: WidgetAiState = {
   replied: false,
   handoffRequired: false,
   confidence: 0,
-  intent: "duplicate_or_existing"
+  intent: "duplicate_or_existing",
 };
 
 const legacyWidgetTranslations: Record<string, string> = {
@@ -49,7 +57,7 @@ const legacyWidgetTranslations: Record<string, string> = {
   "How much does it cost?": "Сколько стоит?",
   "Call a manager": "Позовите менеджера",
   "By sending a message, you agree that the team may contact you about this request.":
-    "Отправляя сообщение, вы соглашаетесь, что команда может связаться с вами по этой заявке."
+    "Отправляя сообщение, вы соглашаетесь, что команда может связаться с вами по этой заявке.",
 };
 
 function localizeLegacyWidgetText(value: string) {
@@ -74,10 +82,16 @@ function optionalString(value: string | undefined): string | undefined {
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
-function stringArraySetting(source: Record<string, unknown>, key: string, fallback: string[]): string[] {
+function stringArraySetting(
+  source: Record<string, unknown>,
+  key: string,
+  fallback: string[],
+): string[] {
   const value = source[key];
   if (!Array.isArray(value)) return fallback;
-  const strings = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  const strings = value.filter(
+    (item): item is string => typeof item === "string" && item.trim().length > 0,
+  );
   return strings.length > 0 ? strings : fallback;
 }
 
@@ -107,7 +121,7 @@ function customerPayload(customer?: WidgetCustomerDto): Prisma.InputJsonObject {
 function widgetPayload(dto: SendWidgetMessageDto, userAgent?: string): Prisma.InputJsonObject {
   const payload: Record<string, Prisma.InputJsonValue> = {
     sessionId: dto.sessionId,
-    text: dto.text
+    text: dto.text,
   };
   const clientMessageId = optionalString(dto.clientMessageId);
   const pageUrl = optionalString(dto.pageUrl);
@@ -130,7 +144,7 @@ export class WidgetService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AI_PROVIDER_TOKEN) private readonly aiProvider: AiProvider,
     @Inject(AiReplyQueueService) private readonly aiReplyQueue: AiReplyQueueService,
-    @Inject(WorkflowsService) private readonly workflowsService: WorkflowsService
+    @Inject(WorkflowsService) private readonly workflowsService: WorkflowsService,
   ) {}
 
   async getConfig(publicKey: string): Promise<WidgetConfig> {
@@ -138,32 +152,30 @@ export class WidgetService {
     return this.mapConfig(channel);
   }
 
-  async sendMessage(publicKey: string, dto: SendWidgetMessageDto, meta: WidgetSendMeta = {}): Promise<WidgetMessageResponse> {
+  async sendMessage(
+    publicKey: string,
+    dto: SendWidgetMessageDto,
+    meta: WidgetSendMeta = {},
+  ): Promise<WidgetMessageResponse> {
     const channel = await this.loadWidgetChannel(publicKey);
     const sessionId = dto.sessionId.trim();
     const text = dto.text.trim();
     const now = new Date();
     const externalEventId = optionalString(dto.clientMessageId) ?? `${sessionId}:${now.getTime()}`;
     const payload = widgetPayload({ ...dto, sessionId, text }, meta.userAgent);
-
-    const existingEvent = await this.prisma.webhookEvent.findUnique({
-      where: { provider_externalEventId: { provider: providerName, externalEventId } }
+    const provider = `${providerName}:${channel.id}`;
+    const claim = await claimWebhookEvent(this.prisma, {
+      tenantId: channel.tenantId,
+      provider,
+      externalEventId,
+      payloadHash: payloadHash(payload),
+      payload,
+      receivedAt: now,
     });
-    if (existingEvent) {
+    if (!claim.claimed) {
       return this.responseForSession(channel, sessionId, defaultAiState);
     }
-
-    const webhookEvent = await this.prisma.webhookEvent.create({
-      data: {
-        tenantId: channel.tenantId,
-        provider: providerName,
-        externalEventId,
-        payloadHash: payloadHash(payload),
-        payload,
-        status: "RECEIVED",
-        receivedAt: now
-      }
-    });
+    const webhookEvent = claim.event;
 
     try {
       const conversation = await this.upsertConversation(channel, sessionId, text, dto, now);
@@ -173,64 +185,114 @@ export class WidgetService {
             where: {
               tenantId: channel.tenantId,
               conversationId: conversation.id,
-              externalMessageId: clientMessageId
-            }
+              externalMessageId: clientMessageId,
+            },
           })
         : null;
 
-      if (existingMessage) {
+      if (existingMessage && !claim.resumed) {
         await this.prisma.webhookEvent.update({
           where: { id: webhookEvent.id },
-          data: { status: "PROCESSED_DUPLICATE", processedAt: new Date() }
+          data: { status: "PROCESSED_DUPLICATE", processedAt: new Date() },
         });
         return this.responseForSession(channel, sessionId, defaultAiState);
       }
 
-      const inboundMessage = await this.prisma.message.create({
-        data: {
-          tenantId: channel.tenantId,
-          conversationId: conversation.id,
-          direction: "INBOUND",
-          senderType: "CUSTOMER",
-          ...(clientMessageId ? { externalMessageId: clientMessageId } : {}),
-          text,
-          status: "RECEIVED",
-          metadata: this.messageMetadata(dto, meta.userAgent),
-          createdAt: now,
-          updatedAt: now
-        }
-      });
+      const inboundMessage =
+        existingMessage ??
+        (await this.prisma.$transaction(async (tx) => {
+          const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT "id" FROM "Conversation"
+          WHERE "id" = ${conversation.id} AND "tenantId" = ${channel.tenantId} AND "deletedAt" IS NULL
+          FOR UPDATE
+        `);
+          if (locked.length !== 1)
+            throw new NotFoundException("Widget conversation was not found.");
+          const currentConversation = await tx.conversation.findUniqueOrThrow({
+            where: { id: conversation.id },
+            select: { status: true },
+          });
+          if (conversation.leadId) {
+            const leadData: Prisma.LeadUpdateInput = {
+              lastMessageAt: now,
+              interest: shortSubject(text),
+            };
+            const name = optionalString(dto.customer?.name);
+            const phone = optionalString(dto.customer?.phone);
+            const email = optionalString(dto.customer?.email);
+            if (name) leadData.name = name;
+            if (phone) leadData.phone = phone;
+            if (email) leadData.email = email;
+            await tx.lead.update({ where: { id: conversation.leadId }, data: leadData });
+          }
+          await tx.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              lastMessageAt: now,
+              ...(currentConversation.status === "CLOSED" ? { status: "OPEN" as const } : {}),
+              updatedAt: now,
+            },
+          });
+          const message = await tx.message.create({
+            data: {
+              tenantId: channel.tenantId,
+              conversationId: conversation.id,
+              direction: "INBOUND",
+              senderType: "CUSTOMER",
+              ...(clientMessageId ? { externalMessageId: clientMessageId } : {}),
+              text,
+              status: "RECEIVED",
+              metadata: this.messageMetadata(dto, meta.userAgent),
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
 
-      await this.prisma.leadEvent.create({
-        data: {
-          tenantId: channel.tenantId,
-          leadId: conversation.leadId!,
-          type: "widget_message_received",
-          title: "Сообщение из виджета сайта получено",
-          message: text,
-          metadata: { conversationId: conversation.id, sessionId }
-        }
-      });
+          await tx.leadEvent.create({
+            data: {
+              tenantId: channel.tenantId,
+              leadId: conversation.leadId!,
+              type: "widget_message_received",
+              title: "Сообщение из виджета сайта получено",
+              message: text,
+              metadata: { conversationId: conversation.id, sessionId },
+            },
+          });
+          if (this.aiReplyQueue.enabled) {
+            await this.aiReplyQueue.createEvent(
+              tx,
+              this.aiReplyRequest(channel, conversation, message.id, text),
+            );
+          }
+          return message;
+        }));
 
-      const aiState = await this.generateAiReply(channel, conversation, inboundMessage.id, text, now);
+      const aiState = await this.generateAiReply(
+        channel,
+        conversation,
+        inboundMessage.id,
+        text,
+        now,
+      );
       await this.workflowsService.runForEvent({
         tenantId: channel.tenantId,
         eventType: "message.received",
+        idempotencyKey: `widget-message:${webhookEvent.id}`,
         conversationId: conversation.id,
         leadId: conversation.leadId,
         channelType: "WEBSITE",
         text,
         source: "widget",
-        receivedAt: now,
+        receivedAt: webhookEvent.receivedAt,
         metadata: {
           publicKey: channel.publicKey ?? "",
-          sessionId
-        }
+          sessionId,
+        },
       });
 
       await this.prisma.webhookEvent.update({
         where: { id: webhookEvent.id },
-        data: { status: "PROCESSED", processedAt: new Date() }
+        data: { status: "PROCESSED", processedAt: new Date() },
       });
 
       const auditData: Prisma.AuditLogUncheckedCreateInput = {
@@ -242,8 +304,8 @@ export class WidgetService {
           publicKey: channel.publicKey ?? "",
           sessionId,
           intent: aiState.intent,
-          handoffRequired: aiState.handoffRequired
-        }
+          handoffRequired: aiState.handoffRequired,
+        },
       };
       const auditUserAgent = optionalString(dto.userAgent) ?? optionalString(meta.userAgent);
       if (auditUserAgent) {
@@ -258,8 +320,8 @@ export class WidgetService {
         data: {
           status: "FAILED",
           errorMessage: error instanceof Error ? error.message : "Unknown widget processing error",
-          processedAt: new Date()
-        }
+          processedAt: new Date(),
+        },
       });
       throw error;
     }
@@ -273,13 +335,14 @@ export class WidgetService {
         type: "WEBSITE",
         status: "ACTIVE",
         deletedAt: null,
-        tenant: { deletedAt: null }
+        tenant: { deletedAt: null },
       },
-      include: { tenant: true }
+      include: { tenant: true },
     });
     if (!channel) {
       throw new NotFoundException("Виджет сайта не найден");
     }
+    assertTenantRuntimeActive(channel.tenant.status);
     return channel;
   }
 
@@ -287,10 +350,20 @@ export class WidgetService {
     const settings = asRecord(channel.settings);
     const widget = isRecord(settings.widget) ? settings.widget : settings;
     const tenantSettings = asRecord(channel.tenant.settings);
-    const businessName = stringSetting(widget, "businessName", stringSetting(tenantSettings, "demoBusinessName", channel.tenant.name));
+    const businessName = stringSetting(
+      widget,
+      "businessName",
+      stringSetting(tenantSettings, "demoBusinessName", channel.tenant.name),
+    );
 
-    const consentText = optionalString(typeof widget.consentText === "string" ? widget.consentText : undefined);
-    const suggestedReplies = stringArraySetting(widget, "suggestedReplies", ["Хочу записаться", "Сколько стоит?", "Позовите менеджера"]);
+    const consentText = optionalString(
+      typeof widget.consentText === "string" ? widget.consentText : undefined,
+    );
+    const suggestedReplies = stringArraySetting(widget, "suggestedReplies", [
+      "Хочу записаться",
+      "Сколько стоит?",
+      "Позовите менеджера",
+    ]);
     return {
       publicKey: channel.publicKey ?? "",
       tenantName: channel.tenant.name,
@@ -301,8 +374,8 @@ export class WidgetService {
         stringSetting(
           widget,
           "welcomeMessage",
-          "Здравствуйте! Я AI-администратор LeadVirt.ai. Отвечу на вопросы, уточню заявку и передам контекст менеджеру."
-        )
+          "Здравствуйте! Я AI-администратор LeadVirt.ai. Отвечу на вопросы, уточню заявку и передам контекст менеджеру.",
+        ),
       ),
       primaryColor: stringSetting(widget, "primaryColor", "#34d399"),
       accentColor: stringSetting(widget, "accentColor", "#10b981"),
@@ -310,7 +383,7 @@ export class WidgetService {
       locale: stringSetting(widget, "locale", "ru-RU"),
       suggestedReplies: suggestedReplies.map(localizeLegacyWidgetText),
       ...(consentText ? { consentText: localizeLegacyWidgetText(consentText) } : {}),
-      poweredBy: stringSetting(widget, "poweredBy", "LeadVirt.ai")
+      poweredBy: stringSetting(widget, "poweredBy", "LeadVirt.ai"),
     };
   }
 
@@ -319,103 +392,97 @@ export class WidgetService {
     sessionId: string,
     text: string,
     dto: SendWidgetMessageDto,
-    createdAt: Date
+    createdAt: Date,
   ): Promise<WidgetConversation> {
-    const existing = await this.prisma.conversation.findFirst({
-      where: {
-        tenantId: channel.tenantId,
-        channelId: channel.id,
-        externalConversationId: sessionId,
-        deletedAt: null
-      },
-      include: { lead: true, messages: { orderBy: { createdAt: "asc" } } }
-    });
-
-    if (existing) {
-      if (existing.leadId) {
-        await this.updateLeadFromCustomer(existing.leadId, dto.customer, text, createdAt);
-      }
-      await this.prisma.conversation.update({
-        where: { id: existing.id },
-        data: { lastMessageAt: createdAt, status: existing.status === "CLOSED" ? "OPEN" : existing.status, updatedAt: createdAt }
+    return this.prisma.$transaction(async (tx) => {
+      const lockKey = `conversation:${channel.tenantId}:${channel.id}:${sessionId}`;
+      await tx.$queryRaw(Prisma.sql`
+        SELECT TRUE AS "locked"
+        FROM (SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))) AS advisory_lock
+      `);
+      const channelState = await tx.$queryRaw<Array<{ automaticRepliesEnabled: boolean }>>(
+        Prisma.sql`
+          SELECT "automaticRepliesEnabled"
+          FROM "Channel"
+          WHERE "id" = ${channel.id}
+            AND "tenantId" = ${channel.tenantId}
+            AND "deletedAt" IS NULL
+          FOR SHARE
+        `,
+      );
+      const existing = await tx.conversation.findFirst({
+        where: {
+          tenantId: channel.tenantId,
+          channelId: channel.id,
+          externalConversationId: sessionId,
+          deletedAt: null,
+        },
+        include: { lead: true, messages: { orderBy: { createdAt: "asc" } } },
       });
-      return existing;
-    }
 
-    const leadData: Prisma.LeadUncheckedCreateInput = {
-      tenantId: channel.tenantId,
-      source: "Виджет сайта",
-      channelType: "WEBSITE",
-      status: "NEW",
-      temperature: "WARM",
-      interest: shortSubject(text),
-      summary: "Новый диалог из виджета сайта.",
-      customFields: {
-        widgetSessionId: sessionId,
-        pageUrl: optionalString(dto.pageUrl) ?? "",
-        referrer: optionalString(dto.referrer) ?? ""
-      },
-      lastMessageAt: createdAt,
-      createdAt,
-      updatedAt: createdAt
-    };
-    const customerName = optionalString(dto.customer?.name);
-    const customerPhone = optionalString(dto.customer?.phone);
-    const customerEmail = optionalString(dto.customer?.email);
-    if (customerName) leadData.name = customerName;
-    if (customerPhone) leadData.phone = customerPhone;
-    if (customerEmail) leadData.email = customerEmail;
+      if (existing) return existing;
 
-    const lead = await this.prisma.lead.create({ data: leadData });
-
-    const conversation = await this.prisma.conversation.create({
-      data: {
+      const leadData: Prisma.LeadUncheckedCreateInput = {
         tenantId: channel.tenantId,
-        leadId: lead.id,
-        channelId: channel.id,
-        externalConversationId: sessionId,
-        status: "OPEN",
-        subject: shortSubject(text),
-        lastMessageAt: createdAt,
-        aiEnabled: true,
-        handoffRequested: false,
-        metadata: {
+        source: "Виджет сайта",
+        channelType: "WEBSITE",
+        status: "NEW",
+        temperature: "WARM",
+        interest: shortSubject(text),
+        summary: "Новый диалог из виджета сайта.",
+        customFields: {
           widgetSessionId: sessionId,
           pageUrl: optionalString(dto.pageUrl) ?? "",
-          referrer: optionalString(dto.referrer) ?? ""
+          referrer: optionalString(dto.referrer) ?? "",
         },
+        lastMessageAt: createdAt,
         createdAt,
-        updatedAt: createdAt
-      },
-      include: { lead: true, messages: { orderBy: { createdAt: "asc" } } }
+        updatedAt: createdAt,
+      };
+      const customerName = optionalString(dto.customer?.name);
+      const customerPhone = optionalString(dto.customer?.phone);
+      const customerEmail = optionalString(dto.customer?.email);
+      if (customerName) leadData.name = customerName;
+      if (customerPhone) leadData.phone = customerPhone;
+      if (customerEmail) leadData.email = customerEmail;
+
+      const lead = await tx.lead.create({ data: leadData });
+
+      const conversation = await tx.conversation.create({
+        data: {
+          tenantId: channel.tenantId,
+          leadId: lead.id,
+          channelId: channel.id,
+          externalConversationId: sessionId,
+          status: "OPEN",
+          subject: shortSubject(text),
+          lastMessageAt: createdAt,
+          aiEnabled: channelState[0]?.automaticRepliesEnabled ?? false,
+          handoffRequested: false,
+          metadata: {
+            widgetSessionId: sessionId,
+            pageUrl: optionalString(dto.pageUrl) ?? "",
+            referrer: optionalString(dto.referrer) ?? "",
+          },
+          createdAt,
+          updatedAt: createdAt,
+        },
+        include: { lead: true, messages: { orderBy: { createdAt: "asc" } } },
+      });
+
+      await tx.leadEvent.create({
+        data: {
+          tenantId: channel.tenantId,
+          leadId: lead.id,
+          type: "conversation_started",
+          title: "Диалог из виджета сайта начат",
+          message: text,
+          metadata: { conversationId: conversation.id, sessionId },
+        },
+      });
+
+      return conversation;
     });
-
-    await this.prisma.leadEvent.create({
-      data: {
-        tenantId: channel.tenantId,
-        leadId: lead.id,
-        type: "conversation_started",
-        title: "Диалог из виджета сайта начат",
-        message: text,
-        metadata: { conversationId: conversation.id, sessionId }
-      }
-    });
-
-    return conversation;
-  }
-
-  private async updateLeadFromCustomer(leadId: string, customer: WidgetCustomerDto | undefined, text: string, lastMessageAt: Date) {
-    const data: Prisma.LeadUpdateInput = {
-      lastMessageAt,
-      interest: shortSubject(text)
-    };
-    const name = optionalString(customer?.name);
-    const phone = optionalString(customer?.phone);
-    const email = optionalString(customer?.email);
-    if (name) data.name = name;
-    if (phone) data.phone = phone;
-    if (email) data.email = email;
-    await this.prisma.lead.update({ where: { id: leadId }, data });
   }
 
   private messageMetadata(dto: SendWidgetMessageDto, userAgent?: string): Prisma.InputJsonObject {
@@ -429,35 +496,40 @@ export class WidgetService {
     return metadata;
   }
 
+  private aiReplyRequest(
+    channel: WidgetChannel,
+    conversation: WidgetConversation,
+    triggerMessageId: string,
+    text: string,
+  ): AiReplyEnqueueRequest {
+    return {
+      tenantId: channel.tenantId,
+      conversationId: conversation.id,
+      triggerMessageId,
+      text,
+      source: "widget",
+    };
+  }
+
   private async generateAiReply(
     channel: WidgetChannel,
     conversation: WidgetConversation,
     triggerMessageId: string,
     text: string,
-    receivedAt: Date
+    receivedAt: Date,
   ): Promise<WidgetAiState> {
     const config = this.mapConfig(channel);
+    const jobData = this.aiReplyRequest(channel, conversation, triggerMessageId, text);
+    let syncAdmission: Awaited<ReturnType<AiReplyQueueService["admit"]>> | null = null;
     const messages: AiMessage[] = [
       ...conversation.messages.map((message) => ({
         role: message.senderType === "AI" ? ("assistant" as const) : ("user" as const),
-        content: message.text ?? ""
+        content: message.text ?? "",
       })),
-      { role: "user", content: text }
+      { role: "user", content: text },
     ];
 
     if (this.aiReplyQueue.enabled) {
-      const jobData: AiReplyJobData = {
-        tenantId: channel.tenantId,
-        conversationId: conversation.id,
-        triggerMessageId,
-        text,
-        businessName: config.businessName,
-        ...(channel.tenant.businessType ? { businessType: channel.tenant.businessType } : {}),
-        leadId: conversation.leadId,
-        ...(conversation.lead?.status ? { leadStatus: conversation.lead.status } : {}),
-        source: "widget",
-        receivedAt: receivedAt.toISOString()
-      };
       const queueResult = await this.aiReplyQueue.enqueue(jobData);
       if (queueResult.queued) {
         if (conversation.leadId) {
@@ -468,42 +540,74 @@ export class WidgetService {
               type: "widget_ai_reply_queued",
               title: "Widget AI reply queued",
               message: text,
-              metadata: { conversationId: conversation.id, jobId: queueResult.jobId ?? null }
-            }
+              metadata: { conversationId: conversation.id, jobId: queueResult.jobId ?? null },
+            },
           });
         }
         return {
           replied: false,
           handoffRequired: false,
           confidence: 0,
-          intent: "queued"
+          intent: "queued",
         };
       }
+      return {
+        replied: false,
+        handoffRequired: false,
+        confidence: 0,
+        intent: "automatic_replies_inactive",
+      };
+    }
+
+    syncAdmission = await this.aiReplyQueue.admit(jobData);
+    if (!syncAdmission.admitted) {
+      return {
+        replied: false,
+        handoffRequired: false,
+        confidence: 0,
+        intent: "automatic_replies_inactive",
+      };
     }
 
     const [extraction, aiReply, recommendation] = await Promise.all([
       this.aiProvider.extractLeadFields({
         tenantId: channel.tenantId,
         conversationId: conversation.id,
-        text
+        text,
       }),
       this.aiProvider.generateReply({
         tenantId: channel.tenantId,
         businessName: config.businessName,
         ...(channel.tenant.businessType ? { businessType: channel.tenant.businessType } : {}),
         conversationId: conversation.id,
-        messages
+        messages,
       }),
       this.aiProvider.recommendNextAction({
         tenantId: channel.tenantId,
         conversationId: conversation.id,
         ...(conversation.lead?.status ? { leadStatus: conversation.lead.status } : {}),
-        text
-      })
+        text,
+      }),
     ]);
 
     const aiCreatedAt = new Date(receivedAt.getTime() + 850);
     const handoffRequired = aiReply.handoffRequired || recommendation.handoffRequired;
+
+    const finalAdmission = await this.aiReplyQueue.admit(jobData);
+    if (
+      !finalAdmission.admitted ||
+      finalAdmission.channelGeneration !== syncAdmission.channelGeneration ||
+      finalAdmission.publicationId !== syncAdmission.publicationId ||
+      finalAdmission.publicationEtag !== syncAdmission.publicationEtag ||
+      finalAdmission.channelFingerprint !== syncAdmission.channelFingerprint
+    ) {
+      return {
+        replied: false,
+        handoffRequired: false,
+        confidence: 0,
+        intent: "automatic_replies_revoked",
+      };
+    }
 
     await this.prisma.message.create({
       data: {
@@ -517,11 +621,11 @@ export class WidgetService {
           intent: aiReply.intent,
           confidence: aiReply.confidence,
           nextAction: recommendation.action,
-          handoffRequired
+          handoffRequired,
         },
         createdAt: aiCreatedAt,
-        updatedAt: aiCreatedAt
-      }
+        updatedAt: aiCreatedAt,
+      },
     });
 
     await this.prisma.aiUsageLog.create({
@@ -541,9 +645,9 @@ export class WidgetService {
           intent: aiReply.intent,
           recommendation: recommendation.action,
           reason: recommendation.reason,
-          extractionConfidence: extraction.confidence
-        }
-      }
+          extractionConfidence: extraction.confidence,
+        },
+      },
     });
 
     await this.prisma.conversation.update({
@@ -552,20 +656,28 @@ export class WidgetService {
         lastMessageAt: aiCreatedAt,
         handoffRequested: conversation.handoffRequested || handoffRequired,
         status: handoffRequired ? "WAITING_FOR_HUMAN" : "OPEN",
-        updatedAt: aiCreatedAt
-      }
+        updatedAt: aiCreatedAt,
+      },
     });
 
     if (conversation.leadId) {
-      const summary = typeof extraction.fields.summary === "string" ? extraction.fields.summary : undefined;
+      const summary =
+        typeof extraction.fields.summary === "string" ? extraction.fields.summary : undefined;
       await this.prisma.lead.update({
         where: { id: conversation.leadId },
         data: {
           lastMessageAt: aiCreatedAt,
-          status: conversation.lead?.status === "NEW" ? "IN_PROGRESS" : (conversation.lead?.status ?? "IN_PROGRESS"),
-          ...(summary ? { summary } : conversation.lead?.summary ? { summary: conversation.lead.summary } : {}),
-          updatedAt: aiCreatedAt
-        }
+          status:
+            conversation.lead?.status === "NEW"
+              ? "IN_PROGRESS"
+              : (conversation.lead?.status ?? "IN_PROGRESS"),
+          ...(summary
+            ? { summary }
+            : conversation.lead?.summary
+              ? { summary: conversation.lead.summary }
+              : {}),
+          updatedAt: aiCreatedAt,
+        },
       });
 
       await this.prisma.leadEvent.create({
@@ -579,9 +691,9 @@ export class WidgetService {
             conversationId: conversation.id,
             intent: aiReply.intent,
             nextAction: recommendation.action,
-            handoffRequired
-          }
-        }
+            handoffRequired,
+          },
+        },
       });
     }
 
@@ -589,19 +701,23 @@ export class WidgetService {
       replied: true,
       handoffRequired,
       confidence: aiReply.confidence,
-      intent: aiReply.intent
+      intent: aiReply.intent,
     };
   }
 
-  private async responseForSession(channel: WidgetChannel, sessionId: string, ai: WidgetAiState): Promise<WidgetMessageResponse> {
+  private async responseForSession(
+    channel: WidgetChannel,
+    sessionId: string,
+    ai: WidgetAiState,
+  ): Promise<WidgetMessageResponse> {
     const conversation = await this.prisma.conversation.findFirst({
       where: {
         tenantId: channel.tenantId,
         channelId: channel.id,
         externalConversationId: sessionId,
-        deletedAt: null
+        deletedAt: null,
       },
-      include: { lead: true, messages: { orderBy: { createdAt: "asc" } } }
+      include: { lead: true, messages: { orderBy: { createdAt: "asc" } } },
     });
     if (!conversation) {
       throw new NotFoundException("Widget conversation not found");
@@ -609,21 +725,27 @@ export class WidgetService {
     return this.mapResponse(sessionId, conversation, ai);
   }
 
-  private mapResponse(sessionId: string, conversation: WidgetConversation, ai: WidgetAiState): WidgetMessageResponse {
+  private mapResponse(
+    sessionId: string,
+    conversation: WidgetConversation,
+    ai: WidgetAiState,
+  ): WidgetMessageResponse {
     return {
       sessionId,
       conversationId: conversation.id,
       leadId: conversation.leadId,
       status: conversation.status,
-      messages: conversation.messages.map((message): WidgetConversationMessage => ({
-        id: message.id,
-        senderType: message.senderType,
-        direction: message.direction,
-        text: message.text,
-        createdAt: message.createdAt.toISOString(),
-        status: message.status
-      })),
-      ai
+      messages: conversation.messages.map(
+        (message): WidgetConversationMessage => ({
+          id: message.id,
+          senderType: message.senderType,
+          direction: message.direction,
+          text: message.text,
+          createdAt: message.createdAt.toISOString(),
+          status: message.status,
+        }),
+      ),
+      ai,
     };
   }
 }

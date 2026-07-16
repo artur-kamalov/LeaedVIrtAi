@@ -1,4 +1,17 @@
-import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
+import type { Response } from "express";
 import { CurrentContext } from "../../common/decorators/current-context.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
 import { RolesGuard } from "../../common/guards/roles.guard.js";
@@ -31,14 +44,25 @@ export class KnowledgeController {
     return { data: await this.knowledgeService.reindex(context) };
   }
 
+  @Roles("OWNER", "ADMIN", "MANAGER", "AGENT")
   @Get("search")
-  async search(@CurrentContext() context: RequestContext, @Query() query: SearchKnowledgeDto) {
+  async search(
+    @CurrentContext() context: RequestContext,
+    @Query() query: SearchKnowledgeDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.setHeader("Cache-Control", "no-store, private");
+    response.setHeader("Pragma", "no-cache");
     return { data: await this.knowledgeService.search(context, query.q, query.limit ?? 5) };
   }
 
   @Roles("OWNER", "ADMIN", "MANAGER")
   @Patch(":id")
-  async update(@CurrentContext() context: RequestContext, @Param("id") id: string, @Body() dto: UpdateKnowledgeSourceDto) {
+  async update(
+    @CurrentContext() context: RequestContext,
+    @Param("id") id: string,
+    @Body() dto: UpdateKnowledgeSourceDto,
+  ) {
     return { data: await this.knowledgeService.update(context, id, dto) };
   }
 

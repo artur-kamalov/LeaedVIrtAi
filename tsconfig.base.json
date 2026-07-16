@@ -20,6 +20,8 @@
       "@leadvirt/ui": ["packages/ui/src/index.ts"],
       "@leadvirt/config": ["packages/config/src/index.ts"],
       "@leadvirt/db": ["packages/db/src/index.ts"],
+      "@leadvirt/knowledge": ["packages/knowledge/src/index.ts"],
+      "@leadvirt/runtime-queue": ["packages/runtime-queue/src/index.ts"],
       "@leadvirt/ai": ["packages/ai/src/index.ts"],
       "@leadvirt/observability": ["packages/observability/src/index.ts"],
       "@leadvirt/integrations": ["packages/integrations/src/index.ts"]

@@ -11,6 +11,16 @@ type EmailCopy = {
   warning: string;
 };
 
+type AuthEmailMessage = {
+  email: string;
+  subject: string;
+  text: string;
+  html: string;
+  locale: EmailOtpLocale;
+  referenceKey: string;
+  purpose: "email_otp" | "password_reset";
+};
+
 const emailCopy: Record<EmailOtpLocale, EmailCopy> = {
   en: {
     subject: "Your LeadVirt.ai sign-in code",
@@ -18,7 +28,8 @@ const emailCopy: Record<EmailOtpLocale, EmailCopy> = {
     title: "Confirm your email",
     description: "Enter this code in LeadVirt.ai to continue:",
     expiry: "The code expires in 10 minutes.",
-    warning: "If you did not request this code, you can ignore this email. Never share the code with anyone.",
+    warning:
+      "If you did not request this code, you can ignore this email. Never share the code with anyone.",
   },
   es: {
     subject: "Tu código de acceso a LeadVirt.ai",
@@ -42,7 +53,8 @@ const emailCopy: Record<EmailOtpLocale, EmailCopy> = {
     title: "E-Mail-Adresse bestätigen",
     description: "Geben Sie diesen Code in LeadVirt.ai ein:",
     expiry: "Der Code läuft in 10 Minuten ab.",
-    warning: "Falls Sie diesen Code nicht angefordert haben, ignorieren Sie diese E-Mail. Geben Sie den Code niemals weiter.",
+    warning:
+      "Falls Sie diesen Code nicht angefordert haben, ignorieren Sie diese E-Mail. Geben Sie den Code niemals weiter.",
   },
   pt: {
     subject: "Seu código de acesso ao LeadVirt.ai",
@@ -114,14 +126,19 @@ function envFlag(value: string | undefined) {
   return null;
 }
 
-function provider() {
+function otpProvider() {
   return (process.env.EMAIL_OTP_PROVIDER ?? "mock").trim().toLowerCase();
+}
+
+function passwordResetProvider() {
+  return (process.env.EMAIL_PROVIDER ?? "mock").trim().toLowerCase();
 }
 
 function emailFromEnvironment() {
   const emailFrom = process.env.EMAIL_FROM?.trim() ?? "";
   const angleMatch = emailFrom.match(/^\s*(.*?)\s*<([^<>]+)>\s*$/);
-  const fallbackEmail = angleMatch?.[2]?.trim() || (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailFrom) ? emailFrom : "");
+  const fallbackEmail =
+    angleMatch?.[2]?.trim() || (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailFrom) ? emailFrom : "");
   const fallbackName = angleMatch?.[1]?.trim().replace(/^['"]|['"]$/g, "") || "LeadVirt.ai";
   return { email: fallbackEmail, name: fallbackName };
 }
@@ -135,7 +152,10 @@ function senderFromEnvironment(email: string | undefined, name: string | undefin
 }
 
 function uniSenderConfiguration() {
-  const sender = senderFromEnvironment(process.env.UNISENDER_SENDER_EMAIL, process.env.UNISENDER_SENDER_NAME);
+  const sender = senderFromEnvironment(
+    process.env.UNISENDER_SENDER_EMAIL,
+    process.env.UNISENDER_SENDER_NAME,
+  );
   const listId = process.env.UNISENDER_LIST_ID?.trim() ?? "";
   const senderReady = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sender.email);
   const listReady = /^\d+$/.test(listId) && Number(listId) > 0;
@@ -180,6 +200,13 @@ function featureEnabled() {
   return process.env.NODE_ENV !== "production";
 }
 
+function providerReady(mode: string) {
+  if (mode === "mock") return process.env.NODE_ENV !== "production";
+  if (mode === "smtp") return smtpConfiguration().ready;
+  if (mode === "unisender") return uniSenderConfiguration().ready;
+  return false;
+}
+
 function htmlBody(copy: EmailCopy, code: string) {
   return `
 <div style="margin:0;padding:32px 16px;background:#09090b;color:#f4f4f5;font-family:Arial,sans-serif">
@@ -200,10 +227,42 @@ function textBody(copy: EmailCopy, code: string) {
   return `${copy.title}\n\n${copy.description}\n\n${code}\n\n${copy.expiry}\n${copy.warning}`;
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function passwordResetHtmlBody(resetUrl: string) {
+  const safeResetUrl = escapeHtml(resetUrl);
+  return `
+<div style="margin:0;padding:32px 16px;background:#09090b;color:#f4f4f5;font-family:Arial,sans-serif">
+  <div style="max-width:560px;margin:0 auto;border:1px solid #27272a;border-radius:8px;background:#18181b;overflow:hidden">
+    <div style="padding:28px 32px 12px;font-size:12px;font-weight:700;letter-spacing:0;color:#34d399;text-transform:uppercase">Account security</div>
+    <div style="padding:0 32px 32px">
+      <div style="font-size:26px;line-height:1.25;font-weight:700;color:#fafafa">Reset your password</div>
+      <p style="margin:14px 0 22px;font-size:15px;line-height:1.6;color:#a1a1aa">Use the secure link below to choose a new LeadVirt.ai password.</p>
+      <a href="${safeResetUrl}" style="display:inline-block;padding:12px 18px;border-radius:6px;background:#34d399;color:#09090b;font-size:15px;font-weight:700;text-decoration:none">Reset password</a>
+      <p style="margin:18px 0 0;font-size:14px;line-height:1.5;color:#d4d4d8">The link expires in 30 minutes and can be used once.</p>
+      <p style="margin:20px 0 0;font-size:12px;line-height:1.6;color:#71717a">If you did not request a password reset, you can ignore this email.</p>
+    </div>
+  </div>
+</div>`.trim();
+}
+
+function passwordResetTextBody(resetUrl: string) {
+  return `Reset your LeadVirt.ai password\n\nUse this secure link to choose a new password:\n${resetUrl}\n\nThe link expires in 30 minutes and can be used once.\nIf you did not request a password reset, you can ignore this email.`;
+}
+
 function firstDeliveryResult(payload: UniSenderResponse) {
   if (!Array.isArray(payload.result)) return null;
   const first: unknown = (payload.result as unknown[])[0];
-  return typeof first === "object" && first !== null ? (first as { id?: unknown; errors?: unknown }) : null;
+  return typeof first === "object" && first !== null
+    ? (first as { id?: unknown; errors?: unknown })
+    : null;
 }
 
 @Injectable()
@@ -219,22 +278,35 @@ export class EmailOtpDeliveryService {
   }
 
   config() {
-    const mode = provider();
-    const mockReady = mode === "mock" && process.env.NODE_ENV !== "production";
-    const providerReady =
-      (mode === "unisender" && uniSenderConfiguration().ready) ||
-      (mode === "smtp" && smtpConfiguration().ready);
+    const mode = otpProvider();
     return {
-      enabled: featureEnabled() && (mockReady || providerReady),
+      enabled: featureEnabled() && providerReady(mode),
     };
   }
 
   deliveryMode() {
-    return provider();
+    return otpProvider();
   }
 
   canExposeCode() {
-    return process.env.NODE_ENV !== "production" && provider() === "mock";
+    return process.env.NODE_ENV !== "production" && otpProvider() === "mock";
+  }
+
+  passwordResetConfig() {
+    const deliveryMode = passwordResetProvider();
+    return {
+      enabled: providerReady(deliveryMode),
+      deliveryMode,
+      exposeResetUrl: process.env.NODE_ENV !== "production" && deliveryMode === "mock",
+    };
+  }
+
+  requirePasswordResetDelivery() {
+    const config = this.passwordResetConfig();
+    if (!config.enabled) {
+      throw new ServiceUnavailableException("Password reset email is not configured.");
+    }
+    return config;
   }
 
   async send(input: { challengeId: string; email: string; code: string; locale: EmailOtpLocale }) {
@@ -242,13 +314,43 @@ export class EmailOtpDeliveryService {
       throw new ServiceUnavailableException("Email sign-in is not configured.");
     }
 
-    if (provider() === "mock") {
+    const mode = otpProvider();
+    if (mode === "mock") {
       return { providerMessageId: `mock:${input.challengeId}` };
     }
 
-    if (provider() === "smtp") {
+    const copy = emailCopy[input.locale];
+    return this.deliver(mode, {
+      email: input.email,
+      subject: copy.subject,
+      text: textBody(copy, input.code),
+      html: htmlBody(copy, input.code),
+      locale: input.locale,
+      referenceKey: input.challengeId,
+      purpose: "email_otp",
+    });
+  }
+
+  async sendPasswordReset(input: { resetId: string; email: string; resetUrl: string }) {
+    const config = this.requirePasswordResetDelivery();
+    if (config.deliveryMode === "mock") {
+      return { providerMessageId: `mock:${input.resetId}` };
+    }
+
+    return this.deliver(config.deliveryMode, {
+      email: input.email,
+      subject: "Reset your LeadVirt.ai password",
+      text: passwordResetTextBody(input.resetUrl),
+      html: passwordResetHtmlBody(input.resetUrl),
+      locale: "en",
+      referenceKey: input.resetId,
+      purpose: "password_reset",
+    });
+  }
+
+  private async deliver(mode: string, input: AuthEmailMessage) {
+    if (mode === "smtp") {
       const config = smtpConfiguration();
-      const copy = emailCopy[input.locale];
       const transport = this.smtpTransportFactory({
         host: config.host,
         port: config.port,
@@ -263,10 +365,10 @@ export class EmailOtpDeliveryService {
         const result = await transport.sendMail({
           from: { name: config.sender.name, address: config.sender.email },
           to: input.email,
-          subject: copy.subject,
-          text: textBody(copy, input.code),
-          html: htmlBody(copy, input.code),
-          headers: { "X-LeadVirt-Purpose": "email_otp" },
+          subject: input.subject,
+          text: input.text,
+          html: input.html,
+          headers: { "X-LeadVirt-Purpose": input.purpose },
           disableFileAccess: true,
           disableUrlAccess: true,
         });
@@ -285,23 +387,26 @@ export class EmailOtpDeliveryService {
       }
     }
 
+    if (mode !== "unisender") {
+      throw new ServiceUnavailableException("Email delivery is not configured.");
+    }
+
     const config = uniSenderConfiguration();
-    const copy = emailCopy[input.locale];
     const form = new URLSearchParams({
       format: "json",
       api_key: config.apiKey,
       email: input.email,
       sender_name: config.sender.name,
       sender_email: config.sender.email,
-      subject: copy.subject,
-      body: htmlBody(copy, input.code),
+      subject: input.subject,
+      body: input.html,
       list_id: config.listId,
       lang: input.locale,
       track_read: "0",
       track_links: "0",
       error_checking: "1",
-      ref_key: input.challengeId,
-      "metadata[purpose]": "email_otp",
+      ref_key: input.referenceKey,
+      "metadata[purpose]": input.purpose,
     });
 
     let payload: UniSenderResponse;
@@ -321,7 +426,11 @@ export class EmailOtpDeliveryService {
     const result = firstDeliveryResult(payload);
     const hasErrors = Array.isArray(result?.errors) && result.errors.length > 0;
     const messageId = result?.id;
-    if (payload.error || (typeof messageId !== "string" && typeof messageId !== "number") || hasErrors) {
+    if (
+      payload.error ||
+      (typeof messageId !== "string" && typeof messageId !== "number") ||
+      hasErrors
+    ) {
       throw new ServiceUnavailableException("Email delivery is temporarily unavailable.");
     }
 

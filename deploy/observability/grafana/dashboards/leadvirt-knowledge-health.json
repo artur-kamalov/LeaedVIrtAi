@@ -1,0 +1,541 @@
+{
+  "editable": true,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": { "color": "green", "text": "Current" },
+                "1": { "color": "red", "text": "Stale" }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "leadvirt_knowledge_metrics_snapshot_stale",
+          "legendFormat": "snapshot",
+          "refId": "A"
+        }
+      ],
+      "title": "Metrics Snapshot",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "leadvirt_knowledge_metrics_snapshot_age_seconds",
+          "legendFormat": "age",
+          "refId": "A"
+        }
+      ],
+      "title": "Snapshot Age",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["max"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "max(leadvirt_knowledge_job_oldest_age_seconds{status=~\"queued|running|retry_scheduled\"})",
+          "legendFormat": "oldest",
+          "refId": "A"
+        }
+      ],
+      "title": "Oldest Active Job",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "1 - min(up{job=~\"leadvirt-(api|worker).*\"})",
+          "legendFormat": "unavailable",
+          "refId": "A"
+        }
+      ],
+      "title": "Service Dependency Failure",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "id": 5,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(leadvirt_knowledge_jobs_current) by (stage, status)",
+          "legendFormat": "{{stage}} {{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Durable Jobs",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "id": 6,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "max(leadvirt_knowledge_source_oldest_success_age_seconds) by (source_kind, status)",
+          "legendFormat": "freshness {{source_kind}} {{status}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(leadvirt_knowledge_sources_never_succeeded) by (source_kind, status)",
+          "legendFormat": "never succeeded {{source_kind}} {{status}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Source Freshness And Readiness",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 13 },
+      "id": 7,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(leadvirt_knowledge_review_items) by (reason, risk)",
+          "legendFormat": "{{risk}} {{reason}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Review Backlog",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 13 },
+      "id": 8,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(leadvirt_knowledge_conflicts) by (risk, state)",
+          "legendFormat": "{{risk}} {{state}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Conflict Backlog",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 13 },
+      "id": 9,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(leadvirt_knowledge_publications_current) by (state)",
+          "legendFormat": "{{state}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Publication State",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "id": 10,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(leadvirt_knowledge_answer_gate_results) by (result, outcome)",
+          "legendFormat": "{{result}} {{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Answer Gate Outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "id": 11,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "max(leadvirt_knowledge_deletion_oldest_age_seconds) by (subsystem, status)",
+          "legendFormat": "{{subsystem}} {{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Deletion Lag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
+      "id": 12,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(leadvirt_knowledge_feedback_current) by (category, status)",
+          "legendFormat": "{{category}} {{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Feedback",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
+      "id": 13,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(leadvirt_knowledge_documents_current) by (state)",
+          "legendFormat": "{{state}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Document State",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 37 },
+      "id": 14,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(leadvirt_knowledge_live_retrieval_duration_seconds_bucket[30m])) by (le, backend, outcome))",
+          "legendFormat": "p95 {{backend}} {{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Live Retrieval Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "max": 1, "min": 0, "unit": "percentunit" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 37 },
+      "id": 15,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(leadvirt_knowledge_live_retrieval_selected_count_sum[30m])) by (backend, locale) / clamp_min(sum(rate(leadvirt_knowledge_live_retrieval_candidate_count_sum[30m])) by (backend, locale), 0.001)",
+          "legendFormat": "{{backend}} {{locale}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Live Retrieval Selection Yield",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 37 },
+      "id": 16,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(leadvirt_knowledge_live_retrieval_outcomes_total[30m])) by (outcome, reason, locale)",
+          "legendFormat": "{{outcome}} {{reason}} {{locale}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Live Retrieval Outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 45 },
+      "id": 17,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(leadvirt_knowledge_live_answer_gate_total[30m])) by (result, reason, risk, locale)",
+          "legendFormat": "{{result}} {{reason}} {{risk}} {{locale}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Live Answer Safety Gate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "max": 1, "min": 0, "unit": "percentunit" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 45 },
+      "id": 18,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(leadvirt_knowledge_live_answer_citation_coverage_ratio_sum[30m])) by (result, risk, locale) / clamp_min(sum(rate(leadvirt_knowledge_live_answer_citation_coverage_ratio_count[30m])) by (result, risk, locale), 0.001)",
+          "legendFormat": "{{result}} {{risk}} {{locale}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Live Citation Coverage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 53 },
+      "id": 19,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(leadvirt_knowledge_time_to_queryable_seconds_bucket[1h])) by (le, operation, item_kind, source_kind))",
+          "legendFormat": "p95 {{operation}} {{item_kind}} {{source_kind}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Time To Queryable",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 53 },
+      "id": 20,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(leadvirt_knowledge_publication_outcomes_total[30m])) by (result, operation, source_kind)",
+          "legendFormat": "{{result}} {{operation}} {{source_kind}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Publication Outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 53 },
+      "id": 21,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(leadvirt_knowledge_publication_duration_seconds_bucket[1h])) by (le, result, operation, source_kind))",
+          "legendFormat": "p95 {{result}} {{operation}} {{source_kind}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Publication Duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": { "color": "red", "text": "Unavailable" },
+                "1": { "color": "green", "text": "Ready" }
+              },
+              "type": "value"
+            }
+          ],
+          "max": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 61 },
+      "id": 22,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "leadvirt_knowledge_dependency_up and on(dependency) (leadvirt_knowledge_dependency_configured == 1)",
+          "legendFormat": "{{dependency}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Knowledge Dependency Availability",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 61 },
+      "id": 23,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "leadvirt_knowledge_dependency_probe_age_seconds and on(dependency) (leadvirt_knowledge_dependency_configured == 1)",
+          "legendFormat": "age {{dependency}}",
+          "refId": "A"
+        },
+        {
+          "expr": "leadvirt_knowledge_dependency_probe_stale * 90",
+          "legendFormat": "stale {{dependency}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Knowledge Dependency Probe Freshness",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 61 },
+      "id": 24,
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(otelcol_exporter_send_failed_spans_total[5m])) by (exporter)",
+          "legendFormat": "send failed {{exporter}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(otelcol_exporter_enqueue_failed_spans_total[5m])) by (exporter)",
+          "legendFormat": "enqueue dropped {{exporter}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(otelcol_receiver_refused_spans_total[5m])) by (receiver)",
+          "legendFormat": "receiver refused {{receiver}}",
+          "refId": "C"
+        }
+      ],
+      "title": "OpenTelemetry Export Failures And Drops",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["leadvirt", "knowledge", "safety"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "title": "LeadVirt Knowledge Health",
+  "uid": "leadvirt-knowledge-health",
+  "version": 1
+}

@@ -20,7 +20,7 @@ mkdir -p certbot/www
 docker compose up -d
 ```
 
-The nginx gateway allows OpenAI and outbound Telegram Bot API traffic only from the main LeadVirt server IP `193.187.92.88`. The POST-only `/telegram-webhook/` relay is public so Telegram can deliver updates, while LeadVirt still verifies Telegram's secret header. Public `/health` is intentionally available for a simple uptime check. Telegram access and non-emergency error logging are disabled.
+The nginx gateway allows OpenAI and outbound Telegram Bot API traffic only from the main LeadVirt server IP `193.187.92.88`. The POST-only `/telegram-webhook/` relay is public so Telegram can deliver updates, while LeadVirt still verifies Telegram's secret header. The relay limits each source IP to `50` requests per second with a burst of `100`. Public `/health` is intentionally available for a simple uptime check. Telegram access and non-emergency error logging are disabled.
 
 Port note: `443` is intentionally left to the existing `xray` service on the FR VPS; nginx serves the AI gateway on `8443` and uses `80` for health checks and ACME HTTP validation.
 

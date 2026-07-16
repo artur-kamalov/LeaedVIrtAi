@@ -32,14 +32,22 @@ test.describe("six-language localization", () => {
     if (process.env.LEADVIRT_LOCALIZATION_SCREENSHOTS === "1") {
       await page.locator("footer").scrollIntoViewIfNeeded();
       await page.waitForTimeout(300);
-      await page.screenshot({ path: "artifacts/screenshots/localization-footer.png", animations: "disabled" });
+      await page.screenshot({
+        path: "artifacts/screenshots/localization-footer.png",
+        animations: "disabled",
+      });
       await page.evaluate(() => window.scrollTo(0, 0));
     }
 
     await switcher.click();
-    await expect(page.locator('[data-testid^="language-option-"]')).toHaveCount(supportedLocales.length);
+    await expect(page.locator('[data-testid^="language-option-"]')).toHaveCount(
+      supportedLocales.length,
+    );
     if (process.env.LEADVIRT_LOCALIZATION_SCREENSHOTS === "1") {
-      await page.screenshot({ path: "artifacts/screenshots/localization-language-menu.png", animations: "disabled" });
+      await page.screenshot({
+        path: "artifacts/screenshots/localization-language-menu.png",
+        animations: "disabled",
+      });
     }
     await page.getByTestId("language-option-es").click();
 
@@ -52,48 +60,84 @@ test.describe("six-language localization", () => {
     expect(cookies.find((cookie) => cookie.name === "leadvirt-locale")?.value).toBe("es");
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.locator('[data-testid="language-switcher"]:visible').first()).toHaveAttribute("data-locale", "es");
+    await expect(page.locator('[data-testid="language-switcher"]:visible').first()).toHaveAttribute(
+      "data-locale",
+      "es",
+    );
     await expect(page.locator('meta[name="description"]')).toHaveAttribute(
       "content",
       "Administrador de IA para clientes potenciales entrantes, conversaciones y ventas.",
     );
 
     await page.goto(`${webBase}/login`, { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("heading", { level: 2 })).toHaveText("Inicie sesión en LeadVirt.ai");
+    await expect(page.getByRole("heading", { level: 2 })).toHaveText(
+      "Inicie sesión en LeadVirt.ai",
+    );
   });
 
   test("every supported locale renders its landing translation", async ({ context, page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
 
     for (const locale of supportedLocales) {
-      await context.addCookies([{ name: "leadvirt-locale", value: locale, url: webBase, sameSite: "Lax" }]);
+      await context.addCookies([
+        { name: "leadvirt-locale", value: locale, url: webBase, sameSite: "Lax" },
+      ]);
       await page.goto(webBase, { waitUntil: "domcontentloaded" });
-      await expect(page.locator('[data-testid="language-switcher"]:visible').first()).toHaveAttribute("data-locale", locale);
+      await expect(
+        page.locator('[data-testid="language-switcher"]:visible').first(),
+      ).toHaveAttribute("data-locale", locale);
       await expect(page.getByRole("heading", { level: 1 })).toContainText(landingHeadings[locale]);
       await expect.poll(() => page.evaluate(() => document.documentElement.lang)).toBe(locale);
     }
   });
 
-  test("new locales cover onboarding and workspace overview on mobile", async ({ context, page }) => {
+  test("new locales cover onboarding and workspace overview on mobile", async ({
+    context,
+    page,
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await context.addCookies([{ name: "leadvirt-locale", value: "pt", url: webBase, sameSite: "Lax" }]);
+    await context.addCookies([
+      { name: "leadvirt-locale", value: "pt", url: webBase, sameSite: "Lax" },
+    ]);
+    await page.route("**/api/onboarding/state", async (route) => {
+      await route.fulfill({
+        json: {
+          data: {
+            currentStep: "business",
+            completedSteps: [],
+            data: {},
+            completedAt: null,
+          },
+        },
+      });
+    });
 
     await page.goto(`${webBase}/onboarding`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { level: 2 })).toHaveText("Que tipo de negócio é esse?");
     await expect(page.getByText("Etapa 1 de 6")).toBeVisible();
-    await expect(page.locator('[data-testid="language-switcher"]:visible')).toHaveAttribute("data-locale", "pt");
+    await expect(page.locator('[data-testid="language-switcher"]:visible')).toHaveAttribute(
+      "data-locale",
+      "pt",
+    );
     await expect(page.getByTestId("onboarding-step-panel")).toHaveCSS("opacity", "1");
     if (process.env.LEADVIRT_LOCALIZATION_SCREENSHOTS === "1") {
-      await page.screenshot({ path: "artifacts/screenshots/localization-onboarding-pt-mobile.png" });
+      await page.screenshot({
+        path: "artifacts/screenshots/localization-onboarding-pt-mobile.png",
+      });
     }
 
-    await context.addCookies([{ name: "leadvirt-locale", value: "de", url: webBase, sameSite: "Lax" }]);
+    await context.addCookies([
+      { name: "leadvirt-locale", value: "de", url: webBase, sameSite: "Lax" },
+    ]);
     await page.goto(`${webBase}/demo`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Übersicht");
     await expect(page.getByText(/^Willkommen, /)).toBeVisible();
     await expect(page.getByText("Neue Leads", { exact: true }).first()).toBeVisible();
     if (process.env.LEADVIRT_LOCALIZATION_SCREENSHOTS === "1") {
-      await page.screenshot({ path: "artifacts/screenshots/localization-dashboard-de-mobile.png", animations: "disabled" });
+      await page.screenshot({
+        path: "artifacts/screenshots/localization-dashboard-de-mobile.png",
+        animations: "disabled",
+      });
     }
   });
 
@@ -102,8 +146,12 @@ test.describe("six-language localization", () => {
 
     for (const locale of supportedLocales) {
       for (const key of Object.keys(english) as TranslationKey[]) {
-        const expected = [...english[key].matchAll(/\{[a-zA-Z0-9_]+\}/g)].map(([token]) => token).sort();
-        const actual = [...messages[locale][key].matchAll(/\{[a-zA-Z0-9_]+\}/g)].map(([token]) => token).sort();
+        const expected = [...english[key].matchAll(/\{[a-zA-Z0-9_]+\}/g)]
+          .map(([token]) => token)
+          .sort();
+        const actual = [...messages[locale][key].matchAll(/\{[a-zA-Z0-9_]+\}/g)]
+          .map(([token]) => token)
+          .sort();
         expect(actual, `${locale}.${key}`).toEqual(expected);
       }
     }

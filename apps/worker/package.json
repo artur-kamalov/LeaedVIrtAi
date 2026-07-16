@@ -17,7 +17,9 @@
     "@leadvirt/config": "workspace:*",
     "@leadvirt/db": "workspace:*",
     "@leadvirt/integrations": "workspace:*",
+    "@leadvirt/knowledge": "workspace:*",
     "@leadvirt/observability": "workspace:*",
+    "@leadvirt/runtime-queue": "workspace:*",
     "@leadvirt/types": "workspace:*",
     "bullmq": "^5.56.0",
     "zod": "^3.25.76"

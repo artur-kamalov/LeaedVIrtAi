@@ -1,6 +1,8 @@
 import { createRequire } from "node:module";
 
-const requireFromDbPackage = createRequire(new URL("../../packages/db/package.json", import.meta.url));
+const requireFromDbPackage = createRequire(
+  new URL("../../packages/db/package.json", import.meta.url),
+);
 const { PrismaClient } = requireFromDbPackage("@prisma/client");
 
 const localDatabaseUrl = "postgresql://postgres:postgres@localhost:5432/leadvirt?schema=public";
@@ -35,6 +37,32 @@ function normalizeBase(value) {
 function normalizeApiBase(value) {
   const cleaned = normalizeBase(value);
   return cleaned.endsWith("/api") ? cleaned : `${cleaned}/api`;
+}
+
+function canonicalHttpsOrigin(value) {
+  if (!value?.trim()) return null;
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash ||
+      hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname === "0.0.0.0" ||
+      hostname === "[::1]" ||
+      /^127(?:\.\d{1,3}){3}$/.test(hostname)
+    ) {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
 }
 
 function pass(name, detail = "") {
@@ -135,7 +163,12 @@ async function checkDatabaseSchema(prisma) {
   pass("Database connection", `${target?.database ?? "unknown"}.${target?.schema ?? "unknown"}`);
 
   const authSessionExists = await tableExists(prisma, "AuthSession");
-  requireCheck(authSessionExists, "AuthSession table", "present", "missing; run db:migrate against this database");
+  requireCheck(
+    authSessionExists,
+    "AuthSession table",
+    "present",
+    "missing; run db:migrate against this database",
+  );
   if (authSessionExists) {
     await checkRequiredColumns(prisma, "AuthSession", [
       "userId",
@@ -159,7 +192,12 @@ async function checkDatabaseSchema(prisma) {
   ]);
 
   const resetTokenExists = await tableExists(prisma, "AuthPasswordResetToken");
-  requireCheck(resetTokenExists, "AuthPasswordResetToken table", "present", "missing; run db:migrate against this database");
+  requireCheck(
+    resetTokenExists,
+    "AuthPasswordResetToken table",
+    "present",
+    "missing; run db:migrate against this database",
+  );
   if (resetTokenExists) {
     await checkRequiredColumns(prisma, "AuthPasswordResetToken", [
       "userId",
@@ -196,32 +234,55 @@ async function checkSeedOwner(prisma) {
     },
   });
 
-  requireCheck(Boolean(owner), "Seed credential user", ownerEmail, `${ownerEmail} not found; run db:seed or create/update release credentials`);
+  requireCheck(
+    Boolean(owner),
+    "Seed credential user",
+    ownerEmail,
+    `${ownerEmail} not found; run db:seed or create/update release credentials`,
+  );
   if (!owner) return;
 
-  requireCheck(Boolean(owner.passwordHash), "Seed user password hash", "present", "missing; user cannot log in with local credentials");
+  requireCheck(
+    Boolean(owner.passwordHash),
+    "Seed user password hash",
+    "present",
+    "missing; user cannot log in with local credentials",
+  );
   strictCheck(
-    owner.passwordChangeRequired === false || isTruthy(process.env.LEADVIRT_AUTH_READY_ALLOW_TEMP_PASSWORD),
+    owner.passwordChangeRequired === false ||
+      isTruthy(process.env.LEADVIRT_AUTH_READY_ALLOW_TEMP_PASSWORD),
     "Seed user permanent password",
     "passwordChangeRequired=false",
     "passwordChangeRequired=true; set a permanent staging password or LEADVIRT_AUTH_READY_ALLOW_TEMP_PASSWORD=1",
   );
 
   const activeMemberships = owner.memberships.filter((membership) => !membership.tenant.deletedAt);
-  requireCheck(activeMemberships.length > 0, "Seed user tenant membership", `${activeMemberships.length} active membership(s)`, "no active tenant membership");
+  requireCheck(
+    activeMemberships.length > 0,
+    "Seed user tenant membership",
+    `${activeMemberships.length} active membership(s)`,
+    "no active tenant membership",
+  );
 
-  const privilegedMembership = activeMemberships.find((membership) => ["OWNER", "ADMIN"].includes(membership.role));
+  const privilegedMembership = activeMemberships.find((membership) =>
+    ["OWNER", "ADMIN"].includes(membership.role),
+  );
   requireCheck(
     Boolean(privilegedMembership),
     "Seed user workspace role",
-    privilegedMembership ? `${privilegedMembership.role} on ${privilegedMembership.tenant.slug}` : "OWNER/ADMIN",
+    privilegedMembership
+      ? `${privilegedMembership.role} on ${privilegedMembership.tenant.slug}`
+      : "OWNER/ADMIN",
     "no OWNER/ADMIN membership",
   );
 
   if (owner.twoFactorEnabled) {
     pass("Seed user 2FA state", "enabled");
   } else {
-    warn("Seed user 2FA state", "disabled; enable it for shared staging/admin accounts before broad external access");
+    warn(
+      "Seed user 2FA state",
+      "disabled; enable it for shared staging/admin accounts before broad external access",
+    );
   }
 }
 
@@ -249,12 +310,13 @@ function checkEnvironment() {
 
   const emailProvider = (process.env.EMAIL_PROVIDER ?? "mock").trim().toLowerCase();
   strictCheck(
-    emailProvider !== "mock",
+    ["smtp", "unisender"].includes(emailProvider),
     "EMAIL_PROVIDER",
     emailProvider,
-    "mock; password reset URLs may be exposed for local QA behavior",
+    `${emailProvider}; production password reset requires EMAIL_PROVIDER=smtp or unisender`,
   );
 
+  const requiredEmailProviders = new Set([emailProvider]);
   if (isTruthy(process.env.AUTH_EMAIL_OTP_ENABLED)) {
     const emailOtpProvider = (process.env.EMAIL_OTP_PROVIDER ?? "mock").trim().toLowerCase();
     strictCheck(
@@ -263,48 +325,61 @@ function checkEnvironment() {
       emailOtpProvider,
       `${emailOtpProvider}; AUTH_EMAIL_OTP_ENABLED requires EMAIL_OTP_PROVIDER=smtp or unisender in production`,
     );
-    if (emailOtpProvider === "smtp") {
-      strictCheck(Boolean(process.env.SMTP_HOST?.trim()), "SMTP_HOST", process.env.SMTP_HOST ?? "missing", "missing");
-      strictCheck(
-        /^\d+$/.test(process.env.SMTP_PORT?.trim() ?? "") && Number(process.env.SMTP_PORT) > 0,
-        "SMTP_PORT",
-        process.env.SMTP_PORT ?? "missing",
-        "missing or not a positive integer",
-      );
-      strictCheck(
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.SMTP_USER?.trim() ?? ""),
-        "SMTP_USER",
-        process.env.SMTP_USER ?? "missing",
-        "missing or invalid",
-      );
-      strictCheck(Boolean(process.env.SMTP_PASSWORD), "SMTP_PASSWORD", "configured", "missing");
-      strictCheck(
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.SMTP_FROM_EMAIL?.trim() ?? ""),
-        "SMTP_FROM_EMAIL",
-        process.env.SMTP_FROM_EMAIL ?? "missing",
-        "missing or invalid",
-      );
-    }
-    if (emailOtpProvider === "unisender") {
-      strictCheck(Boolean(process.env.UNISENDER_API_KEY?.trim()), "UNISENDER_API_KEY", "configured", "missing");
-      strictCheck(
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.UNISENDER_SENDER_EMAIL?.trim() ?? ""),
-        "UNISENDER_SENDER_EMAIL",
-        process.env.UNISENDER_SENDER_EMAIL ?? "missing",
-        "missing or invalid; sender verification must also be completed in UniSender",
-      );
-      strictCheck(
-        /^\d+$/.test(process.env.UNISENDER_LIST_ID?.trim() ?? "") && Number(process.env.UNISENDER_LIST_ID) > 0,
-        "UNISENDER_LIST_ID",
-        process.env.UNISENDER_LIST_ID ?? "missing",
-        "missing or not a positive integer",
-      );
-    }
+    requiredEmailProviders.add(emailOtpProvider);
     strictCheck(
       (process.env.AUTH_EMAIL_OTP_PEPPER?.trim().length ?? 0) >= 32,
       "AUTH_EMAIL_OTP_PEPPER",
       "configured",
       "missing or shorter than 32 characters",
+    );
+  }
+
+  if (requiredEmailProviders.has("smtp")) {
+    strictCheck(
+      Boolean(process.env.SMTP_HOST?.trim()),
+      "SMTP_HOST",
+      process.env.SMTP_HOST ?? "missing",
+      "missing",
+    );
+    strictCheck(
+      /^\d+$/.test(process.env.SMTP_PORT?.trim() ?? "") && Number(process.env.SMTP_PORT) > 0,
+      "SMTP_PORT",
+      process.env.SMTP_PORT ?? "missing",
+      "missing or not a positive integer",
+    );
+    strictCheck(
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.SMTP_USER?.trim() ?? ""),
+      "SMTP_USER",
+      process.env.SMTP_USER ?? "missing",
+      "missing or invalid",
+    );
+    strictCheck(Boolean(process.env.SMTP_PASSWORD), "SMTP_PASSWORD", "configured", "missing");
+    strictCheck(
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.SMTP_FROM_EMAIL?.trim() ?? ""),
+      "SMTP_FROM_EMAIL",
+      process.env.SMTP_FROM_EMAIL ?? "missing",
+      "missing or invalid",
+    );
+  }
+  if (requiredEmailProviders.has("unisender")) {
+    strictCheck(
+      Boolean(process.env.UNISENDER_API_KEY?.trim()),
+      "UNISENDER_API_KEY",
+      "configured",
+      "missing",
+    );
+    strictCheck(
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(process.env.UNISENDER_SENDER_EMAIL?.trim() ?? ""),
+      "UNISENDER_SENDER_EMAIL",
+      process.env.UNISENDER_SENDER_EMAIL ?? "missing",
+      "missing or invalid; sender verification must also be completed in UniSender",
+    );
+    strictCheck(
+      /^\d+$/.test(process.env.UNISENDER_LIST_ID?.trim() ?? "") &&
+        Number(process.env.UNISENDER_LIST_ID) > 0,
+      "UNISENDER_LIST_ID",
+      process.env.UNISENDER_LIST_ID ?? "missing",
+      "missing or not a positive integer",
     );
   }
 
@@ -315,18 +390,37 @@ function checkEnvironment() {
     `${nodeEnv}; production cookie/reset behavior is not active`,
   );
 
+  const appOrigin = canonicalHttpsOrigin(process.env.APP_URL);
+  const expectedAppOrigin = canonicalHttpsOrigin(process.env.NEXT_PUBLIC_APP_URL);
   strictCheck(
-    Boolean(process.env.APP_URL) && !String(process.env.APP_URL).includes("localhost"),
-    "APP_URL",
-    process.env.APP_URL ?? "missing",
-    "missing or localhost; reset links and public callbacks will not point at staging/public web",
+    Boolean(appOrigin),
+    "APP_URL reset origin",
+    appOrigin ?? "invalid",
+    "must be a public credential-free HTTPS origin without path, query, or hash",
+  );
+  strictCheck(
+    Boolean(expectedAppOrigin),
+    "NEXT_PUBLIC_APP_URL reset origin",
+    expectedAppOrigin ?? "invalid",
+    "must be a public credential-free HTTPS origin without path, query, or hash",
+  );
+  strictCheck(
+    Boolean(appOrigin && expectedAppOrigin && appOrigin === expectedAppOrigin),
+    "Password reset origin match",
+    appOrigin ?? "invalid",
+    "APP_URL must exactly match the deployed NEXT_PUBLIC_APP_URL origin",
   );
 }
 
 async function checkApiBoundary() {
   const health = await fetchJson(`${apiOrigin}/health`);
   if (!health.ok) {
-    strictCheck(false, "API health", `${apiOrigin}/health`, `${apiOrigin}/health (${status(health)})`);
+    strictCheck(
+      false,
+      "API health",
+      `${apiOrigin}/health`,
+      `${apiOrigin}/health (${status(health)})`,
+    );
     return;
   }
 
@@ -376,10 +470,14 @@ async function main() {
   const warnings = checks.filter((check) => check.level === "WARN");
   console.log("");
   if (failures.length) {
-    console.log(`Auth readiness failed: ${failures.length} failure(s), ${warnings.length} warning(s).`);
+    console.log(
+      `Auth readiness failed: ${failures.length} failure(s), ${warnings.length} warning(s).`,
+    );
     process.exitCode = 1;
   } else {
-    console.log(`Auth readiness passed${warnings.length ? ` with ${warnings.length} warning(s)` : ""}.`);
+    console.log(
+      `Auth readiness passed${warnings.length ? ` with ${warnings.length} warning(s)` : ""}.`,
+    );
   }
 }
 

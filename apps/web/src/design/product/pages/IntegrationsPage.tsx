@@ -1,5 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import React, { useEffect, useState } from "react";
 import type { Channel, IntegrationAccount, IntegrationProvider } from "@leadvirt/types";
 import {
   Send,
@@ -32,34 +31,30 @@ import {
   listIntegrations,
   sendSampleInbound,
   testIntegrationConnection,
-  updateIntegrationSettings,
 } from "@/lib/api/integrations";
 import { listChannels } from "@/lib/api/channels";
-import {
-  Dropdown,
-  DropdownItem,
-  DropdownSeparator,
-  ConfirmDialog,
-  Modal,
-  Select as BrandSelect,
-} from "../ui";
+import { Dropdown, DropdownItem, DropdownSeparator, ConfirmDialog, Modal, Skeleton } from "../ui";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { TranslationKey, TranslationValues } from "@/i18n/messages";
+import { useProductPermissions } from "../CurrentUser";
+import { ResourceErrorState } from "../ResourceErrorState";
 
 /* ============================================================
    Data
    ============================================================ */
-type Category = "CRM" | "Каналы" | "Календарь" | "E-commerce" | "Разработчикам";
+type Category = "crm" | "channels" | "calendar" | "commerce" | "developers";
 type IntegrationAvailability = "selfServe" | "request" | "soon";
+type Translate = (key: TranslationKey, values?: TranslationValues) => string;
 
 interface Integration {
   id: string;
   provider: IntegrationProvider;
   name: string;
   category: Category;
-  description: string;
+  descriptionKey: TranslationKey;
   icon: React.ElementType;
   accentColor: string;
   accentBg: string;
-  connected: boolean;
   availability?: IntegrationAvailability;
 }
 
@@ -68,149 +63,147 @@ const INTEGRATIONS: Integration[] = [
     id: "amocrm",
     provider: "AMOCRM",
     name: "amoCRM",
-    category: "CRM",
-    description: "Передача сделок и контактов",
+    category: "crm",
+    descriptionKey: "integrations.card.amocrm",
     icon: Database,
     accentColor: "text-violet-400",
     accentBg: "bg-violet-500/15",
-    connected: true,
+    availability: "soon",
   },
   {
     id: "bitrix24",
     provider: "BITRIX24",
     name: "Bitrix24",
-    category: "CRM",
-    description: "Синхронизация лидов и задач",
+    category: "crm",
+    descriptionKey: "integrations.card.bitrix24",
     icon: Layers,
     accentColor: "text-blue-400",
     accentBg: "bg-blue-500/15",
-    connected: true,
+    availability: "soon",
   },
   {
     id: "retailcrm",
     provider: "RETAILCRM",
     name: "RetailCRM",
-    category: "CRM",
-    description: "Заказы для интернет-магазина",
+    category: "crm",
+    descriptionKey: "integrations.card.retailcrm",
     icon: Store,
     accentColor: "text-orange-400",
     accentBg: "bg-orange-500/15",
-    connected: false,
+    availability: "soon",
   },
   {
     id: "telegram",
     provider: "TELEGRAM",
     name: "Telegram",
-    category: "Каналы",
-    description: "Автоматические ответы в чатах и каналах",
+    category: "channels",
+    descriptionKey: "integrations.card.telegram",
     icon: Send,
     accentColor: "text-sky-400",
     accentBg: "bg-sky-500/15",
-    connected: true,
   },
   {
     id: "whatsapp",
     provider: "WHATSAPP_BUSINESS",
     name: "WhatsApp Business",
-    category: "Каналы",
-    description: "Обработка входящих сообщений и уведомления",
+    category: "channels",
+    descriptionKey: "integrations.card.whatsapp",
     icon: MessageCircle,
     accentColor: "text-emerald-400",
     accentBg: "bg-emerald-500/15",
-    connected: true,
     availability: "request",
   },
   {
     id: "instagram",
     provider: "INSTAGRAM",
     name: "Instagram",
-    category: "Каналы",
-    description: "Директ и комментарии под постами",
+    category: "channels",
+    descriptionKey: "integrations.card.instagram",
     icon: Instagram,
     accentColor: "text-pink-400",
     accentBg: "bg-pink-500/15",
-    connected: true,
     availability: "request",
   },
   {
     id: "vk",
     provider: "VK",
     name: "VK",
-    category: "Каналы",
-    description: "Сообщения и заявки из сообщества ВКонтакте",
+    category: "channels",
+    descriptionKey: "integrations.card.vk",
     icon: MessageCircle,
     accentColor: "text-indigo-400",
     accentBg: "bg-indigo-500/15",
-    connected: false,
     availability: "soon",
   },
   {
     id: "email",
     provider: "EMAIL",
     name: "Email",
-    category: "Каналы",
-    description: "Входящие письма превращаются в задачи",
+    category: "channels",
+    descriptionKey: "integrations.card.email",
     icon: Mail,
     accentColor: "text-amber-400",
     accentBg: "bg-amber-500/15",
-    connected: true,
+    availability: "soon",
   },
   {
     id: "gcalendar",
     provider: "GOOGLE_CALENDAR",
     name: "Google Calendar",
-    category: "Календарь",
-    description: "Запись клиентов и синхронизация расписания",
+    category: "calendar",
+    descriptionKey: "integrations.card.gcalendar",
     icon: Calendar,
     accentColor: "text-teal-400",
     accentBg: "bg-teal-500/15",
-    connected: true,
+    availability: "soon",
   },
   {
     id: "shopify",
     provider: "SHOPIFY",
     name: "Shopify",
-    category: "E-commerce",
-    description: "Заказы и статусы доставки в одном месте",
+    category: "commerce",
+    descriptionKey: "integrations.card.shopify",
     icon: ShoppingBag,
     accentColor: "text-lime-400",
     accentBg: "bg-lime-500/15",
-    connected: false,
     availability: "soon",
   },
   {
     id: "shopscript",
     provider: "SHOP_SCRIPT",
     name: "Shop-Script",
-    category: "E-commerce",
-    description: "Заказы и клиенты из Webasyst Shop-Script",
+    category: "commerce",
+    descriptionKey: "integrations.card.shopscript",
     icon: Store,
     accentColor: "text-fuchsia-400",
     accentBg: "bg-fuchsia-500/15",
-    connected: false,
     availability: "soon",
   },
   {
     id: "webhook",
     provider: "WEBHOOK_API",
-    name: "Webhook / API",
-    category: "Разработчикам",
-    description: "Гибкая интеграция с любым сервисом через HTTP",
+    name: "Webhook",
+    category: "developers",
+    descriptionKey: "integrations.card.webhook",
     icon: Webhook,
     accentColor: "text-rose-400",
     accentBg: "bg-rose-500/15",
-    connected: false,
   },
 ];
 
-const CATEGORIES: ("Все" | Category)[] = [
-  "Все",
-  "CRM",
-  "Каналы",
-  "Календарь",
-  "E-commerce",
-  "Разработчикам",
+const CATEGORIES: Array<{ id: "all" | Category; labelKey: TranslationKey }> = [
+  { id: "all", labelKey: "integrations.category.all" },
+  { id: "crm", labelKey: "integrations.category.crm" },
+  { id: "channels", labelKey: "integrations.category.channels" },
+  { id: "calendar", labelKey: "integrations.category.calendar" },
+  { id: "commerce", labelKey: "integrations.category.commerce" },
+  { id: "developers", labelKey: "integrations.category.developers" },
 ];
+
+function categoryLabel(category: Category, t: Translate) {
+  const item = CATEGORIES.find((candidate) => candidate.id === category);
+  return item ? t(item.labelKey) : category;
+}
 
 function initialConnectedMap() {
   return Object.fromEntries(INTEGRATIONS.map((integration) => [integration.id, false]));
@@ -224,7 +217,7 @@ function mergeAccountsIntoConnectedMap(accounts: IntegrationAccount[]) {
   const next = initialConnectedMap();
   for (const account of accounts) {
     const integration = INTEGRATIONS.find((item) => item.provider === account.provider);
-    if (integration) {
+    if (integration && isSelfServeIntegration(integration)) {
       next[integration.id] = isConnected(account);
     }
   }
@@ -233,25 +226,23 @@ function mergeAccountsIntoConnectedMap(accounts: IntegrationAccount[]) {
 
 function apiAccountToConnectedPatch(account: IntegrationAccount) {
   const integration = INTEGRATIONS.find((item) => item.provider === account.provider);
-  if (!integration) return null;
+  if (!integration || !isSelfServeIntegration(integration)) return null;
   return { id: integration.id, connected: isConnected(account) };
 }
 
 function canSendSample(provider: IntegrationProvider) {
-  return provider === "TELEGRAM" || provider === "WEBHOOK_API";
+  return provider === "WEBHOOK_API";
 }
 
 function isSelfServeIntegration(integration: Integration) {
   return (integration.availability ?? "selfServe") === "selfServe";
 }
 
-function availabilityLabel(integration: Integration) {
-  if (integration.availability === "request") return "Подключение по запросу";
-  if (integration.availability === "soon") return "Скоро будет";
+function availabilityLabel(integration: Integration, t: Translate) {
+  if (integration.availability === "request") return t("integrations.availability.request");
+  if (integration.availability === "soon") return t("integrations.availability.soon");
   return null;
 }
-
-type SyncMode = "leads-to-service" | "two-way" | "events-only";
 
 type SetupFieldKind = "text" | "password" | "url";
 
@@ -259,39 +250,25 @@ interface ProviderSetupField {
   key: string;
   label: string;
   placeholder?: string;
+  placeholderKey?: TranslationKey;
   hint?: string;
   kind?: SetupFieldKind;
-  defaultValue?: string;
   wide?: boolean;
 }
 
 interface ProviderSetupConfig {
-  summary: string;
-  steps: string[];
+  summaryKey: TranslationKey;
+  stepKeys: TranslationKey[];
   fields: ProviderSetupField[];
   docsUrl?: string;
 }
 
-interface IntegrationSettingsForm {
-  displayName: string;
-  fields: Record<string, string>;
-  syncMode: SyncMode;
-  syncEnabled: boolean;
-  notes: string;
-}
-
-const syncModeOptions = [
-  { value: "leads-to-service", label: "Лиды в сервис" },
-  { value: "two-way", label: "Двусторонняя" },
-  { value: "events-only", label: "Только события" },
-];
-
 const genericSetupConfig: ProviderSetupConfig = {
-  summary: "Ручное подключение через URL сервиса и секретный ключ.",
-  steps: [
-    "Создайте ключ или webhook в сервисе.",
-    "Вставьте URL и токен.",
-    "Сохраните настройки и проверьте связь.",
+  summaryKey: "integrations.setup.generic.summary",
+  stepKeys: [
+    "integrations.setup.generic.step1",
+    "integrations.setup.generic.step2",
+    "integrations.setup.generic.step3",
   ],
   fields: [
     {
@@ -304,7 +281,7 @@ const genericSetupConfig: ProviderSetupConfig = {
     {
       key: "apiToken",
       label: "API token",
-      placeholder: "Введите токен",
+      placeholderKey: "integrations.field.enterToken",
       kind: "password",
       wide: true,
     },
@@ -313,12 +290,11 @@ const genericSetupConfig: ProviderSetupConfig = {
 
 const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupConfig>> = {
   AMOCRM: {
-    summary:
-      "amoCRM подключается через OAuth: аккаунт, ID/secret интеграции и короткоживущий authorization code.",
-    steps: [
-      "Создайте или откройте интеграцию в amoCRM.",
-      "Скопируйте Client ID, Client secret и Redirect URI.",
-      "Установите интеграцию в аккаунте и вставьте authorization code.",
+    summaryKey: "integrations.setup.amocrm.summary",
+    stepKeys: [
+      "integrations.setup.amocrm.step1",
+      "integrations.setup.amocrm.step2",
+      "integrations.setup.amocrm.step3",
     ],
     docsUrl: "https://www.amocrm.ru/developers/content/oauth/oauth",
     fields: [
@@ -329,17 +305,17 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
         kind: "url",
         wide: true,
       },
-      { key: "clientId", label: "Client ID", placeholder: "uuid интеграции" },
+      { key: "clientId", label: "Client ID", placeholderKey: "integrations.field.integrationUuid" },
       {
         key: "clientSecret",
         label: "Client secret",
-        placeholder: "Секрет интеграции",
+        placeholderKey: "integrations.field.integrationSecret",
         kind: "password",
       },
       {
         key: "authorizationCode",
         label: "Authorization code",
-        placeholder: "Код живет около 20 минут",
+        placeholderKey: "integrations.field.authorizationExpiry",
         kind: "password",
         wide: true,
       },
@@ -353,11 +329,11 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
     ],
   },
   BITRIX24: {
-    summary: "Bitrix24 можно подключать локальным входящим webhook для одного портала.",
-    steps: [
-      "В портале откройте Applications > Developer resources.",
-      "Создайте Incoming webhook с CRM правами.",
-      "Вставьте портал и webhook URL.",
+    summaryKey: "integrations.setup.bitrix.summary",
+    stepKeys: [
+      "integrations.setup.bitrix.step1",
+      "integrations.setup.bitrix.step2",
+      "integrations.setup.bitrix.step3",
     ],
     docsUrl: "https://apidocs.bitrix24.com/local-integrations/local-webhooks.html",
     fields: [
@@ -378,19 +354,18 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
       {
         key: "outgoingSecret",
         label: "Outgoing webhook secret",
-        placeholder: "Если используете исходящие webhooks",
+        placeholderKey: "integrations.field.outgoingWebhook",
         kind: "password",
         wide: true,
       },
     ],
   },
   RETAILCRM: {
-    summary:
-      "RetailCRM использует API key и URL аккаунта. Для нескольких магазинов нужен site code.",
-    steps: [
-      "Создайте API key в RetailCRM.",
-      "Разрешите нужные методы для лидов и заказов.",
-      "Вставьте account URL, API key и site code при необходимости.",
+    summaryKey: "integrations.setup.retail.summary",
+    stepKeys: [
+      "integrations.setup.retail.step1",
+      "integrations.setup.retail.step2",
+      "integrations.setup.retail.step3",
     ],
     docsUrl: "https://help.retailcrm.pro/Users/ApiKeys",
     fields: [
@@ -404,15 +379,15 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
       {
         key: "apiToken",
         label: "API key",
-        placeholder: "Ключ длиной от 32 символов",
+        placeholderKey: "integrations.field.longKey",
         kind: "password",
       },
       { key: "siteCode", label: "Site code", placeholder: "main" },
     ],
   },
   TELEGRAM: {
-    summary: "Вставьте токен бота. Всё остальное LeadVirt.ai настроит автоматически.",
-    steps: ["Создайте bot через BotFather.", "Вставьте bot token и нажмите «Подключить»."],
+    summaryKey: "integrations.setup.telegram.summary",
+    stepKeys: ["integrations.setup.telegram.step1", "integrations.setup.telegram.step2"],
     docsUrl: "https://t.me/BotFather",
     fields: [
       {
@@ -425,12 +400,11 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
     ],
   },
   WHATSAPP_BUSINESS: {
-    summary:
-      "WhatsApp Cloud API требует Meta app, WABA, phone number ID, access token и webhook verify token.",
-    steps: [
-      "Подготовьте Meta app и WhatsApp Business Account.",
-      "Добавьте или выберите From phone number.",
-      "Передайте нам Phone number ID, WABA ID и webhook данные.",
+    summaryKey: "integrations.setup.whatsapp.summary",
+    stepKeys: [
+      "integrations.setup.whatsapp.step1",
+      "integrations.setup.whatsapp.step2",
+      "integrations.setup.whatsapp.step3",
     ],
     docsUrl: "https://developers.facebook.com/docs/whatsapp/cloud-api/get-started",
     fields: [
@@ -443,12 +417,11 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
     ],
   },
   INSTAGRAM: {
-    summary:
-      "Instagram Messaging требует Meta app, Facebook Page и Professional Instagram account.",
-    steps: [
-      "Свяжите Facebook Page с Professional Instagram account.",
-      "Настройте webhook fields для Instagram Messaging.",
-      "Подготовьте Page token, Page ID и Instagram account ID.",
+    summaryKey: "integrations.setup.instagram.summary",
+    stepKeys: [
+      "integrations.setup.instagram.step1",
+      "integrations.setup.instagram.step2",
+      "integrations.setup.instagram.step3",
     ],
     docsUrl: "https://developers.facebook.com/docs/messenger-platform/instagram/features/webhook",
     fields: [
@@ -460,12 +433,11 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
     ],
   },
   VK: {
-    summary:
-      "VK подключается через Callback API сообщества, confirmation code, secret key и community token.",
-    steps: [
-      "Создайте token сообщества с правами сообщений.",
-      "Укажите LeadVirt callback URL в настройках сообщества.",
-      "Скопируйте confirmation code и secret key.",
+    summaryKey: "integrations.setup.vk.summary",
+    stepKeys: [
+      "integrations.setup.vk.step1",
+      "integrations.setup.vk.step2",
+      "integrations.setup.vk.step3",
     ],
     docsUrl: "https://dev.vk.com/ru/api/callback/getting-started",
     fields: [
@@ -476,19 +448,19 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
     ],
   },
   EMAIL: {
-    summary: "Email подключается через IMAP для входящих и SMTP для исходящих писем.",
-    steps: [
-      "Включите IMAP/SMTP у провайдера.",
-      "Создайте app password или OAuth token.",
-      "Вставьте адрес, серверы, порты и учетные данные.",
+    summaryKey: "integrations.setup.email.summary",
+    stepKeys: [
+      "integrations.setup.email.step1",
+      "integrations.setup.email.step2",
+      "integrations.setup.email.step3",
     ],
     docsUrl: "https://developers.google.com/workspace/gmail/imap/imap-smtp",
     fields: [
       { key: "emailAddress", label: "Email address", placeholder: "sales@example.com", wide: true },
       { key: "imapHost", label: "IMAP host", placeholder: "imap.gmail.com" },
-      { key: "imapPort", label: "IMAP port", placeholder: "993", defaultValue: "993" },
+      { key: "imapPort", label: "IMAP port", placeholder: "993" },
       { key: "smtpHost", label: "SMTP host", placeholder: "smtp.gmail.com" },
-      { key: "smtpPort", label: "SMTP port", placeholder: "465", defaultValue: "465" },
+      { key: "smtpPort", label: "SMTP port", placeholder: "465" },
       { key: "username", label: "Username", placeholder: "sales@example.com" },
       {
         key: "apiToken",
@@ -499,11 +471,11 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
     ],
   },
   GOOGLE_CALENDAR: {
-    summary: "Google Calendar подключается через OAuth client и calendar ID.",
-    steps: [
-      "Включите Google Calendar API в Google Cloud.",
-      "Создайте OAuth client.",
-      "Вставьте client credentials и calendar ID.",
+    summaryKey: "integrations.setup.calendar.summary",
+    stepKeys: [
+      "integrations.setup.calendar.step1",
+      "integrations.setup.calendar.step2",
+      "integrations.setup.calendar.step3",
     ],
     docsUrl: "https://developers.google.com/workspace/calendar/api/quickstart/nodejs",
     fields: [
@@ -514,11 +486,11 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
     ],
   },
   SHOPIFY: {
-    summary: "Shopify Admin API использует shop domain и Admin API access token с нужными scopes.",
-    steps: [
-      "Создайте custom app в Shopify admin.",
-      "Выдайте scopes для заказов и клиентов.",
-      "Установите app и скопируйте Admin API access token.",
+    summaryKey: "integrations.setup.shopify.summary",
+    stepKeys: [
+      "integrations.setup.shopify.step1",
+      "integrations.setup.shopify.step2",
+      "integrations.setup.shopify.step3",
     ],
     docsUrl:
       "https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin",
@@ -530,11 +502,11 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
     ],
   },
   SHOP_SCRIPT: {
-    summary: "Shop-Script/Webasyst API работает через api.php и OAuth token установки.",
-    steps: [
-      "Откройте Webasyst installation URL.",
-      "Получите API token через OAuth flow.",
-      "Разрешите доступ к shop app API.",
+    summaryKey: "integrations.setup.shopscript.summary",
+    stepKeys: [
+      "integrations.setup.shopscript.step1",
+      "integrations.setup.shopscript.step2",
+      "integrations.setup.shopscript.step3",
     ],
     docsUrl: "https://developers.webasyst.com/docs/features/apis/",
     fields: [
@@ -550,27 +522,18 @@ const providerSetupConfigs: Partial<Record<IntegrationProvider, ProviderSetupCon
     ],
   },
   WEBHOOK_API: {
-    summary: "Webhook/API уже дает публичный endpoint для внешних форм и серверных интеграций.",
-    steps: [
-      "Скопируйте endpoint URL, public key и secret header.",
-      "Отправляйте события POST-запросом на endpoint.",
-      "Проверьте поток кнопкой тестового лида.",
+    summaryKey: "integrations.setup.webhook.summary",
+    stepKeys: [
+      "integrations.setup.webhook.step1",
+      "integrations.setup.webhook.step2",
+      "integrations.setup.webhook.step3",
     ],
-    fields: [
-      { key: "sourceName", label: "Source name", placeholder: "Landing page" },
-      { key: "externalIdPrefix", label: "External ID prefix", placeholder: "landing" },
-    ],
+    fields: [],
   },
 };
 
 function setupConfigForProvider(provider: IntegrationProvider) {
   return providerSetupConfigs[provider] ?? genericSetupConfig;
-}
-
-function setupFieldInputType(field: ProviderSetupField) {
-  if (field.kind === "password") return "password";
-  if (field.kind === "url") return "url";
-  return "text";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -584,84 +547,6 @@ function asRecord(value: unknown): Record<string, unknown> {
 function stringSetting(settings: Record<string, unknown>, key: string, fallback = "") {
   const value = settings[key];
   return typeof value === "string" ? value : fallback;
-}
-
-function booleanSetting(settings: Record<string, unknown>, key: string, fallback: boolean) {
-  const value = settings[key];
-  return typeof value === "boolean" ? value : fallback;
-}
-
-function syncModeSetting(settings: Record<string, unknown>): SyncMode {
-  const value = settings.syncMode;
-  return value === "two-way" || value === "events-only" || value === "leads-to-service"
-    ? value
-    : "leads-to-service";
-}
-
-function formFromSettings(
-  integration: Integration,
-  account?: IntegrationAccount | null,
-): IntegrationSettingsForm {
-  const settings = asRecord(account?.settings);
-  const setupConfig = setupConfigForProvider(integration.provider);
-  const fields = Object.fromEntries(
-    setupConfig.fields.map((field) => [
-      field.key,
-      stringSetting(settings, field.key, field.defaultValue ?? ""),
-    ]),
-  );
-
-  return {
-    displayName: stringSetting(settings, "displayName", integration.name),
-    fields,
-    syncMode: syncModeSetting(settings),
-    syncEnabled: booleanSetting(settings, "syncEnabled", true),
-    notes: stringSetting(settings, "notes"),
-  };
-}
-
-function settingsFromForm(
-  currentSettings: Record<string, unknown>,
-  form: IntegrationSettingsForm,
-  provider: IntegrationProvider,
-) {
-  const setupConfig = setupConfigForProvider(provider);
-  const fieldKeys = new Set(setupConfig.fields.map((field) => field.key));
-  const retainedSettings: Record<string, unknown> = { ...currentSettings };
-
-  if (!fieldKeys.has("endpointUrl")) delete retainedSettings.endpointUrl;
-  if (!fieldKeys.has("apiToken")) delete retainedSettings.apiToken;
-
-  const fieldSettings = Object.fromEntries(
-    setupConfig.fields.map((field) => [field.key, (form.fields[field.key] ?? "").trim()]),
-  );
-
-  const base = {
-    ...retainedSettings,
-    ...fieldSettings,
-    displayName: form.displayName.trim(),
-    syncMode: form.syncMode,
-    syncEnabled: form.syncEnabled,
-    notes: form.notes.trim(),
-    ui: {
-      ...asRecord(currentSettings.ui),
-      configuredFrom: "integrations-page",
-      configuredAt: new Date().toISOString(),
-    },
-  };
-
-  if (provider === "WEBHOOK_API") {
-    return {
-      ...base,
-      provider: "generic",
-      webhook: {
-        ...asRecord(currentSettings.webhook),
-        provider: "generic",
-      },
-    };
-  }
-
-  return base;
 }
 
 function publicApiOrigin() {
@@ -678,44 +563,60 @@ function publicEndpointUrl(endpointPath: string) {
   return `${publicApiOrigin()}${endpointPath.startsWith("/") ? endpointPath : `/${endpointPath}`}`;
 }
 
-function formatDateTime(value?: string | null) {
-  if (!value) return "нет событий";
+function formatDateTime(
+  value: string | null | undefined,
+  formatDate: (value: Date | string | number, options?: Intl.DateTimeFormatOptions) => string,
+  t: Translate,
+) {
+  if (!value) return t("integrations.date.noEvents");
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "нет событий";
-  return new Intl.DateTimeFormat("ru-RU", {
+  if (Number.isNaN(date.getTime())) return t("integrations.date.noEvents");
+  return formatDate(date, {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(date);
+  });
 }
 
 function latestWebhookEvent(account?: IntegrationAccount | null) {
   return account?.recentWebhookEvents?.[0] ?? null;
 }
 
-function accountReadiness(account?: IntegrationAccount | null) {
+function accountReadiness(
+  account: IntegrationAccount | null | undefined,
+  formatDate: (value: Date | string | number, options?: Intl.DateTimeFormatOptions) => string,
+  t: Translate,
+) {
   const endpoint = account?.inboundEndpoint ?? null;
   const latestEvent = latestWebhookEvent(account);
   const ready = account?.status === "CONNECTED" && Boolean(endpoint?.publicKey);
 
   return {
     ready,
-    publicKey: endpoint?.publicKey ?? "нет публичного ключа",
+    publicKey: endpoint?.publicKey ?? t("integrations.readiness.noPublicKey"),
     url: endpoint ? inboundEndpointUrl(endpoint.endpointPath) : "",
     signal: latestEvent
-      ? `Последний входящий: ${formatDateTime(latestEvent.receivedAt)}`
+      ? t("integrations.readiness.lastInbound", {
+          date: formatDateTime(latestEvent.receivedAt, formatDate, t),
+        })
       : account?.lastSyncAt
-        ? `Последняя проверка: ${formatDateTime(account.lastSyncAt)}`
+        ? t("integrations.readiness.lastCheck", {
+            date: formatDateTime(account.lastSyncAt, formatDate, t),
+          })
         : ready
-          ? "Endpoint настроен"
-          : "Нужен активный канал",
+          ? t("integrations.readiness.endpointReady")
+          : t("integrations.readiness.activeChannelNeeded"),
   };
 }
 
-function widgetReadiness(channel?: Channel | null) {
+function widgetReadiness(
+  channel: Channel | null | undefined,
+  formatDate: (value: Date | string | number, options?: Intl.DateTimeFormatOptions) => string,
+  t: Translate,
+) {
   const ready = channel?.status === "ACTIVE" && Boolean(channel.publicKey);
-  const publicKey = channel?.publicKey ?? "нет публичного ключа";
+  const publicKey = channel?.publicKey ?? t("integrations.readiness.noPublicKey");
 
   return {
     ready,
@@ -724,12 +625,14 @@ function widgetReadiness(channel?: Channel | null) {
       ? publicEndpointUrl(`/api/public/widget/${channel.publicKey}/config`)
       : "",
     signal: channel?.lastHealthAt
-      ? `Последняя проверка: ${formatDateTime(channel.lastHealthAt)}`
+      ? t("integrations.readiness.lastCheck", {
+          date: formatDateTime(channel.lastHealthAt, formatDate, t),
+        })
       : ready
-        ? "Widget config доступен"
+        ? t("integrations.readiness.widgetReady")
         : channel
-          ? "Канал не активен"
-          : "Канал не найден",
+          ? t("integrations.readiness.channelInactive")
+          : t("integrations.readiness.channelMissing"),
   };
 }
 
@@ -751,7 +654,8 @@ function Field({
   );
 }
 
-function EndpointCopyButton({ value, label = "Копировать" }: { value: string; label?: string }) {
+function EndpointCopyButton({ value, label }: { value: string; label?: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const disabled = value.length === 0;
 
@@ -768,7 +672,7 @@ function EndpointCopyButton({ value, label = "Копировать" }: { value: 
       className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-emerald-500/30 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
     >
       {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-      {copied ? "Скопировано" : label}
+      {copied ? t("integrations.copied") : (label ?? t("integrations.copy"))}
     </button>
   );
 }
@@ -802,6 +706,7 @@ function ReadinessTile({
   actionBusy?: boolean;
   onAction?: () => void;
 }) {
+  const { t } = useI18n();
   const disabled = actionDisabled || actionBusy || !ready;
 
   return (
@@ -827,14 +732,14 @@ function ReadinessTile({
               : "border-amber-500/20 bg-amber-500/10 text-amber-300",
           )}
         >
-          {ready ? "Готов к пилоту" : "Нужна настройка"}
+          {ready ? t("integrations.ready") : t("integrations.needsSetup")}
         </Pill>
       </div>
       <div className="mt-3 flex items-center gap-2 rounded-xl border border-white/5 bg-zinc-950/45 px-3 py-2">
         <code className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-300">{publicKey}</code>
         {url ? (
           <a
-            aria-label={`${title} endpoint`}
+            aria-label={t("integrations.readiness.endpointLabel", { title })}
             href={url}
             target="_blank"
             rel="noreferrer"
@@ -885,16 +790,33 @@ function PilotReadinessPanel({
   accounts,
   channels,
   pendingId,
+  canTest,
   onSendSample,
+  onTestConnection,
 }: {
   accounts: IntegrationAccount[];
   channels: Channel[] | null | undefined;
   pendingId: string | null;
+  canTest: boolean;
   onSendSample: (integrationId: string) => void;
+  onTestConnection: (integrationId: string) => void;
 }) {
-  const telegram = accountReadiness(accounts.find((account) => account.provider === "TELEGRAM"));
-  const webhook = accountReadiness(accounts.find((account) => account.provider === "WEBHOOK_API"));
-  const widget = widgetReadiness(channels?.find((channel) => channel.type === "WEBSITE"));
+  const { formatDate, formatNumber, t } = useI18n();
+  const telegram = accountReadiness(
+    accounts.find((account) => account.provider === "TELEGRAM"),
+    formatDate,
+    t,
+  );
+  const webhook = accountReadiness(
+    accounts.find((account) => account.provider === "WEBHOOK_API"),
+    formatDate,
+    t,
+  );
+  const widget = widgetReadiness(
+    channels?.find((channel) => channel.type === "WEBSITE"),
+    formatDate,
+    t,
+  );
   const readyCount = [telegram.ready, webhook.ready, widget.ready].filter(Boolean).length;
 
   return (
@@ -907,14 +829,13 @@ function PilotReadinessPanel({
     >
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm font-semibold text-zinc-100">Готовность входящих каналов</p>
+          <p className="text-sm font-semibold text-zinc-100">{t("integrations.readiness.title")}</p>
           <p className="mt-1 text-xs leading-5 text-zinc-500">
-            Проверьте public key, endpoint и последние события перед запуском первого тестового
-            трафика.
+            {t("integrations.readiness.subtitle")}
           </p>
         </div>
         <Pill className="w-fit border border-sky-500/20 bg-sky-500/10 text-xs text-sky-300">
-          {readyCount}/3 канала готовы
+          {t("integrations.readiness.count", { ready: formatNumber(readyCount) })}
         </Pill>
       </div>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
@@ -925,33 +846,33 @@ function PilotReadinessPanel({
           publicKey={telegram.publicKey}
           url={telegram.url}
           testId="pilot-readiness-telegram"
-          actionLabel="Тестовый лид"
-          actionBusyLabel="Отправляем..."
-          actionTestId="pilot-readiness-telegram-sample"
+          actionLabel={canTest ? t("integrations.testConnection") : undefined}
+          actionBusyLabel={t("integrations.syncing")}
+          actionTestId="pilot-readiness-telegram-health"
           actionBusy={pendingId === "telegram"}
-          onAction={() => onSendSample("telegram")}
+          onAction={() => onTestConnection("telegram")}
         />
         <ReadinessTile
-          title="Webhook/API"
+          title="Webhook"
           ready={webhook.ready}
           signal={webhook.signal}
           publicKey={webhook.publicKey}
           url={webhook.url}
           testId="pilot-readiness-webhook"
-          actionLabel="Тестовый лид"
-          actionBusyLabel="Отправляем..."
+          actionLabel={canTest ? t("integrations.internalSample") : undefined}
+          actionBusyLabel={t("integrations.sending")}
           actionTestId="pilot-readiness-webhook-sample"
           actionBusy={pendingId === "webhook"}
           onAction={() => onSendSample("webhook")}
         />
         <ReadinessTile
-          title="Website widget"
+          title={t("integrations.readiness.websiteWidget")}
           ready={widget.ready}
           signal={widget.signal}
           publicKey={widget.publicKey}
           url={widget.url}
           testId="pilot-readiness-widget"
-          actionLabel="Открыть виджет"
+          actionLabel={t("integrations.openWidget")}
           actionHref="/widget/demo"
           actionTestId="pilot-readiness-widget-open"
         />
@@ -972,49 +893,6 @@ function DarkInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
-function DarkTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      {...props}
-      className={cn(
-        "w-full bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all resize-none",
-        props.className,
-      )}
-    />
-  );
-}
-
-function SettingsSwitch({
-  checked,
-  onChange,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-label="Синхронизация включена"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus-visible:outline-none",
-        checked ? "bg-emerald-500" : "bg-white/10",
-      )}
-    >
-      <motion.span
-        layout
-        transition={{ type: "spring", stiffness: 500, damping: 32 }}
-        className={cn(
-          "pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg",
-          checked ? "translate-x-5" : "translate-x-0",
-        )}
-      />
-    </button>
-  );
-}
-
 function TelegramConnectModal({
   account,
   open,
@@ -1026,8 +904,9 @@ function TelegramConnectModal({
   open: boolean;
   saving: boolean;
   onOpenChange: (open: boolean) => void;
-  onConnect: (botToken: string) => void;
+  onConnect: (botToken: string) => Promise<boolean>;
 }) {
+  const { t } = useI18n();
   const [botToken, setBotToken] = useState("");
   const settings = asRecord(account?.settings);
   const botUsername = stringSetting(settings, "botUsername");
@@ -1037,6 +916,10 @@ function TelegramConnectModal({
     if (!open) setBotToken("");
   }, [open]);
 
+  async function handleConnect() {
+    if (await onConnect(botToken.trim())) setBotToken("");
+  }
+
   return (
     <Modal
       open={open}
@@ -1045,57 +928,86 @@ function TelegramConnectModal({
         connected
           ? botUsername
             ? `Telegram @${botUsername}`
-            : "Telegram подключён"
-          : "Подключить Telegram"
+            : t("integrations.telegram.connected")
+          : t("integrations.telegram.connect")
       }
-      description="LeadVirt.ai сам настроит webhook, защиту и получение сообщений."
+      description={t("integrations.telegram.description")}
       className="max-w-lg"
       footer={
         <>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Отмена
+            {connected ? t("integrations.close") : t("integrations.cancel")}
           </Button>
           <Button
-            onClick={() => onConnect(botToken.trim())}
+            onClick={() => void handleConnect()}
             disabled={saving || (!connected && !botToken.trim())}
             data-testid="telegram-connect-submit"
           >
             <Zap className="h-4 w-4" />
-            {saving ? "Подключаем..." : connected ? "Проверить и подключить" : "Подключить бота"}
+            {saving
+              ? t("integrations.telegram.connecting")
+              : connected
+                ? t("integrations.telegram.reconnect")
+                : t("integrations.telegram.connectBot")}
           </Button>
         </>
       }
     >
       <div className="space-y-5">
-        <div className="flex items-center justify-between gap-3 border-b border-white/5 pb-4">
+        <div className="flex flex-col items-stretch gap-3 border-b border-white/5 pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-zinc-200">
-              {connected ? "Бот подключён" : "Бот из BotFather"}
+              {connected
+                ? t("integrations.telegram.botConnected")
+                : t("integrations.telegram.botFromBotFather")}
             </p>
             <p className="mt-1 text-xs text-zinc-500">
               {connected
                 ? botUsername
-                  ? `@${botUsername} управляется LeadVirt.ai`
-                  : "Текущий бот управляется LeadVirt.ai"
-                : "Создайте бота и вставьте полученный токен"}
+                  ? t("integrations.telegram.managedNamed", { username: botUsername })
+                  : t("integrations.telegram.managed")
+                : t("integrations.telegram.create")}
             </p>
           </div>
-          <Button asChild variant="outline" size="sm" className="shrink-0">
-            <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">
-              BotFather
-              <ExternalLink className="h-3.5 w-3.5" />
+          <Button
+            asChild
+            variant={connected && botUsername ? "primary" : "outline"}
+            size="sm"
+            className="w-full shrink-0 sm:w-auto"
+          >
+            <a
+              href={
+                connected && botUsername
+                  ? `https://t.me/${encodeURIComponent(botUsername)}?start=leadvirt`
+                  : "https://t.me/BotFather"
+              }
+              target="_blank"
+              rel="noreferrer"
+              data-testid={connected && botUsername ? "telegram-open-bot" : undefined}
+            >
+              {connected && botUsername ? (
+                <>
+                  <Send className="h-3.5 w-3.5" />
+                  {t("integrations.telegram.openBot")}
+                </>
+              ) : (
+                <>
+                  BotFather
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </>
+              )}
             </a>
           </Button>
         </div>
 
-        <Field label={connected ? "Новый bot token (только для замены бота)" : "Bot token"}>
+        <Field
+          label={connected ? t("integrations.telegram.newToken") : t("integrations.telegram.token")}
+        >
           <DarkInput
             type="password"
             value={botToken}
             onChange={(event) => setBotToken(event.target.value)}
-            placeholder={
-              connected ? "Оставьте пустым, чтобы использовать текущего бота" : "123456789:AA..."
-            }
+            placeholder={connected ? t("integrations.telegram.keepToken") : "123456789:AA..."}
             autoComplete="off"
             data-testid="telegram-bot-token"
           />
@@ -1103,9 +1015,9 @@ function TelegramConnectModal({
 
         <div className="space-y-3 border-t border-white/5 pt-4">
           {[
-            "Webhook настраивается автоматически",
-            "Секрет создаётся и хранится безопасно",
-            "Входящие сообщения и ответы готовы сразу",
+            t("integrations.telegram.autoWebhook"),
+            t("integrations.telegram.safeSecret"),
+            t("integrations.telegram.readyMessages"),
           ].map((label) => (
             <div key={label} className="flex items-center gap-2.5 text-sm text-zinc-300">
               <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
@@ -1127,7 +1039,6 @@ function IntegrationSettingsModal({
   saving,
   sampleBusy,
   onOpenChange,
-  onSave,
   onSendSample,
   onConnectTelegram,
 }: {
@@ -1137,25 +1048,10 @@ function IntegrationSettingsModal({
   saving: boolean;
   sampleBusy: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (form: IntegrationSettingsForm) => void;
   onSendSample: () => void;
-  onConnectTelegram: (botToken: string) => void;
+  onConnectTelegram: (botToken: string) => Promise<boolean>;
 }) {
-  const [form, setForm] = useState<IntegrationSettingsForm>(() =>
-    integration ? formFromSettings(integration, account) : formFromSettings(INTEGRATIONS[0]),
-  );
-  const formSeedKeyRef = useRef("");
-
-  useEffect(() => {
-    if (!open || !integration) {
-      formSeedKeyRef.current = "";
-      return;
-    }
-    const formSeedKey = `${integration.id}:${account?.id ?? "new"}`;
-    if (formSeedKeyRef.current === formSeedKey) return;
-    formSeedKeyRef.current = formSeedKey;
-    setForm(formFromSettings(integration, account));
-  }, [account, integration, open]);
+  const { t } = useI18n();
 
   if (!integration) return null;
   if (integration.provider === "TELEGRAM") {
@@ -1171,52 +1067,54 @@ function IntegrationSettingsModal({
   }
   const isWebhookApi = integration.provider === "WEBHOOK_API";
   const setupConfig = setupConfigForProvider(integration.provider);
-  const canSaveSettings = isSelfServeIntegration(integration);
-  const unavailableLabel = availabilityLabel(integration);
+  const unavailableLabel = availabilityLabel(integration, t);
   const inboundEndpoint = account?.inboundEndpoint ?? null;
   const fullEndpointUrl = inboundEndpoint ? inboundEndpointUrl(inboundEndpoint.endpointPath) : "";
   const samplePayload = inboundEndpoint
     ? JSON.stringify(inboundEndpoint.samplePayload, null, 2)
     : "";
-  const updateField = (key: string, value: string) => {
-    setForm((prev) => ({ ...prev, fields: { ...prev.fields, [key]: value } }));
-  };
 
   return (
     <Modal
+      key={integration.id}
       open={open}
       onOpenChange={onOpenChange}
-      title={`${integration.name}: настройки`}
-      description={setupConfig.summary}
+      title={t("integrations.settingsTitle", { name: integration.name })}
+      description={
+        integration.availability === "soon"
+          ? t("integrations.notAvailableYet", { name: integration.name })
+          : t(setupConfig.summaryKey)
+      }
       className="max-w-2xl"
       footer={
-        canSaveSettings ? (
+        isWebhookApi ? (
           <>
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-              Отмена
+            <Button asChild variant="outline">
+              <a href="/app/settings?tab=channels">
+                <Settings className="h-4 w-4" />
+                {t("integrations.webhook.manageSettings")}
+              </a>
             </Button>
-            <Button onClick={() => onSave(form)} disabled={saving}>
-              {saving ? "Сохраняем..." : "Сохранить настройки"}
-            </Button>
+            <Button onClick={() => onOpenChange(false)}>{t("integrations.close")}</Button>
           </>
         ) : (
           <>
             {setupConfig.docsUrl && (
               <Button asChild variant="outline">
                 <a href={setupConfig.docsUrl} target="_blank" rel="noreferrer">
-                  Документация
+                  {t("integrations.documentation")}
                   <ExternalLink className="h-4 w-4" />
                 </a>
               </Button>
             )}
-            <Button onClick={() => onOpenChange(false)}>Закрыть</Button>
+            <Button onClick={() => onOpenChange(false)}>{t("integrations.close")}</Button>
           </>
         )
       }
     >
       <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-zinc-200">Сценарий подключения</p>
+          <p className="text-sm font-semibold text-zinc-200">{t("integrations.setupFlow")}</p>
           {unavailableLabel && (
             <Pill
               className={cn(
@@ -1231,84 +1129,33 @@ function IntegrationSettingsModal({
           )}
         </div>
         <ol className="space-y-2">
-          {setupConfig.steps.map((step, index) => (
-            <li key={step} className="flex gap-3 text-sm text-zinc-400">
+          {setupConfig.stepKeys.map((stepKey, index) => (
+            <li key={stepKey} className="flex gap-3 text-sm text-zinc-400">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/5 text-xs font-semibold text-zinc-300">
                 {index + 1}
               </span>
-              <span className="pt-0.5">{step}</span>
+              <span className="pt-0.5">{t(stepKey)}</span>
             </li>
           ))}
         </ol>
-        {setupConfig.docsUrl && canSaveSettings && (
-          <a
-            href={setupConfig.docsUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-emerald-300 transition-colors hover:text-emerald-200"
-          >
-            Открыть документацию
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        )}
       </div>
 
-      {canSaveSettings ? (
-        <>
-          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="Название подключения">
-              <DarkInput
-                aria-label="Название подключения"
-                value={form.displayName}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, displayName: event.target.value }))
-                }
-              />
-            </Field>
-
-            <Field label="Режим синхронизации">
-              <BrandSelect
-                ariaLabel="Режим синхронизации"
-                value={form.syncMode}
-                options={syncModeOptions}
-                onValueChange={(syncMode) =>
-                  setForm((prev) => ({ ...prev, syncMode: syncMode as SyncMode }))
-                }
-              />
-            </Field>
-
-            {setupConfig.fields.map((field) => (
-              <div key={field.key} className={cn(field.wide && "md:col-span-2")}>
-                <Field label={field.label} hint={field.hint}>
-                  <DarkInput
-                    aria-label={field.label}
-                    type={setupFieldInputType(field)}
-                    placeholder={field.placeholder}
-                    value={form.fields[field.key] ?? ""}
-                    onChange={(event) => updateField(field.key, event.target.value)}
-                  />
-                </Field>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-white/5 bg-white/[0.03] p-4 flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-zinc-200">Синхронизация включена</p>
-              <p className="text-xs text-zinc-500 mt-0.5">
-                Отключите, чтобы сохранить подключение без автоматического обмена данными.
-              </p>
-            </div>
-            <SettingsSwitch
-              checked={form.syncEnabled}
-              onChange={(syncEnabled) => setForm((prev) => ({ ...prev, syncEnabled }))}
-            />
-          </div>
-        </>
+      {isWebhookApi ? (
+        <div
+          className="mt-4 rounded-xl border border-white/5 bg-white/[0.03] p-4"
+          data-testid="webhook-settings-authority"
+        >
+          <p className="text-sm font-semibold text-zinc-200">
+            {t("integrations.webhook.manageTitle")}
+          </p>
+          <p className="mt-1 text-sm text-zinc-400">
+            {t("integrations.webhook.manageDescription")}
+          </p>
+        </div>
       ) : (
         <div className="mt-4 rounded-2xl border border-white/5 bg-zinc-950/40 p-4">
           <p className="mb-3 text-sm font-semibold text-zinc-200">
-            Что понадобится для подключения
+            {t("integrations.requirements")}
           </p>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {setupConfig.fields.map((field) => (
@@ -1321,7 +1168,10 @@ function IntegrationSettingsModal({
               >
                 <p className="text-sm font-medium text-zinc-300">{field.label}</p>
                 {(field.placeholder || field.hint) && (
-                  <p className="mt-1 text-xs text-zinc-500">{field.hint ?? field.placeholder}</p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {field.hint ??
+                      (field.placeholderKey ? t(field.placeholderKey) : field.placeholder)}
+                  </p>
                 )}
               </div>
             ))}
@@ -1329,24 +1179,11 @@ function IntegrationSettingsModal({
         </div>
       )}
 
-      {canSaveSettings && (
-        <div className="mt-4">
-          <Field label="Заметки">
-            <DarkTextarea
-              aria-label="Заметки"
-              rows={3}
-              placeholder="Например: основной аккаунт продаж, sandbox или продакшен."
-              value={form.notes}
-              onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
-            />
-          </Field>
-        </div>
-      )}
-
-      {!canSaveSettings && (
+      {!isWebhookApi && (
         <div className="mt-4 rounded-2xl border border-amber-500/15 bg-amber-500/[0.04] p-4 text-sm text-amber-100/90">
-          Эта интеграция не входит в самостоятельное подключение пилота. Окно показывает реальные
-          требования, но не сохраняет настройки.
+          {integration.availability === "soon"
+            ? t("integrations.notAvailableYet", { name: integration.name })
+            : t("integrations.notSelfServe")}
         </div>
       )}
 
@@ -1354,10 +1191,10 @@ function IntegrationSettingsModal({
         <div className="mt-4 rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.04] p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-emerald-300">Публичный входящий endpoint</p>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                Используйте эти данные для первого пилота или внешней формы.
+              <p className="text-sm font-semibold text-emerald-300">
+                {t("integrations.publicEndpoint")}
               </p>
+              <p className="mt-0.5 text-xs text-zinc-500">{t("integrations.publicEndpointHint")}</p>
             </div>
             <Pill className="border border-emerald-500/20 bg-emerald-500/10 text-emerald-300">
               {inboundEndpoint.channelType}
@@ -1367,7 +1204,9 @@ function IntegrationSettingsModal({
           <div className="space-y-3">
             <div>
               <div className="mb-1 flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-zinc-400">Endpoint URL</span>
+                <span className="text-xs font-medium text-zinc-400">
+                  {t("integrations.field.endpoint")}
+                </span>
                 <EndpointCopyButton value={fullEndpointUrl} />
               </div>
               <div className="break-all rounded-xl border border-white/5 bg-zinc-950/60 px-3 py-2 font-mono text-xs text-zinc-200">
@@ -1378,8 +1217,13 @@ function IntegrationSettingsModal({
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
                 <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-zinc-400">Public key</span>
-                  <EndpointCopyButton value={inboundEndpoint.publicKey} label="Ключ" />
+                  <span className="text-xs font-medium text-zinc-400">
+                    {t("integrations.publicKey")}
+                  </span>
+                  <EndpointCopyButton
+                    value={inboundEndpoint.publicKey}
+                    label={t("integrations.key")}
+                  />
                 </div>
                 <div className="break-all rounded-xl border border-white/5 bg-zinc-950/60 px-3 py-2 font-mono text-xs text-zinc-200">
                   {inboundEndpoint.publicKey}
@@ -1388,8 +1232,13 @@ function IntegrationSettingsModal({
 
               <div>
                 <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-zinc-400">Secret header</span>
-                  <EndpointCopyButton value={inboundEndpoint.secretHeader} label="Header" />
+                  <span className="text-xs font-medium text-zinc-400">
+                    {t("integrations.secretHeader")}
+                  </span>
+                  <EndpointCopyButton
+                    value={inboundEndpoint.secretHeader}
+                    label={t("integrations.header")}
+                  />
                 </div>
                 <div className="break-all rounded-xl border border-white/5 bg-zinc-950/60 px-3 py-2 font-mono text-xs text-zinc-200">
                   {inboundEndpoint.secretHeader}
@@ -1399,8 +1248,10 @@ function IntegrationSettingsModal({
 
             <div>
               <div className="mb-1 flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-zinc-400">Sample payload</span>
-                <EndpointCopyButton value={samplePayload} label="Payload" />
+                <span className="text-xs font-medium text-zinc-400">
+                  {t("integrations.samplePayload")}
+                </span>
+                <EndpointCopyButton value={samplePayload} label={t("integrations.payload")} />
               </div>
               <pre className="max-h-44 overflow-auto rounded-xl border border-white/5 bg-zinc-950/60 p-3 text-xs leading-relaxed text-zinc-300">
                 {samplePayload}
@@ -1418,7 +1269,7 @@ function IntegrationSettingsModal({
                 data-testid="webhook-settings-sample"
               >
                 <Send className="h-3.5 w-3.5" />
-                {sampleBusy ? "Отправляем..." : "Отправить тестовый лид"}
+                {sampleBusy ? t("integrations.sending") : t("integrations.internalSample")}
               </Button>
             )}
           </div>
@@ -1433,6 +1284,7 @@ function IntegrationSettingsModal({
    ============================================================ */
 function IntegrationCard({
   integration,
+  account,
   connected,
   pending,
   onToggle,
@@ -1440,23 +1292,33 @@ function IntegrationCard({
   onConfigure,
   onTest,
   onSample,
+  canManage,
+  canTest,
   index,
 }: {
   integration: Integration;
+  account?: IntegrationAccount;
   connected: boolean;
   pending: boolean;
   onToggle: () => void;
-  onDisconnect: () => void;
+  onDisconnect: () => void | Promise<void>;
   onConfigure: () => void;
   onTest: () => void;
   onSample: () => void;
+  canManage: boolean;
+  canTest: boolean;
   index: number;
 }) {
+  const { t } = useI18n();
   const Icon = integration.icon;
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const availability = availabilityLabel(integration);
+  const availability = availabilityLabel(integration, t);
   const canSelfServe = isSelfServeIntegration(integration);
   const connectedVisible = canSelfServe && connected;
+  const telegramUsername =
+    integration.provider === "TELEGRAM"
+      ? stringSetting(asRecord(account?.settings), "botUsername")
+      : undefined;
 
   return (
     <>
@@ -1493,7 +1355,7 @@ function IntegrationCard({
                 "bg-white/5 text-zinc-400 border border-white/5",
               )}
             >
-              {integration.category}
+              {categoryLabel(integration.category, t)}
             </Pill>
           </div>
 
@@ -1502,7 +1364,22 @@ function IntegrationCard({
             <span className="text-sm font-bold text-zinc-100 tracking-tight">
               {integration.name}
             </span>
-            <span className="text-xs text-zinc-500 leading-relaxed">{integration.description}</span>
+            {connectedVisible && telegramUsername ? (
+              <a
+                href={`https://t.me/${encodeURIComponent(telegramUsername)}?start=leadvirt`}
+                target="_blank"
+                rel="noreferrer"
+                data-testid="telegram-card-open-bot"
+                className="mb-1 inline-flex w-fit max-w-full items-center gap-1.5 text-xs font-medium text-sky-300 transition-colors hover:text-sky-200"
+              >
+                <Send className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">@{telegramUsername}</span>
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+            ) : null}
+            <span className="text-xs text-zinc-500 leading-relaxed">
+              {t(integration.descriptionKey)}
+            </span>
           </div>
 
           {/* Footer */}
@@ -1532,31 +1409,39 @@ function IntegrationCard({
               <>
                 <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  {pending ? "Синхронизация..." : "Подключено"}
+                  {pending ? t("integrations.syncing") : t("integrations.connected")}
                 </span>
-                <Dropdown
-                  trigger={
-                    <Button variant="outline" size="sm" className="h-8 px-3 text-xs rounded-full">
-                      Настроить
-                    </Button>
-                  }
-                >
-                  <DropdownItem icon={Settings} onClick={onConfigure}>
-                    Настроить
-                  </DropdownItem>
-                  <DropdownItem icon={RefreshCw} onClick={onTest}>
-                    Проверить связь
-                  </DropdownItem>
-                  {canSendSample(integration.provider) && (
-                    <DropdownItem icon={Send} onClick={onSample}>
-                      Тестовый входящий
-                    </DropdownItem>
-                  )}
-                  <DropdownSeparator />
-                  <DropdownItem icon={LogOut} onClick={() => setConfirmOpen(true)} danger>
-                    Отключить
-                  </DropdownItem>
-                </Dropdown>
+                {canManage || canTest ? (
+                  <Dropdown
+                    trigger={
+                      <Button variant="outline" size="sm" className="h-8 px-3 text-xs rounded-full">
+                        {canManage ? t("integrations.configure") : t("integrations.testConnection")}
+                      </Button>
+                    }
+                  >
+                    {canManage ? (
+                      <DropdownItem icon={Settings} onClick={onConfigure}>
+                        {t("integrations.configure")}
+                      </DropdownItem>
+                    ) : null}
+                    {canTest ? (
+                      <DropdownItem icon={RefreshCw} onClick={onTest}>
+                        {t("integrations.testConnection")}
+                      </DropdownItem>
+                    ) : null}
+                    {canTest && canSendSample(integration.provider) ? (
+                      <DropdownItem icon={Send} onClick={onSample}>
+                        {t("integrations.internalSample")}
+                      </DropdownItem>
+                    ) : null}
+                    {canManage ? <DropdownSeparator /> : null}
+                    {canManage ? (
+                      <DropdownItem icon={LogOut} onClick={() => setConfirmOpen(true)} danger>
+                        {t("integrations.disconnect")}
+                      </DropdownItem>
+                    ) : null}
+                  </Dropdown>
+                ) : null}
               </>
             ) : (
               <Button
@@ -1564,10 +1449,10 @@ function IntegrationCard({
                 size="sm"
                 className="h-8 px-4 text-xs rounded-full w-full"
                 onClick={onToggle}
-                disabled={pending}
+                disabled={pending || !canManage}
               >
                 <Zap className="w-3 h-3 mr-1.5" />
-                {pending ? "Подключаем..." : "Подключить"}
+                {pending ? t("integrations.connecting") : t("integrations.connect")}
               </Button>
             )}
           </div>
@@ -1577,13 +1462,11 @@ function IntegrationCard({
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title="Отключить интеграцию?"
-        description={`${integration.name} будет отключён. Вы сможете подключить его снова в любое время.`}
+        title={t("integrations.disconnectTitle")}
+        description={t("integrations.disconnectDescription", { name: integration.name })}
         danger
-        confirmLabel="Отключить"
-        onConfirm={() => {
-          onDisconnect();
-        }}
+        confirmLabel={t("integrations.disconnect")}
+        onConfirm={onDisconnect}
       />
     </>
   );
@@ -1597,12 +1480,15 @@ type ApiCopyTarget = "endpoint" | "publicKey" | "secretHeader" | "payload";
 function ApiCard({
   accounts,
   pendingId,
+  canTest,
   onSendSample,
 }: {
   accounts: IntegrationAccount[];
   pendingId: string | null;
+  canTest: boolean;
   onSendSample: (integrationId: string) => void;
 }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState<ApiCopyTarget | null>(null);
   const webhookAccount = accounts.find((account) => account.provider === "WEBHOOK_API");
   const endpoint = webhookAccount?.inboundEndpoint ?? null;
@@ -1615,25 +1501,25 @@ function ApiCard({
       id: "endpoint",
       label: "Webhook URL",
       value: endpointUrl,
-      empty: "Подключите Webhook / API, чтобы получить URL",
+      empty: t("integrations.api.connectForUrl"),
     },
     {
       id: "publicKey",
-      label: "Публичный ключ",
+      label: t("integrations.publicKey"),
       value: endpoint?.publicKey ?? "",
-      empty: "Публичный ключ пока недоступен",
+      empty: t("integrations.api.publicKeyUnavailable"),
     },
     {
       id: "secretHeader",
       label: "Secret header",
       value: endpoint?.secretHeader ?? "",
-      empty: "Header появится после подключения",
+      empty: t("integrations.api.headerUnavailable"),
     },
     {
       id: "payload",
       label: "Sample payload",
       value: samplePayload,
-      empty: "Sample payload появится после подключения",
+      empty: t("integrations.api.payloadUnavailable"),
     },
   ];
 
@@ -1669,11 +1555,11 @@ function ApiCard({
                     {row.value || row.empty}
                   </span>
                   <button
-                    aria-label={`Скопировать ${row.label}`}
+                    aria-label={t("integrations.api.copyLabel", { label: row.label })}
                     disabled={!row.value}
                     onClick={() => handleCopy(row.id, row.value)}
                     className="shrink-0 text-zinc-500 transition-colors hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
-                    title="Скопировать"
+                    title={t("integrations.copy")}
                   >
                     {copied === row.id ? (
                       <Check className="h-4 w-4 text-emerald-400" />
@@ -1696,27 +1582,25 @@ function ApiCard({
                     : "bg-amber-500/15 text-amber-300",
                 )}
               >
-                {endpoint ? "Webhook/API готов" : "Нужна настройка"}
+                {endpoint ? t("integrations.webhook.ready") : t("integrations.needsSetup")}
               </Pill>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              disabled={!endpoint || pendingId === "webhook"}
-              onClick={() => onSendSample("webhook")}
-              data-testid="api-webhook-sample"
-            >
-              <Send className="h-4 w-4" />
-              {pendingId === "webhook" ? "Отправляем..." : "Тестовый лид"}
-            </Button>
-            <Button asChild variant="outline" size="sm" className="gap-2">
-              <Link href="/app/settings?tab=api">
-                <ExternalLink className="w-4 h-4" />
-                Открыть API ключи
-              </Link>
-            </Button>
+            {canTest ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={!endpoint || pendingId === "webhook"}
+                onClick={() => onSendSample("webhook")}
+                data-testid="api-webhook-sample"
+              >
+                <Send className="h-4 w-4" />
+                {pendingId === "webhook"
+                  ? t("integrations.sending")
+                  : t("integrations.internalSample")}
+              </Button>
+            ) : null}
           </div>
         </div>
       </Card>
@@ -1728,9 +1612,21 @@ function ApiCard({
    Page
    ============================================================ */
 export function IntegrationsPage() {
-  const [activeCategory, setActiveCategory] = useState<"Все" | Category>("Все");
+  const { formatNumber, t } = useI18n();
+  const permissions = useProductPermissions();
+  const [activeCategory, setActiveCategory] = useState<"all" | Category>("all");
   const [accounts, setAccounts] = useState<IntegrationAccount[]>([]);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [accountsLoadStatus, setAccountsLoadStatus] = useState<"loading" | "success" | "error">(
+    "loading",
+  );
+  const [accountsReloadRevision, setAccountsReloadRevision] = useState(0);
   const [channels, setChannels] = useState<Channel[] | null | undefined>(undefined);
+  const [channelsLoaded, setChannelsLoaded] = useState(false);
+  const [channelsLoadStatus, setChannelsLoadStatus] = useState<"loading" | "success" | "error">(
+    "loading",
+  );
+  const [channelsReloadRevision, setChannelsReloadRevision] = useState(0);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [connectedMap, setConnectedMap] = useState<Record<string, boolean>>(initialConnectedMap);
   const [settingsIntegrationId, setSettingsIntegrationId] = useState<string | null>(null);
@@ -1738,38 +1634,44 @@ export function IntegrationsPage() {
   useEffect(() => {
     let cancelled = false;
 
+    setAccountsLoadStatus("loading");
     void listIntegrations()
       .then((items) => {
         if (cancelled) return;
         setAccounts(items);
+        setAccountsLoaded(true);
+        setAccountsLoadStatus("success");
         setConnectedMap(mergeAccountsIntoConnectedMap(items));
       })
       .catch(() => {
         if (cancelled) return;
-        setAccounts([]);
-        setConnectedMap(initialConnectedMap());
+        setAccountsLoadStatus("error");
       });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [accountsReloadRevision]);
 
   useEffect(() => {
     let cancelled = false;
 
+    setChannelsLoadStatus("loading");
     void listChannels()
       .then((items) => {
-        if (!cancelled) setChannels(items);
+        if (cancelled) return;
+        setChannels(items);
+        setChannelsLoaded(true);
+        setChannelsLoadStatus("success");
       })
       .catch(() => {
-        if (!cancelled) setChannels(null);
+        if (!cancelled) setChannelsLoadStatus("error");
       });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [channelsReloadRevision]);
 
   function updateFromAccount(account: IntegrationAccount) {
     setAccounts((prev) => {
@@ -1786,23 +1688,38 @@ export function IntegrationsPage() {
   }
 
   async function connectTelegramBot(botToken: string) {
+    if (!permissions.canManageIntegrations) return false;
     setPendingId("telegram");
     try {
       const account = await connectIntegration("TELEGRAM", botToken ? { botToken } : {});
       updateFromAccount(account);
-      setChannels(await listChannels());
-      setSettingsIntegrationId(null);
+      setChannelsLoadStatus("loading");
+      void listChannels().then(
+        (items) => {
+          setChannels(items);
+          setChannelsLoaded(true);
+          setChannelsLoadStatus("success");
+        },
+        () => setChannelsLoadStatus("error"),
+      );
       const settings = asRecord(account.settings);
       const username = stringSetting(settings, "botUsername");
-      toast.success(username ? `Telegram @${username} подключён` : "Telegram подключён");
+      toast.success(
+        username
+          ? t("integrations.toast.telegramNamed", { username })
+          : t("integrations.toast.telegramConnected"),
+      );
+      return true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось подключить Telegram");
+      toast.error(error instanceof Error ? error.message : t("integrations.toast.telegramFailed"));
+      return false;
     } finally {
       setPendingId(null);
     }
   }
 
   async function disconnect(id: string) {
+    if (!permissions.canManageIntegrations) return;
     const integration = INTEGRATIONS.find((item) => item.id === id);
     if (!integration) return;
     const previous = connectedMap[id];
@@ -1812,46 +1729,27 @@ export function IntegrationsPage() {
     try {
       const account = await disconnectIntegration(integration.provider);
       updateFromAccount(account);
-      toast.success(`${integration.name} отключён`);
+      toast.success(t("integrations.toast.disconnected", { name: integration.name }));
     } catch (error) {
       setConnectedMap((prev) => ({ ...prev, [id]: previous }));
-      toast.error(error instanceof Error ? error.message : "Не удалось отключить интеграцию");
-    } finally {
-      setPendingId(null);
-    }
-  }
-
-  function configure(id: string) {
-    setSettingsIntegrationId(id);
-  }
-
-  async function saveSettings(form: IntegrationSettingsForm) {
-    const id = settingsIntegrationId;
-    if (!id) return;
-    const integration = INTEGRATIONS.find((item) => item.id === id);
-    if (!integration) return;
-
-    const account = accounts.find((item) => item.provider === integration.provider);
-    const currentSettings = asRecord(account?.settings);
-    const nextSettings = settingsFromForm(currentSettings, form, integration.provider);
-
-    setPendingId(id);
-
-    try {
-      const updated = await updateIntegrationSettings(integration.provider, nextSettings);
-      updateFromAccount(updated);
-      setSettingsIntegrationId(null);
-      toast.success(`${integration.name} настройки сохранены`);
-    } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Не удалось сохранить настройки интеграции",
+        error instanceof Error ? error.message : t("integrations.toast.disconnectFailed"),
       );
     } finally {
       setPendingId(null);
     }
   }
 
+  function configure(id: string) {
+    const integration = INTEGRATIONS.find((item) => item.id === id);
+    if (integration && isSelfServeIntegration(integration) && !permissions.canManageIntegrations) {
+      return;
+    }
+    setSettingsIntegrationId(id);
+  }
+
   async function testConnection(id: string) {
+    if (!permissions.canTestIntegrations) return;
     const integration = INTEGRATIONS.find((item) => item.id === id);
     if (!integration) return;
     setPendingId(id);
@@ -1862,13 +1760,14 @@ export function IntegrationsPage() {
       const notify = result.ok ? toast.success : toast.error;
       notify(result.message);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось проверить интеграцию");
+      toast.error(error instanceof Error ? error.message : t("integrations.toast.testFailed"));
     } finally {
       setPendingId(null);
     }
   }
 
   async function sendSample(id: string) {
+    if (!permissions.canTestIntegrations) return;
     const integration = INTEGRATIONS.find((item) => item.id === id);
     if (!integration) return;
     setPendingId(id);
@@ -1876,16 +1775,48 @@ export function IntegrationsPage() {
     try {
       const result = await sendSampleInbound(integration.provider);
       updateFromAccount(result.integration);
-      toast.success("Тестовый входящий обработан", {
-        description: result.conversationId,
-      });
+      toast.success(t("integrations.toast.sampleDone"));
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Не удалось отправить тестовый входящий",
-      );
+      toast.error(error instanceof Error ? error.message : t("integrations.toast.sampleFailed"));
     } finally {
       setPendingId(null);
     }
+  }
+
+  if (!accountsLoaded || !channelsLoaded) {
+    const loadFailed = accountsLoadStatus === "error" || channelsLoadStatus === "error";
+    return (
+      <ProductLayout title={t("integrations.title")}>
+        {loadFailed ? (
+          <ResourceErrorState
+            testId="integrations-load-error"
+            onRetry={() => {
+              if (accountsLoadStatus === "error") {
+                setAccountsReloadRevision((current) => current + 1);
+              }
+              if (channelsLoadStatus === "error") {
+                setChannelsReloadRevision((current) => current + 1);
+              }
+            }}
+          />
+        ) : (
+          <div className="space-y-7" data-testid="integrations-loading">
+            <Skeleton className="h-16 w-96 max-w-full" />
+            <div className="flex flex-wrap gap-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Skeleton key={index} className="h-8 w-32" />
+              ))}
+            </div>
+            <Skeleton className="h-56" />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Skeleton key={index} className="h-64" />
+              ))}
+            </div>
+          </div>
+        )}
+      </ProductLayout>
+    );
   }
 
   const totalConnected = INTEGRATIONS.filter(
@@ -1893,11 +1824,11 @@ export function IntegrationsPage() {
   ).length;
   const totalAvailable = INTEGRATIONS.length;
   const channelsActive = INTEGRATIONS.filter(
-    (i) => i.category === "Каналы" && isSelfServeIntegration(i) && connectedMap[i.id],
+    (i) => i.category === "channels" && isSelfServeIntegration(i) && connectedMap[i.id],
   ).length;
 
   const filtered =
-    activeCategory === "Все"
+    activeCategory === "all"
       ? INTEGRATIONS
       : INTEGRATIONS.filter((i) => i.category === activeCategory);
   const settingsIntegration =
@@ -1907,19 +1838,31 @@ export function IntegrationsPage() {
     : null;
 
   return (
-    <ProductLayout title="Интеграции">
+    <ProductLayout title={t("integrations.title")}>
       <div className="flex flex-col gap-8">
+        {accountsLoadStatus === "error" || channelsLoadStatus === "error" ? (
+          <ResourceErrorState
+            testId="integrations-refresh-error"
+            onRetry={() => {
+              if (accountsLoadStatus === "error") {
+                setAccountsReloadRevision((current) => current + 1);
+              }
+              if (channelsLoadStatus === "error") {
+                setChannelsReloadRevision((current) => current + 1);
+              }
+            }}
+          />
+        ) : null}
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, ease: "easeOut" }}
         >
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-50 mb-1">Интеграции</h1>
-          <p className="text-sm text-zinc-400 max-w-xl">
-            Подключите каналы и сервисы — AI Администратор будет работать со всеми вашими
-            источниками заявок.
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-50 mb-1">
+            {t("integrations.title")}
+          </h1>
+          <p className="text-sm text-zinc-400 max-w-xl">{t("integrations.subtitle")}</p>
         </motion.div>
 
         {/* Stat chips */}
@@ -1931,19 +1874,19 @@ export function IntegrationsPage() {
         >
           {[
             {
-              label: "Подключено",
+              label: t("integrations.stats.connected"),
               value: totalConnected,
               color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
               testId: "integrations-stat-connected",
             },
             {
-              label: "Доступно",
+              label: t("integrations.stats.available"),
               value: totalAvailable,
               color: "text-zinc-300 bg-white/5 border-white/5",
               testId: "integrations-stat-available",
             },
             {
-              label: "Каналов активно",
+              label: t("integrations.stats.activeChannels"),
               value: channelsActive,
               color: "text-sky-400 bg-sky-500/10 border-sky-500/20",
               testId: "integrations-stat-active-channels",
@@ -1957,7 +1900,7 @@ export function IntegrationsPage() {
                 color,
               )}
             >
-              <span className="text-base font-bold">{value}</span>
+              <span className="text-base font-bold">{formatNumber(value)}</span>
               <span className="text-xs opacity-80">{label}</span>
             </div>
           ))}
@@ -1967,7 +1910,9 @@ export function IntegrationsPage() {
           accounts={accounts}
           channels={channels}
           pendingId={pendingId}
+          canTest={permissions.canTestIntegrations}
           onSendSample={(id) => void sendSample(id)}
+          onTestConnection={(id) => void testConnection(id)}
         />
 
         {/* Category filter */}
@@ -1977,18 +1922,18 @@ export function IntegrationsPage() {
           transition={{ duration: 0.4, delay: 0.15 }}
           className="flex flex-wrap gap-2"
         >
-          {CATEGORIES.map((cat) => (
+          {CATEGORIES.map((category) => (
             <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
+              key={category.id}
+              onClick={() => setActiveCategory(category.id)}
               className={cn(
                 "rounded-full border px-4 py-1.5 text-xs font-medium transition-all duration-200",
-                activeCategory === cat
+                activeCategory === category.id
                   ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
                   : "bg-white/[0.03] border-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06]",
               )}
             >
-              {cat}
+              {t(category.labelKey)}
             </button>
           ))}
         </motion.div>
@@ -1999,27 +1944,31 @@ export function IntegrationsPage() {
             <IntegrationCard
               key={integration.id}
               integration={integration}
+              account={accounts.find((account) => account.provider === integration.provider)}
               connected={connectedMap[integration.id]}
               pending={pendingId === integration.id}
               onToggle={() => configure(integration.id)}
-              onDisconnect={() => void disconnect(integration.id)}
+              onDisconnect={() => disconnect(integration.id)}
               onConfigure={() => void configure(integration.id)}
               onTest={() => void testConnection(integration.id)}
               onSample={() => void sendSample(integration.id)}
+              canManage={permissions.canManageIntegrations}
+              canTest={permissions.canTestIntegrations}
               index={i}
             />
           ))}
         </div>
 
-        {/* API / Webhook section */}
+        {/* Webhook section */}
         <div>
           <SectionTitle
-            title="API ключи / Webhook"
-            sub="Используйте для прямой интеграции с вашими сервисами"
+            title={t("integrations.webhook.title")}
+            sub={t("integrations.webhook.subtitle")}
           />
           <ApiCard
             accounts={accounts}
             pendingId={pendingId}
+            canTest={permissions.canTestIntegrations}
             onSendSample={(id) => void sendSample(id)}
           />
         </div>
@@ -2033,9 +1982,8 @@ export function IntegrationsPage() {
           onOpenChange={(open) => {
             if (!open) setSettingsIntegrationId(null);
           }}
-          onSave={(form) => void saveSettings(form)}
           onSendSample={() => void sendSample("webhook")}
-          onConnectTelegram={(botToken) => void connectTelegramBot(botToken)}
+          onConnectTelegram={connectTelegramBot}
         />
       </div>
     </ProductLayout>

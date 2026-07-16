@@ -12,6 +12,7 @@ export type Route =
   | "pipeline"
   | "automation"
   | "analytics"
+  | "knowledge"
   | "audit"
   | "integrations"
   | "billing"
@@ -35,10 +36,11 @@ const appRoutePaths: Record<Route, string> = {
   pipeline: "/app/leads",
   automation: "/app/automations",
   analytics: "/app/analytics",
+  knowledge: "/app/knowledge",
   audit: "/app/audit",
   integrations: "/app/integrations",
   billing: "/app/billing",
-  settings: "/app/settings"
+  settings: "/app/settings",
 };
 
 const demoRoutePaths: Record<Route, string> = {
@@ -50,10 +52,11 @@ const demoRoutePaths: Record<Route, string> = {
   pipeline: "/demo/leads",
   automation: "/demo/automations",
   analytics: "/demo/analytics",
+  knowledge: "/demo",
   audit: "/demo/audit",
   integrations: "/demo/integrations",
   billing: "/demo/billing",
-  settings: "/demo/settings"
+  settings: "/demo/settings",
 };
 
 function isDemoPath(pathname: string) {
@@ -68,15 +71,27 @@ function pathFor(route: Route, params: Record<string, unknown>, mode: "app" | "d
     return id ? `${paths.inbox}/${encodeURIComponent(id)}` : paths.inbox;
   }
 
+  if (route === "knowledge" && params.welcome === 1) {
+    return `${paths.knowledge}?welcome=1`;
+  }
+
   return paths[route];
 }
 
-export function hrefForRoute(route: Route, params: Record<string, unknown> = {}, mode: "app" | "demo" = "app") {
+export function hrefForRoute(
+  route: Route,
+  params: Record<string, unknown> = {},
+  mode: "app" | "demo" = "app",
+) {
   return pathFor(route, params, mode);
 }
 
 function stateForPath(pathname: string): Pick<NavState, "route" | "params"> {
-  if (pathname === "/onboarding" || pathname === "/app/onboarding" || pathname === "/demo/onboarding") {
+  if (
+    pathname === "/onboarding" ||
+    pathname === "/app/onboarding" ||
+    pathname === "/demo/onboarding"
+  ) {
     return { route: "onboarding", params: {} };
   }
 
@@ -107,6 +122,7 @@ function stateForPath(pathname: string): Pick<NavState, "route" | "params"> {
   if (pathname === "/app/leads") return { route: "pipeline", params: {} };
   if (pathname === "/app/automations") return { route: "automation", params: {} };
   if (pathname === "/app/analytics") return { route: "analytics", params: {} };
+  if (pathname === "/app/knowledge") return { route: "knowledge", params: {} };
   if (pathname === "/app/audit") return { route: "audit", params: {} };
   if (pathname === "/app/integrations") return { route: "integrations", params: {} };
   if (pathname === "/app/billing") return { route: "billing", params: {} };
@@ -126,13 +142,16 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
     setParams(pathnameState.params);
   }, [pathnameState.params]);
 
-  const go = React.useCallback((next: Route, p: Record<string, unknown> = {}) => {
-    setParams(p);
-    router.push(pathFor(next, p, mode));
-    if (typeof window !== "undefined") {
-      window.requestAnimationFrame(() => window.scrollTo({ top: 0 }));
-    }
-  }, [mode, router]);
+  const go = React.useCallback(
+    (next: Route, p: Record<string, unknown> = {}) => {
+      setParams(p);
+      router.push(pathFor(next, p, mode));
+      if (typeof window !== "undefined") {
+        window.requestAnimationFrame(() => window.scrollTo({ top: 0 }));
+      }
+    },
+    [mode, router],
+  );
 
   return (
     <NavContext.Provider value={{ route: pathnameState.route, go, params, mode }}>

@@ -149,7 +149,23 @@ export function localizeSeedText(value?: string | null, locale: Locale = "en") {
   return exact[value] ?? value;
 }
 
-export function leadFromConversation(conversation: ConversationDetail): Lead {
+type LeadFallbacks = {
+  client: string;
+  conversation: string;
+  lead: string;
+};
+
+const defaultLeadFallbacks: LeadFallbacks = {
+  client: "LeadVirt customer",
+  conversation: "Inbound conversation",
+  lead: "Inbound lead",
+};
+
+export function leadFromConversation(
+  conversation: ConversationDetail,
+  locale: Locale = "en",
+  fallbacks: LeadFallbacks = defaultLeadFallbacks,
+): Lead {
   const lead = conversation.lead;
   const channelType = lead?.channelType ?? conversation.channelType ?? conversation.channel?.type;
   const lastMessageAt = conversation.lastMessageAt ?? lead?.lastMessageAt ?? lead?.createdAt;
@@ -158,36 +174,41 @@ export function leadFromConversation(conversation: ConversationDetail): Lead {
     id: conversation.id,
     conversationId: conversation.id,
     ...(lead?.id ? { apiLeadId: lead.id } : {}),
-    name: localizeSeedText(lead?.name ?? conversation.subject) || "Клиент LeadVirt",
+    name: localizeSeedText(lead?.name ?? conversation.subject, locale) || fallbacks.client,
     channel: channelIdFromType(channelType),
     stage: stageFromStatus(lead?.status, conversation.status),
     temp: tempFromTemperature(lead?.temperature),
-    source: localizeSeedText(lead?.source ?? conversation.channel?.name ?? conversation.subject) || "LeadVirt",
+    source: localizeSeedText(lead?.source ?? conversation.channel?.name ?? conversation.subject, locale) || "LeadVirt",
     value: lead?.valueAmount ?? 0,
     manager: lead?.assignedToName ?? "—",
-    service: localizeSeedText(lead?.interest ?? conversation.subject) || "Входящий диалог",
-    lastMessage: localizeSeedText(conversation.lastMessage ?? lead?.summary) || "Новый диалог",
-    time: relativeTimeLabel(lastMessageAt),
+    service: localizeSeedText(lead?.interest ?? conversation.subject, locale) || fallbacks.conversation,
+    lastMessage: localizeSeedText(conversation.lastMessage ?? lead?.summary, locale) || fallbacks.conversation,
+    time: relativeTimeLabel(lastMessageAt, locale),
     unread: conversation.unreadCount ?? 0,
     ai: conversation.aiEnabled,
   };
 }
 
-export function leadFromApiLead(lead: ApiLead, conversationId?: string): Lead {
+export function leadFromApiLead(
+  lead: ApiLead,
+  conversationId?: string,
+  locale: Locale = "en",
+  fallbacks: LeadFallbacks = defaultLeadFallbacks,
+): Lead {
   return {
     id: lead.id,
     apiLeadId: lead.id,
     ...(conversationId ? { conversationId } : {}),
-    name: localizeSeedText(lead.name) || "Клиент LeadVirt",
+    name: localizeSeedText(lead.name, locale) || fallbacks.client,
     channel: channelIdFromType(lead.channelType),
     stage: stageFromStatus(lead.status),
     temp: tempFromTemperature(lead.temperature),
-    source: localizeSeedText(lead.source) || "LeadVirt",
+    source: localizeSeedText(lead.source, locale) || "LeadVirt",
     value: lead.valueAmount ?? 0,
     manager: lead.assignedToName ?? "—",
-    service: localizeSeedText(lead.interest ?? lead.summary) || "Входящий лид",
-    lastMessage: localizeSeedText(lead.summary ?? lead.interest) || "Новый лид",
-    time: relativeTimeLabel(lead.lastMessageAt ?? lead.createdAt),
+    service: localizeSeedText(lead.interest ?? lead.summary, locale) || fallbacks.lead,
+    lastMessage: localizeSeedText(lead.summary ?? lead.interest, locale) || fallbacks.lead,
+    time: relativeTimeLabel(lead.lastMessageAt ?? lead.createdAt, locale),
     unread: 0,
     ai: true,
   };
@@ -210,12 +231,12 @@ export function statusFromStage(stage: StageId): LeadStatus {
   }
 }
 
-function chatMessageFromApi(message: Message): ChatMessage {
+function chatMessageFromApi(message: Message, locale: Locale): ChatMessage {
   return {
     id: message.id,
     from: message.senderType === "AI" ? "ai" : message.senderType === "CUSTOMER" ? "client" : "manager",
-    text: localizeSeedText(message.text) || "",
-    time: formatMessageTime(message.createdAt),
+    text: localizeSeedText(message.text, locale) || "",
+    time: formatMessageTime(message.createdAt, locale),
     attachments: message.attachments?.map((attachment) => ({
       id: attachment.id,
       filename: attachment.filename,
@@ -226,16 +247,16 @@ function chatMessageFromApi(message: Message): ChatMessage {
   };
 }
 
-export function messagesFromConversation(conversation: ConversationDetail): ChatMessage[] {
+export function messagesFromConversation(conversation: ConversationDetail, locale: Locale = "en"): ChatMessage[] {
   const messages = conversation.messages
-    .map(chatMessageFromApi)
+    .map((message) => chatMessageFromApi(message, locale))
     .filter((message) => message.text.trim().length > 0 || (message.attachments?.length ?? 0) > 0);
 
   if (messages.length > 0) {
     return messages;
   }
 
-  const fallbackText = localizeSeedText(conversation.lastMessage ?? conversation.lead?.summary);
+  const fallbackText = localizeSeedText(conversation.lastMessage ?? conversation.lead?.summary, locale);
   if (!fallbackText) {
     return [];
   }
@@ -245,7 +266,7 @@ export function messagesFromConversation(conversation: ConversationDetail): Chat
       id: `${conversation.id}:last-message`,
       from: "client",
       text: fallbackText,
-      time: formatMessageTime(conversation.lastMessageAt),
+      time: formatMessageTime(conversation.lastMessageAt, locale),
     },
   ];
 }

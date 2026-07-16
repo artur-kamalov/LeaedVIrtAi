@@ -64,7 +64,7 @@ It also writes the latest shareable readiness report to `docs/PILOT_READY_REPORT
 `qa:ai:provider` validates the configured AI provider contract. Local runs use `AI_PROVIDER=mock`; staging/public runs should set `AI_PROVIDER=openai` and `AI_API_KEY`.
 `qa:auth:staging-ready` validates the configured database and auth boundary. Local runs may warn about dev env values; for a staging/public release gate set `LEADVIRT_AUTH_READY_STRICT=1` with the target `DATABASE_URL`, public `APP_URL`, and non-mock email/rate-limit settings.
 `qa:channels:provisioning` validates the first real-channel path by creating a temporary Webhook/API channel with a generated non-demo key and posting public intake through it.
-`provision:webhook-channel` logs into the target workspace, creates or reuses the Webhook/API channel, and prints the exact Master Budet env values. On non-local APIs it refuses demo public keys.
+`provision:webhook-channel` logs into the target workspace, creates or reuses the Webhook/API channel, and prints the exact Master Budet env values. Channel reads never expose stored secrets. A new channel returns its generated secret once; for an existing channel, set `LEADVIRT_PROVISION_WEBHOOK_SECRET` or `LEADVIRT_PUBLIC_WEBHOOK_SECRET` to reuse the known value, otherwise the command performs an audited OWNER/ADMIN rotation and prints the replacement once. On non-local APIs it refuses demo public keys.
 `release:public-ready` is the public/staging one-command gate: strict auth readiness, real OpenAI provider env, Webhook/API provisioning, packet regeneration, and public URL preflight.
 
 Production deploy images intentionally do not include Playwright browsers. Run the full `release:public-ready` gate from an operator machine. If a server/container run is needed for non-browser gates only, set `LEADVIRT_PUBLIC_READY_SKIP_PUBLIC_PREFLIGHT=1`; then run `corepack pnpm run qa:pilot:public` separately from an operator machine before inviting testers.
@@ -239,7 +239,11 @@ Website widget:
 - Embed snippet:
 
 ```html
-<script async src="http://localhost:3001/widget/embed.js" data-leadvirt-key="demo-website-widget"></script>
+<script
+  async
+  src="http://localhost:3001/widget/embed.js"
+  data-leadvirt-key="demo-website-widget"
+></script>
 ```
 
 ## Pilot Script
@@ -269,6 +273,7 @@ After repeated local pilot runs, inspect generated pilot records with:
 
 ```bash
 corepack pnpm run db:cleanup:pilot
+corepack pnpm run db:cleanup:pilot -- --tenant-slug demo-company
 ```
 
 The cleanup utility is a dry-run by default. It only targets the seeded demo tenant and records with the `Pilot TG`, `Pilot Webhook`, `Pilot Widget`, and `Pilot Intake Workflow` prefixes.
@@ -277,6 +282,7 @@ Delete those prefixed pilot records only when you intentionally want to reset th
 
 ```bash
 corepack pnpm run db:cleanup:pilot -- --confirm
+corepack pnpm run db:cleanup:pilot -- --tenant-slug demo-company --confirm
 ```
 
 ## Current QA Coverage

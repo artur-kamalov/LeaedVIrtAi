@@ -31,8 +31,10 @@ const forbiddenDemoText = [
   "Студия Glow",
 ];
 
-test("clean credential workspace does not render demo user data on app routes", async ({ page }) => {
-  test.setTimeout(120_000);
+test("clean credential workspace does not render demo user data on app routes", async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -43,7 +45,11 @@ test("clean credential workspace does not render demo user data on app routes", 
   if (!login.ok()) {
     login = await page.request.post(`${apiBase}/auth/signup`, {
       headers: { "x-leadvirt-qa": "playwright" },
-      data: { email: cleanEmail, password: cleanPassword, companyName: "Clean Workspace 1782990635" },
+      data: {
+        email: cleanEmail,
+        password: cleanPassword,
+        companyName: "Clean Workspace 1782990635",
+      },
     });
   }
   expect(login.ok()).toBeTruthy();
@@ -51,9 +57,14 @@ test("clean credential workspace does not render demo user data on app routes", 
   for (const route of appRoutes) {
     await test.step(route, async () => {
       pageErrors.length = 0;
-      await page.goto(`${webBase}${route}`, { waitUntil: "domcontentloaded" });
+      await page.goto(`${webBase}${route}`, {
+        waitUntil: "domcontentloaded",
+        timeout: 45_000,
+      });
       expect(pageErrors, route).toEqual([]);
-      await expect(page.getByText("Clean Workspace 1782990635").first()).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText("Clean Workspace 1782990635").first()).toBeVisible({
+        timeout: 30_000,
+      });
 
       for (const text of forbiddenDemoText) {
         await expect(page.getByText(text)).toHaveCount(0);

@@ -1,32 +1,14 @@
-import { Queue, type ConnectionOptions } from "bullmq";
+import { Queue } from "bullmq";
 import { loadEnvFile } from "@leadvirt/config";
+import { bullMqConnectionFromRedisUrl } from "@leadvirt/runtime-queue";
 import { queueNames } from "../../apps/worker/src/queues/queue-names.js";
 
 loadEnvFile();
 
-function connectionFromRedisUrl(redisUrl: string): ConnectionOptions {
-  const parsed = new URL(redisUrl);
-  const connection: ConnectionOptions = {
-    host: parsed.hostname,
-    port: Number(parsed.port || 6380),
-    maxRetriesPerRequest: null
-  };
-
-  if (parsed.username) {
-    connection.username = decodeURIComponent(parsed.username);
-  }
-
-  if (parsed.password) {
-    connection.password = decodeURIComponent(parsed.password);
-  }
-
-  return connection;
-}
-
 async function main() {
   const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6380";
   const limit = Math.max(1, Math.min(100, Number(process.env.WORKER_DLQ_INSPECT_LIMIT ?? "20")));
-  const connection = connectionFromRedisUrl(redisUrl);
+  const connection = bullMqConnectionFromRedisUrl(redisUrl, { maxRetriesPerRequest: null });
   const queues = queueNames.map((name) => new Queue(name, { connection }));
 
   try {

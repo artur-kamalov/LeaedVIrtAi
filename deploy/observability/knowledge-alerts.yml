@@ -1,0 +1,24 @@
+groups:
+  - name: leadvirt-knowledge-dependencies
+    rules:
+      - alert: LeadVirtKnowledgeDependencyUnavailable
+        expr: (leadvirt_knowledge_dependency_configured == 1) and on(dependency) (leadvirt_knowledge_dependency_up == 0)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: A configured LeadVirt Knowledge dependency is unavailable.
+      - alert: LeadVirtKnowledgeDependencyProbeStale
+        expr: (leadvirt_knowledge_dependency_configured == 1) and on(dependency) (leadvirt_knowledge_dependency_probe_stale == 1)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: A LeadVirt Knowledge dependency probe is stale.
+      - alert: LeadVirtOpenTelemetryExporterFailure
+        expr: ((sum(rate(otelcol_exporter_send_failed_spans_total[5m])) or vector(0)) + (sum(rate(otelcol_exporter_enqueue_failed_spans_total[5m])) or vector(0))) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: The LeadVirt OpenTelemetry Collector is failing or dropping trace exports.

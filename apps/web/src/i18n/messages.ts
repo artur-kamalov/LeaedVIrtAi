@@ -1,7 +1,29 @@
 import { de } from "./translations/de";
+import {
+  editorKnowledgeMessages,
+  type EditorKnowledgeTranslationKey,
+} from "./knowledge-editor-messages";
 import { es } from "./translations/es";
 import { fr } from "./translations/fr";
+import { knowledgeMessages, type KnowledgeTranslationKey } from "./knowledge-messages";
+import {
+  reviewKnowledgeMessages,
+  type ReviewKnowledgeTranslationKey,
+} from "./knowledge-review-messages";
+import {
+  sourceKnowledgeMessages,
+  type SourceKnowledgeTranslationKey,
+} from "./knowledge-source-messages";
+import { testKnowledgeMessages, type TestKnowledgeTranslationKey } from "./knowledge-test-messages";
 import { pt } from "./translations/pt";
+import { operationalMessages, type OperationalTranslationKey } from "./operational-messages";
+import {
+  operationsSuiteMessages,
+  type OperationsSuiteTranslationKey,
+} from "./operations-suite-messages";
+import { settingsMessages, type SettingsTranslationKey } from "./settings-messages";
+import { integrationMessages, type IntegrationTranslationKey } from "./integration-messages";
+import { resourceMessages, type ResourceTranslationKey } from "./resource-messages";
 
 const ru = {
   "language.label": "Язык",
@@ -24,14 +46,18 @@ const ru = {
   "landing.hero.before": "AI-администратор для",
   "landing.hero.highlight": "заявок",
   "landing.hero.after": "и сообщений",
-  "landing.hero.description": "Отвечает 24/7, квалифицирует клиентов, записывает на услуги, помогает с заказами и передаёт заявки в CRM. Идеальный сотрудник, который никогда не спит.",
+  "landing.hero.description":
+    "Отвечает 24/7, квалифицирует клиентов, записывает на услуги, помогает с заказами и передаёт заявки в CRM. Идеальный сотрудник, который никогда не спит.",
   "landing.hero.demo": "Смотреть демо",
   "landing.how.title": "Как это работает",
-  "landing.how.description": "Полностью автономный процесс от первого сообщения до записи в вашей системе.",
+  "landing.how.description":
+    "Полностью автономный процесс от первого сообщения до записи в вашей системе.",
   "landing.how.step1.title": "Клиент пишет",
-  "landing.how.step1.description": "В любой удобный канал: Telegram, WhatsApp, Instagram или виджет на сайте.",
+  "landing.how.step1.description":
+    "В любой удобный канал: Telegram, WhatsApp, Instagram или виджет на сайте.",
   "landing.how.step2.title": "AI уточняет",
-  "landing.how.step2.description": "Задает правильные вопросы, квалифицирует лида и подбирает услугу.",
+  "landing.how.step2.description":
+    "Задает правильные вопросы, квалифицирует лида и подбирает услугу.",
   "landing.how.step3.title": "Создаёт запись",
   "landing.how.step3.description": "Оформляет заказ или бронирует время в вашем календаре.",
   "landing.how.step4.title": "Готовый результат",
@@ -39,14 +65,18 @@ const ru = {
   "landing.features.title": "Что умеет AI Администратор",
   "landing.features.description": "Заменяет целый отдел обработки входящих обращений.",
   "landing.features.always.title": "Ответы 24/7",
-  "landing.features.always.description": "Мгновенные ответы ночью, в выходные и праздники. Ни один клиент не уйдет к конкурентам из-за долгого ожидания.",
+  "landing.features.always.description":
+    "Мгновенные ответы ночью, в выходные и праздники. Ни один клиент не уйдет к конкурентам из-за долгого ожидания.",
   "landing.features.responseTime": "Среднее время ответа: 18 сек",
   "landing.features.qualification.title": "Квалификация лидов",
-  "landing.features.qualification.description": "Сам задаст нужные вопросы и отсеет нецелевые обращения.",
+  "landing.features.qualification.description":
+    "Сам задаст нужные вопросы и отсеет нецелевые обращения.",
   "landing.features.followup.title": "Повторные касания",
-  "landing.features.followup.description": "Напомнит о записи или предложит повторить заказ через месяц.",
+  "landing.features.followup.description":
+    "Напомнит о записи или предложит повторить заказ через месяц.",
   "landing.features.crm.title": "Передача в CRM и Аналитика",
-  "landing.features.crm.description": "Вся история переписки, теги, контакты и записи автоматически попадают в вашу CRM-систему (AmoCRM, Bitrix24, Yclients и др.)",
+  "landing.features.crm.description":
+    "Вся история переписки, теги, контакты и записи автоматически попадают в вашу CRM-систему (AmoCRM, Bitrix24, Yclients и др.)",
   "landing.metrics.response.value": "18 сек",
   "landing.metrics.response.label": "Среднее время ответа",
   "landing.metrics.conversion.label": "Конверсия в запись",
@@ -54,7 +84,8 @@ const ru = {
   "landing.metrics.integrations.label": "Готовых интеграций",
   "landing.cta.title.before": "Не теряйте клиентов,",
   "landing.cta.title.after": "пока команда занята",
-  "landing.cta.description": "Подключите AI Администратора сегодня и начните конвертировать каждое сообщение в выручку.",
+  "landing.cta.description":
+    "Подключите AI Администратора сегодня и начните конвертировать каждое сообщение в выручку.",
   "landing.cta.action": "Подключить AI Администратора",
   "landing.cta.note": "Бесплатный тестовый период 7 дней. Привязка карты не требуется.",
   "landing.footer.rights": "© 2026 LeadVirt.ai. Все права защищены.",
@@ -66,9 +97,11 @@ const ru = {
   "hero.task.resolved": "Вопрос решен",
   "pricing.badge": "Прозрачные тарифы",
   "pricing.title": "Выберите свой тариф",
-  "pricing.description": "Начните с малого и масштабируйтесь по мере роста. Без скрытых платежей и долгих контрактов.",
+  "pricing.description":
+    "Начните с малого и масштабируйтесь по мере роста. Без скрытых платежей и долгих контрактов.",
   "pricing.popular": "Популярный",
-  "pricing.note": "Все тарифы включают бесплатный пробный период 7 дней. Привязка карты не требуется.",
+  "pricing.note":
+    "Все тарифы включают бесплатный пробный период 7 дней. Привязка карты не требуется.",
   "pricing.perMonth": "в месяц",
   "pricing.start.tagline": "Для малого бизнеса и теста одного AI-сценария",
   "pricing.start.cta": "Начать со Start",
@@ -107,37 +140,48 @@ const ru = {
   "pricing.feature.personalManager": "Персональный менеджер 24/7",
   "niches.title.before": "Идеально подходит для",
   "niches.title.highlight": "любого бизнеса",
-  "niches.description": "AI мгновенно адаптируется под специфику вашей сферы, изучает услуги, прайс и общается в вашем Tone of Voice.",
+  "niches.description":
+    "AI мгновенно адаптируется под специфику вашей сферы, изучает услуги, прайс и общается в вашем Tone of Voice.",
   "niches.crmAdded": "Добавлено в CRM",
   "niches.beauty.title": "Бьюти-сфера",
-  "niches.beauty.description": "Автоматическая запись, консультация по прайсу и напоминания о визитах.",
+  "niches.beauty.description":
+    "Автоматическая запись, консультация по прайсу и напоминания о визитах.",
   "niches.beauty.user": "Привет! Есть свободное окно на стрижку сегодня вечером?",
-  "niches.beauty.ai": "Здравствуйте! Да, к мастеру Алексею есть окна на 18:00 и 19:30. Записать вас на какое время?",
+  "niches.beauty.ai":
+    "Здравствуйте! Да, к мастеру Алексею есть окна на 18:00 и 19:30. Записать вас на какое время?",
   "niches.beauty.task": "Новая запись: Стрижка, 19:30",
   "niches.medicine.title": "Медицина",
-  "niches.medicine.description": "Квалификация симптомов, запись к врачам, сбор первичного анамнеза.",
+  "niches.medicine.description":
+    "Квалификация симптомов, запись к врачам, сбор первичного анамнеза.",
   "niches.medicine.user": "Добрый день. Как записаться к кардиологу?",
-  "niches.medicine.ai": "Добрый день! Ближайшая запись к доктору Смирнову — завтра в 14:00. Подсказать стоимость приема?",
+  "niches.medicine.ai":
+    "Добрый день! Ближайшая запись к доктору Смирнову — завтра в 14:00. Подсказать стоимость приема?",
   "niches.medicine.task": "Лид в CRM: Запись к кардиологу",
   "niches.ecom.title": "E-commerce",
   "niches.ecom.description": "Ответы по наличию, помощь с выбором размера, статусы заказов.",
   "niches.ecom.user": "А этот свитер есть в размере L в черном цвете?",
-  "niches.ecom.ai": "Да, черный свитер в размере L есть в наличии (осталось 2 шт). Оформить заказ с доставкой?",
+  "niches.ecom.ai":
+    "Да, черный свитер в размере L есть в наличии (осталось 2 шт). Оформить заказ с доставкой?",
   "niches.ecom.task": "Новый заказ: Свитер (L, Черный)",
   "niches.education.title": "Образование",
-  "niches.education.description": "Продажа курсов, отправка ссылок на вебинары, ответы на частые вопросы.",
+  "niches.education.description":
+    "Продажа курсов, отправка ссылок на вебинары, ответы на частые вопросы.",
   "niches.education.user": "Сколько длится курс по дизайну?",
-  "niches.education.ai": "Курс длится 3 месяца. Обучение проходит онлайн, 2 раза в неделю. Отправить вам полную программу?",
+  "niches.education.ai":
+    "Курс длится 3 месяца. Обучение проходит онлайн, 2 раза в неделю. Отправить вам полную программу?",
   "niches.education.task": "Запрос: Программа курса «Дизайн»",
   "niches.auto.title": "Автосервисы",
   "niches.auto.description": "Запись на ТО, расчет примерной стоимости работ, статус ремонта.",
   "niches.auto.user": "Сколько стоит поменять масло на Toyota Camry?",
-  "niches.auto.ai": "Замена масла с вашими расходниками — 1500 ₽. Работа и наше масло — от 6500 ₽. Записать вас?",
+  "niches.auto.ai":
+    "Замена масла с вашими расходниками — 1500 ₽. Работа и наше масло — от 6500 ₽. Записать вас?",
   "niches.auto.task": "Лид: Замена масла (Camry)",
   "niches.services.title": "Услуги (B2B/B2C)",
-  "niches.services.description": "Клининг, юристы, ремонт. Оценка стоимости по фото и сбор деталей.",
+  "niches.services.description":
+    "Клининг, юристы, ремонт. Оценка стоимости по фото и сбор деталей.",
   "niches.services.user": "Нужна генеральная уборка 2-комнатной квартиры. Сколько стоит?",
-  "niches.services.ai": "Генеральная уборка 2-комн. квартиры стоит от 4500 ₽ (около 4 часов). На какой день вам удобно?",
+  "niches.services.ai":
+    "Генеральная уборка 2-комн. квартиры стоит от 4500 ₽ (около 4 часов). На какой день вам удобно?",
   "niches.services.task": "Лид: Ген. уборка (2к)",
   "auth.login.title": "Вход в LeadVirt.ai",
   "auth.login.subtitle": "Получите код на email или войдите через Telegram.",
@@ -168,7 +212,8 @@ const ru = {
   "auth.email.verifyError": "Не удалось подтвердить код",
   "auth.email.unavailable": "Вход по email временно недоступен",
   "auth.hero.title": "AI-администратор уже принимает заявки и ведёт диалоги.",
-  "auth.hero.description": "Вход без пароля: подтвердите email одноразовым кодом или используйте Telegram.",
+  "auth.hero.description":
+    "Вход без пароля: подтвердите email одноразовым кодом или используйте Telegram.",
   "auth.highlight.passwordless": "Без пароля",
   "auth.highlight.telegram": "Email или Telegram",
   "auth.highlight.database": "Workspace из БД",
@@ -179,11 +224,16 @@ const ru = {
   "auth.toast.created": "Workspace создан",
   "auth.toast.welcome": "Добро пожаловать",
   "auth.error.login": "Не удалось войти",
+  "auth.sessionChecking": "Проверяем доступ...",
+  "auth.sessionCheckFailed": "Не удалось проверить доступ",
+  "auth.sessionCheckFailedDetail": "LeadVirt временно не может связаться с сервером. Сессия сохранена.",
+  "auth.sessionRetry": "Повторить",
   "product.nav.dashboard": "Обзор",
   "product.nav.inbox": "Входящие",
   "product.nav.pipeline": "Воронка / CRM",
   "product.nav.automation": "Автоматизация",
   "product.nav.analytics": "Аналитика",
+  "product.nav.knowledge": "База знаний",
   "product.nav.audit": "AI audit",
   "product.nav.integrations": "Интеграции",
   "product.nav.settings": "Настройки",
@@ -191,6 +241,8 @@ const ru = {
   "product.mobile.pipeline": "Воронка",
   "product.mobile.more": "Ещё",
   "product.menu.open": "Открыть меню",
+  "product.menu.close": "Закрыть меню",
+  "product.menu.navigation": "Навигация",
   "product.demo.readOnly": "Demo read-only",
   "product.search.form": "Поиск лидов и чатов",
   "product.search.input": "Глобальный поиск",
@@ -200,7 +252,8 @@ const ru = {
   "product.theme.toggle": "Переключить тему",
   "product.notifications.label": "Уведомления",
   "product.notifications.none": "Новых событий пока нет",
-  "product.notifications.noneDetail": "Когда появятся лиды, записи или CRM-синхронизации, они будут здесь.",
+  "product.notifications.noneDetail":
+    "Когда появятся лиды, записи или CRM-синхронизации, они будут здесь.",
   "product.notifications.openAll": "Открыть все",
   "product.notifications.noNew": "нет новых",
   "product.notifications.oneNew": "1 новое",
@@ -213,7 +266,7 @@ const ru = {
   "product.account.loggingOut": "Выходим...",
   "product.account.logout": "Выйти",
   "product.account.logoutError": "Не удалось выйти из аккаунта",
-  "product.newLead": "Новый лид",
+  "product.openInbox": "Открыть входящие",
   "product.billing.noneTitle": "Тариф не выбран",
   "product.billing.noneDetail": "Подключите план в биллинге",
   "product.billing.choose": "Выбрать тариф",
@@ -235,7 +288,7 @@ const ru = {
   "product.title.onboarding": "Онбординг",
   "dashboard.title": "Обзор",
   "dashboard.welcome": "Добро пожаловать, {name}",
-  "dashboard.action.newLead": "Новый лид",
+  "dashboard.action.openInbox": "Открыть входящие",
   "dashboard.action.scenarios": "Сценарии",
   "dashboard.action.analytics": "Аналитика",
   "dashboard.metric.newLeads": "Новые лиды",
@@ -260,11 +313,13 @@ const ru = {
   "dashboard.recent.description": "Актуальные обращения",
   "dashboard.recent.all": "Все лиды",
   "dashboard.recent.empty": "Лидов пока нет",
-  "dashboard.recent.emptyDetail": "Новые обращения появятся здесь после подключения канала или входящего webhook.",
+  "dashboard.recent.emptyDetail":
+    "Новые обращения появятся здесь после подключения канала или входящего webhook.",
   "dashboard.activity.title": "Активность",
   "dashboard.activity.description": "События в реальном времени",
   "dashboard.activity.empty": "Событий пока нет",
-  "dashboard.activity.emptyDetail": "Продуктовые события появятся после лидов, задач, записей или подключений.",
+  "dashboard.activity.emptyDetail":
+    "Продуктовые события появятся после лидов, задач, записей или подключений.",
   "dashboard.fallback.client": "Клиент LeadVirt",
   "dashboard.fallback.lead": "Новый лид",
   "channel.website": "Сайт",
@@ -283,6 +338,9 @@ const ru = {
   "onboarding.back": "Назад",
   "onboarding.next": "Далее",
   "onboarding.launch": "Запустить AI Администратора",
+  "onboarding.saveError.title": "Не удалось сохранить прогресс",
+  "onboarding.saveError.description":
+    "Проверьте подключение и попробуйте снова. Ваши ответы остались на месте.",
   "onboarding.business.title": "С каким бизнесом работаем?",
   "onboarding.business.description": "Выберите тип бизнеса — AI подстроится под вашу нишу",
   "onboarding.business.services": "Услуги",
@@ -297,13 +355,17 @@ const ru = {
   "onboarding.scenario.title": "Выберите сценарий AI",
   "onboarding.scenario.description": "Как должен работать ваш AI-ассистент?",
   "onboarding.scenario.booking": "Запись на услугу",
-  "onboarding.scenario.bookingDescription": "AI записывает клиентов автоматически, уточняет дату, время и специалиста",
+  "onboarding.scenario.bookingDescription":
+    "AI записывает клиентов автоматически, уточняет дату, время и специалиста",
   "onboarding.scenario.order": "Оформление заказа",
-  "onboarding.scenario.orderDescription": "Принимает заказы, уточняет детали и передаёт в обработку",
+  "onboarding.scenario.orderDescription":
+    "Принимает заказы, уточняет детали и передаёт в обработку",
   "onboarding.scenario.consult": "Консультация и квалификация",
-  "onboarding.scenario.consultDescription": "Отвечает на вопросы, выявляет потребности и квалифицирует лиды",
+  "onboarding.scenario.consultDescription":
+    "Отвечает на вопросы, выявляет потребности и квалифицирует лиды",
   "onboarding.scenario.support": "Поддержка клиентов",
-  "onboarding.scenario.supportDescription": "Обрабатывает типовые обращения, снижает нагрузку на команду",
+  "onboarding.scenario.supportDescription":
+    "Обрабатывает типовые обращения, снижает нагрузку на команду",
   "onboarding.company.title": "Информация о компании",
   "onboarding.company.description": "AI использует эти данные для общения с клиентами",
   "onboarding.company.name": "Название компании",
@@ -311,19 +373,24 @@ const ru = {
   "onboarding.company.about": "О компании",
   "onboarding.company.aboutPlaceholder": "Чем занимается ваша компания, ваши преимущества...",
   "onboarding.company.catalog": "Каталог, услуги и цены",
-  "onboarding.company.catalogPlaceholder": "Например: стрижка женская — 2500 ₽, 60 минут; окрашивание — от 6000 ₽; консультация — бесплатно.",
+  "onboarding.company.catalogPlaceholder":
+    "Например: стрижка женская — 2500 ₽, 60 минут; окрашивание — от 6000 ₽; консультация — бесплатно.",
   "onboarding.company.hours": "Рабочие часы",
   "onboarding.company.hoursPlaceholder": "Пн–Пт 9:00–18:00",
   "onboarding.company.average": "Средний чек",
   "onboarding.company.averagePlaceholder": "2 000 – 5 000 ₽",
   "onboarding.company.availability": "Свободные окна и правила записи",
-  "onboarding.company.availabilityPlaceholder": "Например: свободные окна вторник–четверг 12:00–17:00; запись минимум за 2 часа; перенос не позже чем за сутки.",
+  "onboarding.company.availabilityPlaceholder":
+    "Например: свободные окна вторник–четверг 12:00–17:00; запись минимум за 2 часа; перенос не позже чем за сутки.",
   "onboarding.company.faq": "FAQ и частые возражения",
-  "onboarding.company.faqPlaceholder": "Например: можно ли с детьми, сколько держится результат, какие есть противопоказания, чем вы отличаетесь.",
+  "onboarding.company.faqPlaceholder":
+    "Например: можно ли с детьми, сколько держится результат, какие есть противопоказания, чем вы отличаетесь.",
   "onboarding.company.policies": "Правила, ограничения, что нельзя обещать",
-  "onboarding.company.policiesPlaceholder": "Например: не обещать точную цену без консультации; не давать медицинских гарантий; скидки только после согласования.",
+  "onboarding.company.policiesPlaceholder":
+    "Например: не обещать точную цену без консультации; не давать медицинских гарантий; скидки только после согласования.",
   "onboarding.company.escalation": "Когда звать человека",
-  "onboarding.company.escalationPlaceholder": "Например: клиент злится, просит возврат, хочет нестандартную скидку, спрашивает юридические или медицинские детали.",
+  "onboarding.company.escalationPlaceholder":
+    "Например: клиент злится, просит возврат, хочет нестандартную скидку, спрашивает юридические или медицинские детали.",
   "onboarding.crm.title": "Куда отправлять лиды?",
   "onboarding.crm.description": "Выберите CRM или оставьте всё внутри системы",
   "onboarding.crm.amoDescription": "Популярная CRM для продаж в России",
@@ -341,10 +408,22 @@ const ru = {
   "onboarding.ready.summary": "Итог настройки",
 } as const;
 
-export type TranslationKey = keyof typeof ru;
+export type BaseTranslationKey = keyof typeof ru;
+export type TranslationKey =
+  | BaseTranslationKey
+  | KnowledgeTranslationKey
+  | EditorKnowledgeTranslationKey
+  | SourceKnowledgeTranslationKey
+  | ReviewKnowledgeTranslationKey
+  | TestKnowledgeTranslationKey
+  | OperationalTranslationKey
+  | OperationsSuiteTranslationKey
+  | SettingsTranslationKey
+  | IntegrationTranslationKey
+  | ResourceTranslationKey;
 export type TranslationValues = Record<string, string | number>;
 
-const en: Record<TranslationKey, string> = {
+const en: Record<BaseTranslationKey, string> = {
   "language.label": "Language",
   "brand.name": "LeadVirt.ai",
   "meta.description": "AI administrator for inbound leads, conversations, and sales.",
@@ -365,29 +444,38 @@ const en: Record<TranslationKey, string> = {
   "landing.hero.before": "An AI administrator for",
   "landing.hero.highlight": "leads",
   "landing.hero.after": "and messages",
-  "landing.hero.description": "Answers 24/7, qualifies customers, books services, helps with orders, and sends leads to your CRM. The ideal teammate who never sleeps.",
+  "landing.hero.description":
+    "Answers 24/7, qualifies customers, books services, helps with orders, and sends leads to your CRM. The ideal teammate who never sleeps.",
   "landing.hero.demo": "View demo",
   "landing.how.title": "How it works",
-  "landing.how.description": "A fully autonomous flow from the first message to a booking in your system.",
+  "landing.how.description":
+    "A fully autonomous flow from the first message to a booking in your system.",
   "landing.how.step1.title": "Customer messages",
-  "landing.how.step1.description": "Through any convenient channel: Telegram, WhatsApp, Instagram, or your website widget.",
+  "landing.how.step1.description":
+    "Through any convenient channel: Telegram, WhatsApp, Instagram, or your website widget.",
   "landing.how.step2.title": "AI qualifies",
-  "landing.how.step2.description": "It asks the right questions, qualifies the lead, and identifies the right service.",
+  "landing.how.step2.description":
+    "It asks the right questions, qualifies the lead, and identifies the right service.",
   "landing.how.step3.title": "Booking created",
   "landing.how.step3.description": "It places an order or books a time in your calendar.",
   "landing.how.step4.title": "Ready to act",
-  "landing.how.step4.description": "Your team receives a structured request in the CRM or dashboard.",
+  "landing.how.step4.description":
+    "Your team receives a structured request in the CRM or dashboard.",
   "landing.features.title": "What the AI Administrator can do",
   "landing.features.description": "Replaces an entire inbound response team.",
   "landing.features.always.title": "Replies 24/7",
-  "landing.features.always.description": "Instant replies at night, on weekends, and during holidays. No customer leaves for a competitor because of a slow response.",
+  "landing.features.always.description":
+    "Instant replies at night, on weekends, and during holidays. No customer leaves for a competitor because of a slow response.",
   "landing.features.responseTime": "Average response time: 18 sec",
   "landing.features.qualification.title": "Lead qualification",
-  "landing.features.qualification.description": "Asks the right questions and filters out irrelevant requests.",
+  "landing.features.qualification.description":
+    "Asks the right questions and filters out irrelevant requests.",
   "landing.features.followup.title": "Automated follow-ups",
-  "landing.features.followup.description": "Sends booking reminders or offers a repeat order next month.",
+  "landing.features.followup.description":
+    "Sends booking reminders or offers a repeat order next month.",
   "landing.features.crm.title": "CRM handoff and analytics",
-  "landing.features.crm.description": "Conversation history, tags, contacts, and bookings automatically flow into your CRM (AmoCRM, Bitrix24, Yclients, and more).",
+  "landing.features.crm.description":
+    "Conversation history, tags, contacts, and bookings automatically flow into your CRM (AmoCRM, Bitrix24, Yclients, and more).",
   "landing.metrics.response.value": "18 sec",
   "landing.metrics.response.label": "Average response time",
   "landing.metrics.conversion.label": "Booking conversion",
@@ -395,7 +483,8 @@ const en: Record<TranslationKey, string> = {
   "landing.metrics.integrations.label": "Ready integrations",
   "landing.cta.title.before": "Stop losing customers",
   "landing.cta.title.after": "while your team is busy",
-  "landing.cta.description": "Connect the AI Administrator today and start converting every message into revenue.",
+  "landing.cta.description":
+    "Connect the AI Administrator today and start converting every message into revenue.",
   "landing.cta.action": "Connect AI Administrator",
   "landing.cta.note": "Free 7-day trial. No payment card required.",
   "landing.footer.rights": "© 2026 LeadVirt.ai. All rights reserved.",
@@ -448,37 +537,48 @@ const en: Record<TranslationKey, string> = {
   "pricing.feature.personalManager": "Personal manager 24/7",
   "niches.title.before": "A perfect fit for",
   "niches.title.highlight": "every business",
-  "niches.description": "AI adapts instantly to your industry, learns your services and pricing, and communicates in your tone of voice.",
+  "niches.description":
+    "AI adapts instantly to your industry, learns your services and pricing, and communicates in your tone of voice.",
   "niches.crmAdded": "Added to CRM",
   "niches.beauty.title": "Beauty",
-  "niches.beauty.description": "Automated bookings, pricing consultations, and appointment reminders.",
+  "niches.beauty.description":
+    "Automated bookings, pricing consultations, and appointment reminders.",
   "niches.beauty.user": "Hi! Do you have a haircut slot available this evening?",
-  "niches.beauty.ai": "Hello! Alex has openings at 6:00 PM and 7:30 PM. Which time should I book for you?",
+  "niches.beauty.ai":
+    "Hello! Alex has openings at 6:00 PM and 7:30 PM. Which time should I book for you?",
   "niches.beauty.task": "New booking: Haircut, 7:30 PM",
   "niches.medicine.title": "Healthcare",
-  "niches.medicine.description": "Symptom qualification, doctor bookings, and initial history collection.",
+  "niches.medicine.description":
+    "Symptom qualification, doctor bookings, and initial history collection.",
   "niches.medicine.user": "Hello. How can I book a cardiologist?",
-  "niches.medicine.ai": "Hello! Dr. Smirnov's next opening is tomorrow at 2:00 PM. Would you like the appointment price?",
+  "niches.medicine.ai":
+    "Hello! Dr. Smirnov's next opening is tomorrow at 2:00 PM. Would you like the appointment price?",
   "niches.medicine.task": "CRM lead: Cardiology appointment",
   "niches.ecom.title": "E-commerce",
   "niches.ecom.description": "Stock answers, size recommendations, and order status updates.",
   "niches.ecom.user": "Is this sweater available in black, size L?",
-  "niches.ecom.ai": "Yes, the black sweater is available in size L, with 2 left. Would you like delivery?",
+  "niches.ecom.ai":
+    "Yes, the black sweater is available in size L, with 2 left. Would you like delivery?",
   "niches.ecom.task": "New order: Sweater (L, Black)",
   "niches.education.title": "Education",
   "niches.education.description": "Course sales, webinar links, and answers to common questions.",
   "niches.education.user": "How long is the design course?",
-  "niches.education.ai": "The course lasts 3 months and runs online twice a week. Should I send you the full program?",
+  "niches.education.ai":
+    "The course lasts 3 months and runs online twice a week. Should I send you the full program?",
   "niches.education.task": "Request: Design course program",
   "niches.auto.title": "Auto service",
-  "niches.auto.description": "Maintenance bookings, preliminary estimates, and repair status updates.",
+  "niches.auto.description":
+    "Maintenance bookings, preliminary estimates, and repair status updates.",
   "niches.auto.user": "How much is an oil change for a Toyota Camry?",
-  "niches.auto.ai": "An oil change with your supplies is ₽1,500. Labor with our oil starts at ₽6,500. Shall I book you in?",
+  "niches.auto.ai":
+    "An oil change with your supplies is ₽1,500. Labor with our oil starts at ₽6,500. Shall I book you in?",
   "niches.auto.task": "Lead: Oil change (Camry)",
   "niches.services.title": "Services (B2B/B2C)",
-  "niches.services.description": "Cleaning, legal, and repair services. Photo-based estimates and detail collection.",
+  "niches.services.description":
+    "Cleaning, legal, and repair services. Photo-based estimates and detail collection.",
   "niches.services.user": "I need a deep clean for a two-bedroom apartment. How much is it?",
-  "niches.services.ai": "A deep clean for a two-bedroom apartment starts at ₽4,500 and takes about 4 hours. Which day works for you?",
+  "niches.services.ai":
+    "A deep clean for a two-bedroom apartment starts at ₽4,500 and takes about 4 hours. Which day works for you?",
   "niches.services.task": "Lead: Deep clean (2 bedroom)",
   "auth.login.title": "Log in to LeadVirt.ai",
   "auth.login.subtitle": "Get a code by email or continue with Telegram.",
@@ -520,11 +620,16 @@ const en: Record<TranslationKey, string> = {
   "auth.toast.created": "Workspace created",
   "auth.toast.welcome": "Welcome back",
   "auth.error.login": "Could not log in",
+  "auth.sessionChecking": "Checking access...",
+  "auth.sessionCheckFailed": "Access could not be checked",
+  "auth.sessionCheckFailedDetail": "LeadVirt cannot reach the server right now. Your session is preserved.",
+  "auth.sessionRetry": "Try again",
   "product.nav.dashboard": "Overview",
   "product.nav.inbox": "Inbox",
   "product.nav.pipeline": "Pipeline / CRM",
   "product.nav.automation": "Automation",
   "product.nav.analytics": "Analytics",
+  "product.nav.knowledge": "Knowledge",
   "product.nav.audit": "AI audit",
   "product.nav.integrations": "Integrations",
   "product.nav.settings": "Settings",
@@ -532,6 +637,8 @@ const en: Record<TranslationKey, string> = {
   "product.mobile.pipeline": "Pipeline",
   "product.mobile.more": "More",
   "product.menu.open": "Open menu",
+  "product.menu.close": "Close menu",
+  "product.menu.navigation": "Navigation",
   "product.demo.readOnly": "Demo read-only",
   "product.search.form": "Search leads and chats",
   "product.search.input": "Global search",
@@ -554,7 +661,7 @@ const en: Record<TranslationKey, string> = {
   "product.account.loggingOut": "Logging out...",
   "product.account.logout": "Log out",
   "product.account.logoutError": "Could not log out",
-  "product.newLead": "New lead",
+  "product.openInbox": "Open inbox",
   "product.billing.noneTitle": "No plan selected",
   "product.billing.noneDetail": "Choose a plan in billing",
   "product.billing.choose": "Choose plan",
@@ -576,7 +683,7 @@ const en: Record<TranslationKey, string> = {
   "product.title.onboarding": "Onboarding",
   "dashboard.title": "Overview",
   "dashboard.welcome": "Welcome, {name}",
-  "dashboard.action.newLead": "New lead",
+  "dashboard.action.openInbox": "Open inbox",
   "dashboard.action.scenarios": "Workflows",
   "dashboard.action.analytics": "Analytics",
   "dashboard.metric.newLeads": "New leads",
@@ -601,11 +708,13 @@ const en: Record<TranslationKey, string> = {
   "dashboard.recent.description": "Current inquiries",
   "dashboard.recent.all": "All leads",
   "dashboard.recent.empty": "No leads yet",
-  "dashboard.recent.emptyDetail": "New inquiries will appear after you connect a channel or receive a webhook.",
+  "dashboard.recent.emptyDetail":
+    "New inquiries will appear after you connect a channel or receive a webhook.",
   "dashboard.activity.title": "Activity",
   "dashboard.activity.description": "Real-time events",
   "dashboard.activity.empty": "No events yet",
-  "dashboard.activity.emptyDetail": "Product events will appear after new leads, tasks, bookings, or connections.",
+  "dashboard.activity.emptyDetail":
+    "Product events will appear after new leads, tasks, bookings, or connections.",
   "dashboard.fallback.client": "LeadVirt customer",
   "dashboard.fallback.lead": "New lead",
   "channel.website": "Website",
@@ -624,6 +733,9 @@ const en: Record<TranslationKey, string> = {
   "onboarding.back": "Back",
   "onboarding.next": "Next",
   "onboarding.launch": "Launch AI Administrator",
+  "onboarding.saveError.title": "We couldn't save your progress",
+  "onboarding.saveError.description":
+    "Check your connection and try again. Your answers are still here.",
   "onboarding.business.title": "What kind of business is this?",
   "onboarding.business.description": "Choose your business type so AI can adapt to your industry",
   "onboarding.business.services": "Services",
@@ -638,13 +750,17 @@ const en: Record<TranslationKey, string> = {
   "onboarding.scenario.title": "Choose an AI workflow",
   "onboarding.scenario.description": "How should your AI assistant work?",
   "onboarding.scenario.booking": "Service booking",
-  "onboarding.scenario.bookingDescription": "AI books customers automatically and confirms the date, time, and specialist",
+  "onboarding.scenario.bookingDescription":
+    "AI books customers automatically and confirms the date, time, and specialist",
   "onboarding.scenario.order": "Order processing",
-  "onboarding.scenario.orderDescription": "Accepts orders, confirms details, and sends them for processing",
+  "onboarding.scenario.orderDescription":
+    "Accepts orders, confirms details, and sends them for processing",
   "onboarding.scenario.consult": "Consultation and qualification",
-  "onboarding.scenario.consultDescription": "Answers questions, identifies needs, and qualifies leads",
+  "onboarding.scenario.consultDescription":
+    "Answers questions, identifies needs, and qualifies leads",
   "onboarding.scenario.support": "Customer support",
-  "onboarding.scenario.supportDescription": "Handles common requests and reduces the team's workload",
+  "onboarding.scenario.supportDescription":
+    "Handles common requests and reduces the team's workload",
   "onboarding.company.title": "Company information",
   "onboarding.company.description": "AI uses this information when talking to customers",
   "onboarding.company.name": "Company name",
@@ -652,19 +768,24 @@ const en: Record<TranslationKey, string> = {
   "onboarding.company.about": "About the company",
   "onboarding.company.aboutPlaceholder": "What your company does and what makes it different...",
   "onboarding.company.catalog": "Catalog, services, and prices",
-  "onboarding.company.catalogPlaceholder": "For example: women's haircut — ₽2,500, 60 minutes; coloring — from ₽6,000; consultation — free.",
+  "onboarding.company.catalogPlaceholder":
+    "For example: women's haircut — ₽2,500, 60 minutes; coloring — from ₽6,000; consultation — free.",
   "onboarding.company.hours": "Business hours",
   "onboarding.company.hoursPlaceholder": "Mon–Fri, 9:00 AM–6:00 PM",
   "onboarding.company.average": "Average order value",
   "onboarding.company.averagePlaceholder": "₽2,000–₽5,000",
   "onboarding.company.availability": "Availability and booking rules",
-  "onboarding.company.availabilityPlaceholder": "For example: openings Tuesday–Thursday, 12:00–5:00 PM; book at least 2 hours ahead; reschedule no later than 24 hours before.",
+  "onboarding.company.availabilityPlaceholder":
+    "For example: openings Tuesday–Thursday, 12:00–5:00 PM; book at least 2 hours ahead; reschedule no later than 24 hours before.",
   "onboarding.company.faq": "FAQ and common objections",
-  "onboarding.company.faqPlaceholder": "For example: whether children are welcome, how long results last, contraindications, and what makes you different.",
+  "onboarding.company.faqPlaceholder":
+    "For example: whether children are welcome, how long results last, contraindications, and what makes you different.",
   "onboarding.company.policies": "Rules, limitations, and restricted promises",
-  "onboarding.company.policiesPlaceholder": "For example: do not promise an exact price without a consultation; no medical guarantees; discounts require approval.",
+  "onboarding.company.policiesPlaceholder":
+    "For example: do not promise an exact price without a consultation; no medical guarantees; discounts require approval.",
   "onboarding.company.escalation": "When to involve a person",
-  "onboarding.company.escalationPlaceholder": "For example: the customer is angry, requests a refund, asks for a special discount, or needs legal or medical details.",
+  "onboarding.company.escalationPlaceholder":
+    "For example: the customer is angry, requests a refund, asks for a special discount, or needs legal or medical details.",
   "onboarding.crm.title": "Where should leads go?",
   "onboarding.crm.description": "Choose a CRM or keep everything inside LeadVirt",
   "onboarding.crm.amoDescription": "Popular sales CRM in Russia",
@@ -682,4 +803,83 @@ const en: Record<TranslationKey, string> = {
   "onboarding.ready.summary": "Setup summary",
 };
 
-export const messages = { en, es, fr, de, pt, ru } as const;
+export const messages = {
+  en: {
+    ...en,
+    ...operationalMessages.en,
+    ...operationsSuiteMessages.en,
+    ...integrationMessages.en,
+    ...resourceMessages.en,
+    ...knowledgeMessages.en,
+    ...editorKnowledgeMessages.en,
+    ...sourceKnowledgeMessages.en,
+    ...reviewKnowledgeMessages.en,
+    ...testKnowledgeMessages.en,
+    ...settingsMessages.en,
+  },
+  es: {
+    ...es,
+    ...operationalMessages.es,
+    ...operationsSuiteMessages.es,
+    ...integrationMessages.es,
+    ...resourceMessages.es,
+    ...knowledgeMessages.es,
+    ...editorKnowledgeMessages.es,
+    ...sourceKnowledgeMessages.es,
+    ...reviewKnowledgeMessages.es,
+    ...testKnowledgeMessages.es,
+    ...settingsMessages.es,
+  },
+  fr: {
+    ...fr,
+    ...operationalMessages.fr,
+    ...operationsSuiteMessages.fr,
+    ...integrationMessages.fr,
+    ...resourceMessages.fr,
+    ...knowledgeMessages.fr,
+    ...editorKnowledgeMessages.fr,
+    ...sourceKnowledgeMessages.fr,
+    ...reviewKnowledgeMessages.fr,
+    ...testKnowledgeMessages.fr,
+    ...settingsMessages.fr,
+  },
+  de: {
+    ...de,
+    ...operationalMessages.de,
+    ...operationsSuiteMessages.de,
+    ...integrationMessages.de,
+    ...resourceMessages.de,
+    ...knowledgeMessages.de,
+    ...editorKnowledgeMessages.de,
+    ...sourceKnowledgeMessages.de,
+    ...reviewKnowledgeMessages.de,
+    ...testKnowledgeMessages.de,
+    ...settingsMessages.de,
+  },
+  pt: {
+    ...pt,
+    ...operationalMessages.pt,
+    ...operationsSuiteMessages.pt,
+    ...integrationMessages.pt,
+    ...resourceMessages.pt,
+    ...knowledgeMessages.pt,
+    ...editorKnowledgeMessages.pt,
+    ...sourceKnowledgeMessages.pt,
+    ...reviewKnowledgeMessages.pt,
+    ...testKnowledgeMessages.pt,
+    ...settingsMessages.pt,
+  },
+  ru: {
+    ...ru,
+    ...operationalMessages.ru,
+    ...operationsSuiteMessages.ru,
+    ...integrationMessages.ru,
+    ...resourceMessages.ru,
+    ...knowledgeMessages.ru,
+    ...editorKnowledgeMessages.ru,
+    ...sourceKnowledgeMessages.ru,
+    ...reviewKnowledgeMessages.ru,
+    ...testKnowledgeMessages.ru,
+    ...settingsMessages.ru,
+  },
+} as const;

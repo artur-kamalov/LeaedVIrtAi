@@ -16,6 +16,7 @@ import type {
   IntegrationProvider,
   IntegrationSampleDeliveryResult,
   IntegrationTestResult,
+  LegacyApiKeyCleanupSummary,
   Lead,
   LeadEvent,
   Message,
@@ -41,7 +42,11 @@ type CurrentTenant = {
   role: "OWNER";
 };
 
-type TeamMember = { id: string; role: string; user: { id: string; email: string; name?: string | null } };
+type TeamMember = {
+  id: string;
+  role: string;
+  user: { id: string; email: string; name?: string | null };
+};
 type NotificationsSettings = {
   new_lead: boolean;
   no_reply: boolean;
@@ -70,12 +75,16 @@ type SecuritySettings = {
     expiresAt: string;
   }[];
 };
-type ApiKeySummary = { id: string; name: string; keyPrefix: string; createdAt: string; lastUsedAt?: string | null };
-type ApiKeyCreated = ApiKeySummary & { secret: string };
-
 type DemoState = {
   tenant: CurrentTenant;
-  owner: { id: string; email: string; name: string; phone: string | null; passwordChangeRequired: false };
+  owner: {
+    id: string;
+    email: string;
+    name: string;
+    phone: string | null;
+    locale: string | null;
+    passwordChangeRequired: false;
+  };
   channels: Channel[];
   leads: Lead[];
   conversations: ConversationDetail[];
@@ -84,11 +93,16 @@ type DemoState = {
   team: TeamMember[];
   security: SecuritySettings;
   notifications: NotificationsSettings;
-  apiKeys: ApiKeySummary[];
+  apiKeys: LegacyApiKeyCleanupSummary[];
   subscription: Subscription;
   paymentMethod: BillingPaymentMethod;
   paymentRequestedAt: string | null;
-  onboarding: { currentStep: string; completedSteps: string[]; data: Record<string, unknown>; completedAt?: string | null };
+  onboarding: {
+    currentStep: string;
+    completedSteps: string[];
+    data: Record<string, unknown>;
+    completedAt?: string | null;
+  };
   widgetSessions: Record<string, WidgetMessageResponse>;
 };
 
@@ -217,6 +231,8 @@ function baseChannels(): Channel[] {
         },
       },
       lastHealthAt: iso(12),
+      automaticRepliesEnabled: false,
+      automaticRepliesGeneration: 1,
     },
     {
       id: "demo-channel-telegram",
@@ -227,6 +243,8 @@ function baseChannels(): Channel[] {
       publicKey: "demo-telegram",
       settings: { botUsername: "studio_leto_bot" },
       lastHealthAt: iso(5),
+      automaticRepliesEnabled: false,
+      automaticRepliesGeneration: 1,
     },
     {
       id: "demo-channel-webhook",
@@ -240,6 +258,8 @@ function baseChannels(): Channel[] {
         secretHeader: "x-leadvirt-webhook-secret",
       },
       lastHealthAt: iso(18),
+      automaticRepliesEnabled: false,
+      automaticRepliesGeneration: 1,
     },
     {
       id: "demo-channel-instagram",
@@ -249,11 +269,15 @@ function baseChannels(): Channel[] {
       name: "Instagram Direct",
       settings: {},
       lastHealthAt: null,
+      automaticRepliesEnabled: false,
+      automaticRepliesGeneration: 1,
     },
   ];
 }
 
-function makeLead(input: Partial<Lead> & Pick<Lead, "id" | "name" | "status" | "temperature" | "channelType">): Lead {
+function makeLead(
+  input: Partial<Lead> & Pick<Lead, "id" | "name" | "status" | "temperature" | "channelType">,
+): Lead {
   return {
     tenantId,
     phone: null,
@@ -272,7 +296,10 @@ function makeLead(input: Partial<Lead> & Pick<Lead, "id" | "name" | "status" | "
   };
 }
 
-function makeMessage(input: Partial<Message> & Pick<Message, "id" | "conversationId" | "senderType" | "direction" | "text">): Message {
+function makeMessage(
+  input: Partial<Message> &
+    Pick<Message, "id" | "conversationId" | "senderType" | "direction" | "text">,
+): Message {
   return {
     tenantId,
     status: input.direction === "INBOUND" ? "RECEIVED" : "SENT",
@@ -281,7 +308,9 @@ function makeMessage(input: Partial<Message> & Pick<Message, "id" | "conversatio
   };
 }
 
-function makeEvent(input: Partial<LeadEvent> & Pick<LeadEvent, "id" | "leadId" | "type" | "title">): LeadEvent {
+function makeEvent(
+  input: Partial<LeadEvent> & Pick<LeadEvent, "id" | "leadId" | "type" | "title">,
+): LeadEvent {
   return {
     message: null,
     createdAt: iso(10),
@@ -365,34 +394,173 @@ function buildInitialState(): DemoState {
 
   const conversations: ConversationDetail[] = [
     conversationForLead(leads[0], channels[3], "Нужна запись на окрашивание", [
-      makeMessage({ id: "demo-msg-anna-1", conversationId: "demo-conv-anna", senderType: "CUSTOMER", direction: "INBOUND", text: "Здравствуйте! Хочу окрашивание и стрижку. В пятницу после 17:00 есть свободное время?", createdAt: iso(18) }),
-      makeMessage({ id: "demo-msg-anna-2", conversationId: "demo-conv-anna", senderType: "AI", direction: "OUTBOUND", text: "Здравствуйте! Есть пятница 18:00 у мастера Алины. Чтобы точнее сориентировать по цене: волосы до плеч или длиннее?", createdAt: iso(16) }),
-      makeMessage({ id: "demo-msg-anna-3", conversationId: "demo-conv-anna", senderType: "CUSTOMER", direction: "INBOUND", text: "До плеч. Хочу тёплый блонд без сильного осветления.", createdAt: iso(12) }),
-      makeMessage({ id: "demo-msg-anna-4", conversationId: "demo-conv-anna", senderType: "AI", direction: "OUTBOUND", text: "Тогда ориентир 14 000-16 000 ₽ и около 3 часов. Забронировать пятницу 18:00?", createdAt: iso(9) }),
-      makeMessage({ id: "demo-msg-anna-5", conversationId: "demo-conv-anna", senderType: "CUSTOMER", direction: "INBOUND", text: "Да, забронируйте. Телефон +7 999 123-45-67.", createdAt: iso(6) }),
+      makeMessage({
+        id: "demo-msg-anna-1",
+        conversationId: "demo-conv-anna",
+        senderType: "CUSTOMER",
+        direction: "INBOUND",
+        text: "Здравствуйте! Хочу окрашивание и стрижку. В пятницу после 17:00 есть свободное время?",
+        createdAt: iso(18),
+      }),
+      makeMessage({
+        id: "demo-msg-anna-2",
+        conversationId: "demo-conv-anna",
+        senderType: "AI",
+        direction: "OUTBOUND",
+        text: "Здравствуйте! Есть пятница 18:00 у мастера Алины. Чтобы точнее сориентировать по цене: волосы до плеч или длиннее?",
+        createdAt: iso(16),
+      }),
+      makeMessage({
+        id: "demo-msg-anna-3",
+        conversationId: "demo-conv-anna",
+        senderType: "CUSTOMER",
+        direction: "INBOUND",
+        text: "До плеч. Хочу тёплый блонд без сильного осветления.",
+        createdAt: iso(12),
+      }),
+      makeMessage({
+        id: "demo-msg-anna-4",
+        conversationId: "demo-conv-anna",
+        senderType: "AI",
+        direction: "OUTBOUND",
+        text: "Тогда ориентир 14 000-16 000 ₽ и около 3 часов. Забронировать пятницу 18:00?",
+        createdAt: iso(9),
+      }),
+      makeMessage({
+        id: "demo-msg-anna-5",
+        conversationId: "demo-conv-anna",
+        senderType: "CUSTOMER",
+        direction: "INBOUND",
+        text: "Да, забронируйте. Телефон +7 999 123-45-67.",
+        createdAt: iso(6),
+      }),
     ]),
     conversationForLead(leads[1], channels[0], "Мужская стрижка", [
-      makeMessage({ id: "demo-msg-dmitry-1", conversationId: "demo-conv-dmitry", senderType: "CUSTOMER", direction: "INBOUND", text: "Добрый день. Нужна мужская стрижка сегодня после работы. Сколько стоит?", createdAt: iso(28) }),
-      makeMessage({ id: "demo-msg-dmitry-2", conversationId: "demo-conv-dmitry", senderType: "AI", direction: "OUTBOUND", text: "Стрижка стоит 2 800 ₽ и занимает около 45 минут. Сегодня свободно 19:30 у Никиты.", createdAt: iso(25) }),
-      makeMessage({ id: "demo-msg-dmitry-3", conversationId: "demo-conv-dmitry", senderType: "CUSTOMER", direction: "INBOUND", text: "19:30 подходит, запишите на Дмитрия.", createdAt: iso(22) }),
-      makeMessage({ id: "demo-msg-dmitry-4", conversationId: "demo-conv-dmitry", senderType: "AI", direction: "OUTBOUND", text: "Записала Дмитрия на сегодня 19:30. Напомню за 2 часа до визита.", createdAt: iso(20) }),
+      makeMessage({
+        id: "demo-msg-dmitry-1",
+        conversationId: "demo-conv-dmitry",
+        senderType: "CUSTOMER",
+        direction: "INBOUND",
+        text: "Добрый день. Нужна мужская стрижка сегодня после работы. Сколько стоит?",
+        createdAt: iso(28),
+      }),
+      makeMessage({
+        id: "demo-msg-dmitry-2",
+        conversationId: "demo-conv-dmitry",
+        senderType: "AI",
+        direction: "OUTBOUND",
+        text: "Стрижка стоит 2 800 ₽ и занимает около 45 минут. Сегодня свободно 19:30 у Никиты.",
+        createdAt: iso(25),
+      }),
+      makeMessage({
+        id: "demo-msg-dmitry-3",
+        conversationId: "demo-conv-dmitry",
+        senderType: "CUSTOMER",
+        direction: "INBOUND",
+        text: "19:30 подходит, запишите на Дмитрия.",
+        createdAt: iso(22),
+      }),
+      makeMessage({
+        id: "demo-msg-dmitry-4",
+        conversationId: "demo-conv-dmitry",
+        senderType: "AI",
+        direction: "OUTBOUND",
+        text: "Записала Дмитрия на сегодня 19:30. Напомню за 2 часа до визита.",
+        createdAt: iso(20),
+      }),
     ]),
     conversationForLead(leads[2], channels[1], "Укладка перед мероприятием", [
-      makeMessage({ id: "demo-msg-elena-1", conversationId: "demo-conv-elena", senderType: "CUSTOMER", direction: "INBOUND", text: "Здравствуйте, нужна укладка завтра к вечеру. Мероприятие начинается в 18:00.", createdAt: iso(50) }),
-      makeMessage({ id: "demo-msg-elena-2", conversationId: "demo-conv-elena", senderType: "AI", direction: "OUTBOUND", text: "Есть окна завтра в 12:30 и 14:00. Для укладки до плеч стоимость от 4 200 ₽. Какая у вас длина волос?", createdAt: iso(46) }),
-      makeMessage({ id: "demo-msg-elena-3", conversationId: "demo-conv-elena", senderType: "CUSTOMER", direction: "INBOUND", text: "Ниже плеч, лучше 14:00.", createdAt: iso(34) }),
-      makeMessage({ id: "demo-msg-elena-4", conversationId: "demo-conv-elena", senderType: "AI", direction: "OUTBOUND", text: "Забронировала завтра 14:00. Ориентир по стоимости 4 800-5 500 ₽, мастер уточнит после оценки длины.", createdAt: iso(32) }),
+      makeMessage({
+        id: "demo-msg-elena-1",
+        conversationId: "demo-conv-elena",
+        senderType: "CUSTOMER",
+        direction: "INBOUND",
+        text: "Здравствуйте, нужна укладка завтра к вечеру. Мероприятие начинается в 18:00.",
+        createdAt: iso(50),
+      }),
+      makeMessage({
+        id: "demo-msg-elena-2",
+        conversationId: "demo-conv-elena",
+        senderType: "AI",
+        direction: "OUTBOUND",
+        text: "Есть окна завтра в 12:30 и 14:00. Для укладки до плеч стоимость от 4 200 ₽. Какая у вас длина волос?",
+        createdAt: iso(46),
+      }),
+      makeMessage({
+        id: "demo-msg-elena-3",
+        conversationId: "demo-conv-elena",
+        senderType: "CUSTOMER",
+        direction: "INBOUND",
+        text: "Ниже плеч, лучше 14:00.",
+        createdAt: iso(34),
+      }),
+      makeMessage({
+        id: "demo-msg-elena-4",
+        conversationId: "demo-conv-elena",
+        senderType: "AI",
+        direction: "OUTBOUND",
+        text: "Забронировала завтра 14:00. Ориентир по стоимости 4 800-5 500 ₽, мастер уточнит после оценки длины.",
+        createdAt: iso(32),
+      }),
     ]),
     conversationForLead(leads[3], channels[2], "Подарочный сертификат", [
-      makeMessage({ id: "demo-msg-igor-1", conversationId: "demo-conv-igor", senderType: "CUSTOMER", direction: "INBOUND", text: "Хочу подарочный сертификат на 28 000 ₽. Можно оплатить онлайн?", createdAt: iso(72) }),
-      makeMessage({ id: "demo-msg-igor-2", conversationId: "demo-conv-igor", senderType: "AI", direction: "OUTBOUND", text: "Да, оформим электронный сертификат. Подскажите имя получателя и куда отправить сертификат: WhatsApp или email?", createdAt: iso(66) }),
-      makeMessage({ id: "demo-msg-igor-3", conversationId: "demo-conv-igor", senderType: "CUSTOMER", direction: "INBOUND", text: "Получатель Ольга, отправьте в WhatsApp.", createdAt: iso(62) }),
-      makeMessage({ id: "demo-msg-igor-4", conversationId: "demo-conv-igor", senderType: "AI", direction: "OUTBOUND", text: "Передала менеджеру заявку: сертификат 28 000 ₽, получатель Ольга, отправка в WhatsApp. Сейчас пришлём ссылку на оплату.", createdAt: iso(60) }),
+      makeMessage({
+        id: "demo-msg-igor-1",
+        conversationId: "demo-conv-igor",
+        senderType: "CUSTOMER",
+        direction: "INBOUND",
+        text: "Хочу подарочный сертификат на 28 000 ₽. Можно оплатить онлайн?",
+        createdAt: iso(72),
+      }),
+      makeMessage({
+        id: "demo-msg-igor-2",
+        conversationId: "demo-conv-igor",
+        senderType: "AI",
+        direction: "OUTBOUND",
+        text: "Да, оформим электронный сертификат. Подскажите имя получателя и куда отправить сертификат: WhatsApp или email?",
+        createdAt: iso(66),
+      }),
+      makeMessage({
+        id: "demo-msg-igor-3",
+        conversationId: "demo-conv-igor",
+        senderType: "CUSTOMER",
+        direction: "INBOUND",
+        text: "Получатель Ольга, отправьте в WhatsApp.",
+        createdAt: iso(62),
+      }),
+      makeMessage({
+        id: "demo-msg-igor-4",
+        conversationId: "demo-conv-igor",
+        senderType: "AI",
+        direction: "OUTBOUND",
+        text: "Передала менеджеру заявку: сертификат 28 000 ₽, получатель Ольга, отправка в WhatsApp. Сейчас пришлём ссылку на оплату.",
+        createdAt: iso(60),
+      }),
     ]),
-    conversationForLead(leads[4], null, "Консультация по уходу", [
-      makeMessage({ id: "demo-msg-maria-1", conversationId: "demo-conv-maria", senderType: "CUSTOMER", direction: "INBOUND", text: "После осветления волосы стали сухими и путаются. Какой уход лучше выбрать?", createdAt: iso(4) }),
-      makeMessage({ id: "demo-msg-maria-2", conversationId: "demo-conv-maria", senderType: "AI", direction: "OUTBOUND", text: "Для начала подойдёт восстановление K18 или Olaplex. Чтобы выбрать точнее: ломкость по длине или больше сухие кончики?", createdAt: iso(2) }),
-    ], 2),
+    conversationForLead(
+      leads[4],
+      null,
+      "Консультация по уходу",
+      [
+        makeMessage({
+          id: "demo-msg-maria-1",
+          conversationId: "demo-conv-maria",
+          senderType: "CUSTOMER",
+          direction: "INBOUND",
+          text: "После осветления волосы стали сухими и путаются. Какой уход лучше выбрать?",
+          createdAt: iso(4),
+        }),
+        makeMessage({
+          id: "demo-msg-maria-2",
+          conversationId: "demo-conv-maria",
+          senderType: "AI",
+          direction: "OUTBOUND",
+          text: "Для начала подойдёт восстановление K18 или Olaplex. Чтобы выбрать точнее: ломкость по длине или больше сухие кончики?",
+          createdAt: iso(2),
+        }),
+      ],
+      2,
+    ),
   ];
 
   return {
@@ -410,6 +578,7 @@ function buildInitialState(): DemoState {
       email: "owner@studio-leto.ru",
       name: "Мария",
       phone: "+7 999 123-45-67",
+      locale: null,
       passwordChangeRequired: false,
     },
     channels,
@@ -418,16 +587,33 @@ function buildInitialState(): DemoState {
     workflows: baseWorkflows(),
     integrations: baseIntegrations(),
     team: [
-      { id: "demo-member-owner", role: "OWNER", user: { id: ownerId, email: "owner@studio-leto.ru", name: "Мария" } },
-      { id: "demo-member-manager", role: "MANAGER", user: { id: "demo-manager", email: "manager@studio-leto.ru", name: "Алина" } },
-      { id: "demo-member-agent", role: "AGENT", user: { id: "demo-agent", email: "operator@studio-leto.ru", name: "Никита" } },
+      {
+        id: "demo-member-owner",
+        role: "OWNER",
+        user: { id: ownerId, email: "owner@studio-leto.ru", name: "Мария" },
+      },
+      {
+        id: "demo-member-manager",
+        role: "MANAGER",
+        user: { id: "demo-manager", email: "manager@studio-leto.ru", name: "Алина" },
+      },
+      {
+        id: "demo-member-agent",
+        role: "AGENT",
+        user: { id: "demo-agent", email: "operator@studio-leto.ru", name: "Никита" },
+      },
     ],
     security: {
       authMode: "telegram",
       tenantScoped: true,
       currentRole: "OWNER",
       passwordChangeRequired: false,
-      twoFactor: { enabled: true, setupPending: false, confirmedAt: iso(7200), recoveryCodesRemaining: 8 },
+      twoFactor: {
+        enabled: true,
+        setupPending: false,
+        confirmedAt: iso(7200),
+        recoveryCodesRemaining: 8,
+      },
       sessions: [
         {
           id: "demo-session-current",
@@ -440,9 +626,22 @@ function buildInitialState(): DemoState {
         },
       ],
     },
-    notifications: { new_lead: true, no_reply: true, booking: true, daily: true, tg_summary: false },
+    notifications: {
+      new_lead: true,
+      no_reply: true,
+      booking: true,
+      daily: true,
+      tg_summary: false,
+    },
     apiKeys: [
-      { id: "demo-api-key-1", name: "Website bridge", keyPrefix: "lvpk_demo_8f3a", createdAt: iso(5000), lastUsedAt: iso(42) },
+      {
+        id: "demo-api-key-1",
+        name: "Website bridge",
+        keyPrefix: "lvpk_demo_8f3a",
+        createdAt: iso(5000),
+        status: "INERT",
+        cleanupOnly: true,
+      },
     ],
     subscription: {
       id: "demo-subscription",
@@ -486,7 +685,13 @@ function buildInitialState(): DemoState {
   };
 }
 
-function conversationForLead(lead: Lead, channel: Channel | null, subject: string, messages: Message[], unreadCount = 0): ConversationDetail {
+function conversationForLead(
+  lead: Lead,
+  channel: Channel | null,
+  subject: string,
+  messages: Message[],
+  unreadCount = 0,
+): ConversationDetail {
   const conversationId = messages[0]?.conversationId ?? `demo-conv-${lead.id}`;
   return {
     id: conversationId,
@@ -504,8 +709,20 @@ function conversationForLead(lead: Lead, channel: Channel | null, subject: strin
     unreadCount,
     messages,
     events: [
-      makeEvent({ id: `${lead.id}-event-created`, leadId: lead.id, type: "lead.created", title: "Лид создан", createdAt: lead.createdAt }),
-      makeEvent({ id: `${lead.id}-event-ai`, leadId: lead.id, type: "ai.reply", title: "AI подготовил ответ", createdAt: lead.lastMessageAt ?? iso(20) }),
+      makeEvent({
+        id: `${lead.id}-event-created`,
+        leadId: lead.id,
+        type: "lead.created",
+        title: "Лид создан",
+        createdAt: lead.createdAt,
+      }),
+      makeEvent({
+        id: `${lead.id}-event-ai`,
+        leadId: lead.id,
+        type: "ai.reply",
+        title: "AI подготовил ответ",
+        createdAt: lead.lastMessageAt ?? iso(20),
+      }),
     ],
   };
 }
@@ -517,13 +734,37 @@ function baseWorkflows(): Workflow[] {
       tenantId,
       name: "Квалификация и запись",
       description: "AI собирает услугу, время и контакт, затем предлагает запись.",
-      status: "ACTIVE",
+      status: "PAUSED",
       version: 3,
-      publishedAt: iso(1440),
+      publishedAt: null,
       steps: [
-        { id: "demo-step-trigger", workflowId: "demo-workflow-booking", type: "TRIGGER", name: "Новый входящий лид", positionX: 80, positionY: 160, config: { channels: { website: true, telegram: true, instagram: true } } },
-        { id: "demo-step-ai", workflowId: "demo-workflow-booking", type: "AI_MESSAGE", name: "AI уточняет запрос", positionX: 320, positionY: 160, config: { tone: "friendly", fallback: "handoff" } },
-        { id: "demo-step-action", workflowId: "demo-workflow-booking", type: "ACTION", name: "Создать задачу менеджеру", positionX: 560, positionY: 160, config: { action: "task" } },
+        {
+          id: "demo-step-trigger",
+          workflowId: "demo-workflow-booking",
+          type: "TRIGGER",
+          name: "Новый входящий лид",
+          positionX: 80,
+          positionY: 160,
+          config: { channels: { website: true, telegram: true, instagram: true } },
+        },
+        {
+          id: "demo-step-ai",
+          workflowId: "demo-workflow-booking",
+          type: "AI_MESSAGE",
+          name: "AI уточняет запрос",
+          positionX: 320,
+          positionY: 160,
+          config: { tone: "friendly", fallback: "handoff" },
+        },
+        {
+          id: "demo-step-action",
+          workflowId: "demo-workflow-booking",
+          type: "ACTION",
+          name: "Создать задачу менеджеру",
+          positionX: 560,
+          positionY: 160,
+          config: { action: "task" },
+        },
       ],
     },
     {
@@ -535,14 +776,36 @@ function baseWorkflows(): Workflow[] {
       version: 1,
       publishedAt: null,
       steps: [
-        { id: "demo-step-crm-trigger", workflowId: "demo-workflow-crm", type: "TRIGGER", name: "Лид квалифицирован", positionX: 80, positionY: 160, config: {} },
-        { id: "demo-step-crm", workflowId: "demo-workflow-crm", type: "ACTION", name: "Отправить в amoCRM", positionX: 320, positionY: 160, config: { provider: "AMOCRM" } },
+        {
+          id: "demo-step-crm-trigger",
+          workflowId: "demo-workflow-crm",
+          type: "TRIGGER",
+          name: "Лид квалифицирован",
+          positionX: 80,
+          positionY: 160,
+          config: {},
+        },
+        {
+          id: "demo-step-crm",
+          workflowId: "demo-workflow-crm",
+          type: "ACTION",
+          name: "Отправить в amoCRM",
+          positionX: 320,
+          positionY: 160,
+          config: { provider: "AMOCRM" },
+        },
       ],
     },
   ];
 }
 
-function integration(provider: IntegrationProvider, name: string, status: IntegrationAccount["status"], category: string, settings: Record<string, unknown> = {}): IntegrationAccount {
+function integration(
+  provider: IntegrationProvider,
+  name: string,
+  status: IntegrationAccount["status"],
+  category: string,
+  settings: Record<string, unknown> = {},
+): IntegrationAccount {
   return {
     id: `demo-integration-${provider.toLowerCase()}`,
     tenantId,
@@ -553,15 +816,46 @@ function integration(provider: IntegrationProvider, name: string, status: Integr
     settings,
     connectedAt: status === "CONNECTED" ? iso(2200) : null,
     lastSyncAt: status === "CONNECTED" ? iso(21) : null,
-    inboundEndpoint: provider === "WEBHOOK_API" ? {
-      channelType: "WEBHOOK",
-      publicKey: "lvwh_demo_preview",
-      endpointPath: "/api/public/channels/webhook/lvwh_demo_preview/events",
-      secretHeader: "x-leadvirt-webhook-secret",
-      samplePayload: { event: "lead.created", name: "Новый клиент", phone: "+79990000000", message: "Нужна консультация" },
-    } : null,
-    recentSyncLogs: status === "CONNECTED" ? [{ id: `${provider}-sync`, action: "sync.completed", status: "SUCCESS", message: "Синхронизация завершена", createdAt: iso(21) }] : [],
-    recentWebhookEvents: provider === "WEBHOOK_API" ? [{ id: "demo-webhook-event", provider, externalEventId: "evt_preview_001", status: "PROCESSED", receivedAt: iso(35), processedAt: iso(34) }] : [],
+    inboundEndpoint:
+      provider === "WEBHOOK_API"
+        ? {
+            channelType: "WEBHOOK",
+            publicKey: "lvwh_demo_preview",
+            endpointPath: "/api/public/channels/webhook/lvwh_demo_preview/events",
+            secretHeader: "x-leadvirt-webhook-secret",
+            samplePayload: {
+              event: "lead.created",
+              name: "Новый клиент",
+              phone: "+79990000000",
+              message: "Нужна консультация",
+            },
+          }
+        : null,
+    recentSyncLogs:
+      status === "CONNECTED"
+        ? [
+            {
+              id: `${provider}-sync`,
+              action: "sync.completed",
+              status: "SUCCESS",
+              message: "Синхронизация завершена",
+              createdAt: iso(21),
+            },
+          ]
+        : [],
+    recentWebhookEvents:
+      provider === "WEBHOOK_API"
+        ? [
+            {
+              id: "demo-webhook-event",
+              provider,
+              externalEventId: "evt_preview_001",
+              status: "PROCESSED",
+              receivedAt: iso(35),
+              processedAt: iso(34),
+            },
+          ]
+        : [],
   };
 }
 
@@ -595,7 +889,9 @@ export function shouldUseDemoApi() {
 }
 
 function apiPath(path: string) {
-  const url = path.startsWith("http") ? new URL(path) : new URL(path.startsWith("/") ? path : `/${path}`, "http://demo.local");
+  const url = path.startsWith("http")
+    ? new URL(path)
+    : new URL(path.startsWith("/") ? path : `/${path}`, "http://demo.local");
   let pathname = url.pathname.replace(/\/+$/u, "") || "/";
   if (pathname.startsWith("/api/")) pathname = pathname.slice(4);
   return { pathname, searchParams: url.searchParams };
@@ -622,7 +918,9 @@ function conversationById(s: DemoState, conversationId: string) {
 function syncLead(s: DemoState, updated: Lead) {
   s.leads = s.leads.map((lead) => (lead.id === updated.id ? updated : lead));
   s.conversations = s.conversations.map((conversation) =>
-    conversation.leadId === updated.id ? { ...conversation, lead: updated, channelType: updated.channelType } : conversation
+    conversation.leadId === updated.id
+      ? { ...conversation, lead: updated, channelType: updated.channelType }
+      : conversation,
   );
 }
 
@@ -630,14 +928,23 @@ function appendEvent(s: DemoState, leadId: string, type: string, title: string) 
   const conversation = s.conversations.find((item) => item.leadId === leadId);
   if (!conversation) return;
   conversation.events = [
-    { id: id("demo-event"), leadId, type, title, message: null, createdAt: new Date().toISOString() },
+    {
+      id: id("demo-event"),
+      leadId,
+      type,
+      title,
+      message: null,
+      createdAt: new Date().toISOString(),
+    },
     ...conversation.events,
   ];
 }
 
 function dashboardSummary(s: DemoState): DashboardSummary {
   const activeLeads = s.leads.filter((lead) => lead.status !== "LOST");
-  const bookings = activeLeads.filter((lead) => lead.status === "BOOKED" || lead.status === "ORDERED").length;
+  const bookings = activeLeads.filter(
+    (lead) => lead.status === "BOOKED" || lead.status === "ORDERED",
+  ).length;
   const crm = activeLeads.filter((lead) => lead.status === "SENT_TO_CRM").length;
   return {
     metrics: {
@@ -672,16 +979,64 @@ function dashboardSummary(s: DemoState): DashboardSummary {
       lastMessageAt: lead.lastMessageAt,
     })),
     recentActivity: [
-      { id: "demo-activity-1", action: "ai.reply", title: "AI квалифицировал 4 обращения за последний час", createdAt: iso(4) },
-      { id: "demo-activity-2", action: "booking.created", title: "Создана запись: укладка, завтра 16:00", createdAt: iso(32) },
-      { id: "demo-activity-3", action: "crm.sent", title: "Лид Игорь Лебедев отправлен в CRM", createdAt: iso(60) },
-      { id: "demo-activity-4", action: "lead.created", title: "Новый вопрос по уходу после осветления", createdAt: iso(4) },
+      {
+        id: "demo-activity-1",
+        action: "ai.reply",
+        title: "AI квалифицировал 4 обращения за последний час",
+        createdAt: iso(4),
+      },
+      {
+        id: "demo-activity-2",
+        action: "booking.created",
+        title: "Создана запись: укладка, завтра 16:00",
+        createdAt: iso(32),
+      },
+      {
+        id: "demo-activity-3",
+        action: "crm.sent",
+        title: "Лид Игорь Лебедев отправлен в CRM",
+        createdAt: iso(60),
+      },
+      {
+        id: "demo-activity-4",
+        action: "lead.created",
+        title: "Новый вопрос по уходу после осветления",
+        createdAt: iso(4),
+      },
     ],
     channelPerformance: [
-      { channelType: "INSTAGRAM", name: "Instagram", leads: 412, conversations: 390, conversionRate: 31, valueAmount: 820000 },
-      { channelType: "WEBSITE", name: "Website widget", leads: 388, conversations: 365, conversionRate: 38, valueAmount: 940000 },
-      { channelType: "TELEGRAM", name: "Telegram", leads: 256, conversations: 244, conversionRate: 34, valueAmount: 610000 },
-      { channelType: "WEBHOOK", name: "Webhook / API", leads: 198, conversations: 170, conversionRate: 27, valueAmount: 520000 },
+      {
+        channelType: "INSTAGRAM",
+        name: "Instagram",
+        leads: 412,
+        conversations: 390,
+        conversionRate: 31,
+        valueAmount: 820000,
+      },
+      {
+        channelType: "WEBSITE",
+        name: "Website widget",
+        leads: 388,
+        conversations: 365,
+        conversionRate: 38,
+        valueAmount: 940000,
+      },
+      {
+        channelType: "TELEGRAM",
+        name: "Telegram",
+        leads: 256,
+        conversations: 244,
+        conversionRate: 34,
+        valueAmount: 610000,
+      },
+      {
+        channelType: "WEBHOOK",
+        name: "Webhook / API",
+        leads: 198,
+        conversations: 170,
+        conversionRate: 27,
+        valueAmount: 520000,
+      },
     ],
     trend: [
       { name: "Пн", leads: 32, booked: 9 },
@@ -734,7 +1089,14 @@ function analyticsOverview(): AnalyticsOverview {
 }
 
 function pipelineSummary(s: DemoState) {
-  const statuses: Lead["status"][] = ["NEW", "IN_PROGRESS", "QUALIFIED", "BOOKED", "SENT_TO_CRM", "CLOSED"];
+  const statuses: Lead["status"][] = [
+    "NEW",
+    "IN_PROGRESS",
+    "QUALIFIED",
+    "BOOKED",
+    "SENT_TO_CRM",
+    "CLOSED",
+  ];
   return {
     stages: statuses.map((status) => {
       const leads = s.leads.filter((lead) => lead.status === status);
@@ -854,12 +1216,19 @@ function widgetConfig(s: DemoState): WidgetConfig {
     businessName: stringValue(widget.businessName, "Студия Лето"),
     title: stringValue(widget.title, "Студия Лето"),
     subtitle: stringValue(widget.subtitle, "AI-администратор на связи"),
-    welcomeMessage: stringValue(widget.welcomeMessage, "Здравствуйте! Подскажу цены и помогу записаться."),
+    welcomeMessage: stringValue(
+      widget.welcomeMessage,
+      "Здравствуйте! Подскажу цены и помогу записаться.",
+    ),
     primaryColor: stringValue(widget.primaryColor, "#34d399"),
     accentColor: stringValue(widget.accentColor, "#10b981"),
     position,
     locale: "ru",
-    suggestedReplies: stringArrayValue(widget.suggestedReplies, ["Хочу записаться", "Сколько стоит?", "Позовите менеджера"]),
+    suggestedReplies: stringArrayValue(widget.suggestedReplies, [
+      "Хочу записаться",
+      "Сколько стоит?",
+      "Позовите менеджера",
+    ]),
     consentText: typeof widget.consentText === "string" ? widget.consentText : undefined,
     poweredBy: stringValue(widget.poweredBy, "LeadVirt.ai"),
   };
@@ -879,27 +1248,83 @@ function ensureIntegration(s: DemoState, provider: IntegrationProvider) {
 }
 
 function workflowPatch(workflow: Workflow, body: Record<string, unknown>): Workflow {
-  const stepTypes: WorkflowStepType[] = ["TRIGGER", "AI_MESSAGE", "QUESTION", "CONDITION", "ACTION", "DELAY", "HANDOFF", "END"];
-  return {
+  const stepTypes: WorkflowStepType[] = [
+    "TRIGGER",
+    "AI_MESSAGE",
+    "QUESTION",
+    "CONDITION",
+    "ACTION",
+    "DELAY",
+    "HANDOFF",
+    "END",
+  ];
+  const next: Workflow = {
     ...workflow,
     name: typeof body.name === "string" ? body.name : workflow.name,
     description: typeof body.description === "string" ? body.description : workflow.description,
-    status: typeof body.status === "string" ? body.status as WorkflowStatus : workflow.status,
+    status: typeof body.status === "string" ? (body.status as WorkflowStatus) : workflow.status,
     version: workflow.version + 1,
-    steps: Array.isArray(body.steps) ? body.steps.map((rawStep, index) => {
-      const step = isRecord(rawStep) ? rawStep : {};
-      const type = stepTypes.includes(step.type as WorkflowStepType) ? step.type as WorkflowStepType : "AI_MESSAGE";
-      return {
-        id: typeof step.id === "string" ? step.id : id("demo-step"),
-        workflowId: workflow.id,
-        type,
-        name: typeof step.name === "string" ? step.name : `Шаг ${index + 1}`,
-        positionX: typeof step.positionX === "number" ? step.positionX : 80 + index * 220,
-        positionY: typeof step.positionY === "number" ? step.positionY : 160,
-        config: isRecord(step.config) ? step.config : {},
-      };
-    }) : workflow.steps,
+    steps: Array.isArray(body.steps)
+      ? body.steps.map((rawStep, index) => {
+          const step = isRecord(rawStep) ? rawStep : {};
+          const type = stepTypes.includes(step.type as WorkflowStepType)
+            ? (step.type as WorkflowStepType)
+            : "AI_MESSAGE";
+          return {
+            id: typeof step.id === "string" ? step.id : id("demo-step"),
+            workflowId: workflow.id,
+            type,
+            name: typeof step.name === "string" ? step.name : `Шаг ${index + 1}`,
+            positionX: typeof step.positionX === "number" ? step.positionX : 80 + index * 220,
+            positionY: typeof step.positionY === "number" ? step.positionY : 160,
+            config: isRecord(step.config) ? step.config : {},
+          };
+        })
+      : workflow.steps,
   };
+  const steps = next.steps ?? [];
+  const unsupported = steps.filter(
+    (step) => !["TRIGGER", "CONDITION", "HANDOFF", "END"].includes(step.type),
+  );
+  const enabledTriggers = steps.filter((step) => {
+    if (step.type !== "TRIGGER") return false;
+    return !isRecord(step.config) || step.config.enabled !== false;
+  });
+  next.execution = {
+    executable: unsupported.length === 0 && enabledTriggers.length === 1,
+    issues: [
+      ...unsupported.map((step) => ({
+        code: "UNSUPPORTED_STEP" as const,
+        stepId: step.id,
+        stepName: step.name,
+        stepType: step.type,
+        message: `Workflow step ${step.name} is not executable.`,
+      })),
+      ...(enabledTriggers.length === 0
+        ? [
+            {
+              code: "MISSING_TRIGGER" as const,
+              stepId: null,
+              stepName: null,
+              stepType: null,
+              message: "An executable workflow requires one enabled trigger.",
+            },
+          ]
+        : []),
+      ...(enabledTriggers.length > 1
+        ? [
+            {
+              code: "MULTIPLE_TRIGGERS" as const,
+              stepId: null,
+              stepName: null,
+              stepType: "TRIGGER" as const,
+              message: "An executable workflow cannot contain multiple enabled triggers.",
+            },
+          ]
+        : []),
+    ],
+  };
+  return next;
 }
 
 export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
@@ -908,11 +1333,20 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
   const method = (init.method ?? "GET").toUpperCase();
   const body = jsonBody(init);
 
-  if (method === "GET" && pathname === "/auth/me") return envelope({ ...s.owner, authMode: "telegram", role: "OWNER", tenant: s.tenant, expiresAt: future(14) }) as T;
+  if (method === "GET" && pathname === "/auth/me")
+    return envelope({
+      ...s.owner,
+      authMode: "telegram",
+      role: "OWNER",
+      tenant: s.tenant,
+      expiresAt: future(14),
+    }) as T;
   if (method === "GET" && pathname === "/current-tenant") return envelope(clone(s.tenant)) as T;
   if (method === "GET" && pathname === "/tenants") return envelope([clone(s.tenant)]) as T;
-  if (method === "GET" && pathname === "/dashboard/summary") return envelope(dashboardSummary(s)) as T;
-  if (method === "GET" && pathname === "/analytics/overview") return envelope(analyticsOverview()) as T;
+  if (method === "GET" && pathname === "/dashboard/summary")
+    return envelope(dashboardSummary(s)) as T;
+  if (method === "GET" && pathname === "/analytics/overview")
+    return envelope(analyticsOverview()) as T;
   if (method === "GET" && pathname === "/ai-audit") return envelope(auditResponse()) as T;
 
   if (method === "GET" && pathname === "/inbox/conversations") {
@@ -920,12 +1354,23 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
     const limit = Number(searchParams.get("limit") ?? 50);
     const search = (searchParams.get("search") ?? "").toLowerCase();
     const items = s.conversations
-      .filter((conversation) => !search || `${conversation.subject ?? ""} ${conversation.lead?.name ?? ""} ${conversation.lastMessage ?? ""}`.toLowerCase().includes(search))
-      .sort((a, b) => new Date(b.lastMessageAt ?? "").getTime() - new Date(a.lastMessageAt ?? "").getTime());
+      .filter(
+        (conversation) =>
+          !search ||
+          `${conversation.subject ?? ""} ${conversation.lead?.name ?? ""} ${conversation.lastMessage ?? ""}`
+            .toLowerCase()
+            .includes(search),
+      )
+      .sort(
+        (a, b) =>
+          new Date(b.lastMessageAt ?? "").getTime() - new Date(a.lastMessageAt ?? "").getTime(),
+      );
     return paginated(items, page, limit) as T;
   }
 
-  const conversationMatch = pathname.match(/^\/conversations\/([^/]+)(?:\/([^/]+)(?:\/([^/]+))?)?$/u);
+  const conversationMatch = pathname.match(
+    /^\/conversations\/([^/]+)(?:\/([^/]+)(?:\/([^/]+))?)?$/u,
+  );
   if (conversationMatch) {
     const conversationId = decodeURIComponent(conversationMatch[1]);
     const action = conversationMatch[2];
@@ -936,7 +1381,14 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
     if (method === "GET" && !action) return envelope(clone(conversation)) as T;
     if (method === "POST" && action === "messages") {
       const text = typeof body.text === "string" ? body.text : "";
-      const message = makeMessage({ id: id("demo-msg"), conversationId, senderType: "USER", direction: "OUTBOUND", text, createdAt: new Date().toISOString() });
+      const message = makeMessage({
+        id: id("demo-msg"),
+        conversationId,
+        senderType: "USER",
+        direction: "OUTBOUND",
+        text,
+        createdAt: new Date().toISOString(),
+      });
       conversation.messages.push(message);
       conversation.lastMessage = text;
       conversation.lastMessageAt = message.createdAt;
@@ -950,7 +1402,8 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
     }
     if (method === "POST" && action === "ai" && subAction === "reply") {
       const reply: AiDraftReply = {
-        reply: "Спасибо! Могу предложить ближайшие окна: сегодня 17:00 или завтра 12:30. Подскажите, какое время удобнее?",
+        reply:
+          "Спасибо! Могу предложить ближайшие окна: сегодня 17:00 или завтра 12:30. Подскажите, какое время удобнее?",
         intent: "booking",
         leadFields: { interest: conversation.lead?.interest ?? "Запись", temperature: "HOT" },
         nextAction: { type: "send_message", reason: "Клиент готов выбрать время" },
@@ -972,7 +1425,8 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
     }
   }
 
-  if (method === "GET" && pathname === "/leads/pipeline/summary") return envelope(pipelineSummary(s)) as T;
+  if (method === "GET" && pathname === "/leads/pipeline/summary")
+    return envelope(pipelineSummary(s)) as T;
   if (method === "GET" && pathname === "/leads") {
     const page = Number(searchParams.get("page") ?? 1);
     const limit = Number(searchParams.get("limit") ?? 50);
@@ -994,19 +1448,37 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
       return envelope(clone(updated)) as T;
     }
     if (method === "POST" && action === "send-to-crm") {
-      const updated = { ...lead, status: "SENT_TO_CRM" as const, lastMessageAt: new Date().toISOString() };
+      const updated = {
+        ...lead,
+        status: "SENT_TO_CRM" as const,
+        lastMessageAt: new Date().toISOString(),
+      };
       syncLead(s, updated);
       appendEvent(s, updated.id, "crm.sent", "Лид отправлен в CRM");
       return envelope(clone(updated)) as T;
     }
     if (method === "POST" && action === "create-task") {
-      appendEvent(s, lead.id, "task.created", typeof body.title === "string" ? body.title : "Задача создана");
+      appendEvent(
+        s,
+        lead.id,
+        "task.created",
+        typeof body.title === "string" ? body.title : "Задача создана",
+      );
       return envelope({ id: id("demo-task"), created: true }) as T;
     }
     if (method === "POST" && action === "book-appointment") {
-      const updated = { ...lead, status: "BOOKED" as const, lastMessageAt: new Date().toISOString() };
+      const updated = {
+        ...lead,
+        status: "BOOKED" as const,
+        lastMessageAt: new Date().toISOString(),
+      };
       syncLead(s, updated);
-      appendEvent(s, lead.id, "booking.created", typeof body.title === "string" ? body.title : "Запись создана");
+      appendEvent(
+        s,
+        lead.id,
+        "booking.created",
+        typeof body.title === "string" ? body.title : "Запись создана",
+      );
       return envelope({ id: id("demo-booking"), created: true }) as T;
     }
   }
@@ -1028,7 +1500,15 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
       return envelope(clone(account)) as T;
     }
     if (method === "POST" && action === "test") {
-      const result: IntegrationTestResult = { ok: true, provider, integrationId: account.id, status: "SUCCESS", message: "Demo connection OK", checkedAt: new Date().toISOString(), integration: clone(account) };
+      const result: IntegrationTestResult = {
+        ok: true,
+        provider,
+        integrationId: account.id,
+        status: "SUCCESS",
+        message: "Demo connection OK",
+        checkedAt: new Date().toISOString(),
+        integration: clone(account),
+      };
       return envelope(result) as T;
     }
     if (method === "POST" && action === "sample-inbound") {
@@ -1064,12 +1544,56 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
       type: (body.type as ChannelType) ?? "WEBSITE",
       status: (body.status as ChannelStatus) ?? "PENDING",
       name: typeof body.name === "string" ? body.name : "Новый канал",
-      publicKey: typeof body.publicKey === "string" ? body.publicKey : `lv_demo_${Math.random().toString(16).slice(2, 8)}`,
+      publicKey:
+        typeof body.publicKey === "string"
+          ? body.publicKey
+          : `lv_demo_${Math.random().toString(16).slice(2, 8)}`,
       settings: isRecord(body.settings) ? body.settings : {},
       lastHealthAt: null,
+      automaticRepliesEnabled: false,
+      automaticRepliesGeneration: 1,
     };
     s.channels.push(channel);
     return envelope(clone(channel)) as T;
+  }
+  const automaticRepliesMatch = pathname.match(
+    /^\/channels\/([^/]+)\/automatic-replies\/(readiness|activate|deactivate)$/u,
+  );
+  if (automaticRepliesMatch) {
+    const channel = s.channels.find(
+      (item) => item.id === decodeURIComponent(automaticRepliesMatch[1]),
+    );
+    if (!channel) return envelope(null) as T;
+    const action = automaticRepliesMatch[2];
+    if (method === "POST" && action === "activate") {
+      channel.automaticRepliesEnabled = true;
+      channel.automaticRepliesGeneration += 1;
+      channel.automaticRepliesPublicationId = "demo-publication-v2";
+      channel.automaticRepliesPublicationEtag = 1;
+      channel.automaticRepliesActivatedAt = new Date().toISOString();
+    } else if (method === "POST" && action === "deactivate") {
+      channel.automaticRepliesEnabled = false;
+      channel.automaticRepliesGeneration += 1;
+      channel.automaticRepliesPublicationId = null;
+      channel.automaticRepliesPublicationEtag = null;
+      channel.automaticRepliesActivatedAt = null;
+    }
+    const supported = ["WEBSITE", "TELEGRAM", "WEBHOOK"].includes(channel.type);
+    const canActivate = channel.status === "ACTIVE" && supported;
+    const enabled = canActivate && channel.automaticRepliesEnabled;
+    return envelope({
+      channelId: channel.id,
+      status: enabled ? "ACTIVE" : canActivate ? "READY" : "BLOCKED",
+      enabled,
+      canActivate,
+      generation: channel.automaticRepliesGeneration,
+      activePublicationId: "demo-publication-v2",
+      activePublicationEtag: 1,
+      activatedAt: channel.automaticRepliesActivatedAt ?? null,
+      blockers: canActivate
+        ? []
+        : [{ code: "CHANNEL_NOT_ACTIVE", message: "Connect and activate the channel first." }],
+    }) as T;
   }
   const channelMatch = pathname.match(/^\/channels\/([^/]+)$/u);
   if (channelMatch && method === "PATCH") {
@@ -1079,12 +1603,27 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
     return envelope(clone(channel)) as T;
   }
 
-  if (method === "GET" && pathname === "/settings/account") return envelope({ tenant: s.tenant, owner: s.owner, businessName: s.tenant.name, timezone: s.tenant.timezone }) as T;
+  if (method === "GET" && pathname === "/settings/account")
+    return envelope({
+      tenant: s.tenant,
+      owner: s.owner,
+      businessName: s.tenant.name,
+      timezone: s.tenant.timezone,
+    }) as T;
   if (method === "PATCH" && pathname === "/settings/account") {
     if (typeof body.businessName === "string") s.tenant.name = body.businessName;
     if (typeof body.businessType === "string") s.tenant.businessType = body.businessType;
     if (typeof body.timezone === "string") s.tenant.timezone = body.timezone;
-    return envelope({ tenant: s.tenant, owner: s.owner, businessName: s.tenant.name, timezone: s.tenant.timezone }) as T;
+    return envelope({
+      tenant: s.tenant,
+      owner: s.owner,
+      businessName: s.tenant.name,
+      timezone: s.tenant.timezone,
+    }) as T;
+  }
+  if (method === "PATCH" && pathname === "/settings/preferences/locale") {
+    s.owner.locale = typeof body.locale === "string" ? body.locale : s.owner.locale;
+    return envelope({ locale: s.owner.locale }) as T;
   }
   if (method === "GET" && pathname === "/settings/team") return envelope(clone(s.team)) as T;
   if (method === "POST" && pathname === "/settings/team") {
@@ -1100,13 +1639,10 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
     s.team.push(member);
     return envelope(clone(member)) as T;
   }
-  const teamMatch = pathname.match(/^\/settings\/team\/([^/]+)(?:\/reset-password)?$/u);
+  const teamMatch = pathname.match(/^\/settings\/team\/([^/]+)$/u);
   if (teamMatch) {
     const memberId = decodeURIComponent(teamMatch[1]);
     const member = s.team.find((item) => item.id === memberId);
-    if (pathname.endsWith("/reset-password") && method === "POST") {
-      return envelope({ membershipId: memberId, userId: member?.user.id ?? id("demo-user"), temporaryPassword: "demo-temp-42", revokedSessions: 1 }) as T;
-    }
     if (method === "PATCH" && member) {
       member.role = typeof body.role === "string" ? body.role : member.role;
       return envelope(clone(member)) as T;
@@ -1117,38 +1653,61 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
     }
   }
 
-  if (method === "GET" && pathname === "/settings/security") return envelope(clone(s.security)) as T;
-  if (method === "PATCH" && pathname === "/settings/security/password") return envelope({ updated: true, revokedSessions: 0 }) as T;
-  if (method === "POST" && pathname === "/settings/security/2fa/setup") return envelope({ secret: "DEMOSECRET42", otpauthUri: "otpauth://totp/LeadVirt:demo?secret=DEMOSECRET42&issuer=LeadVirt" }) as T;
+  if (method === "GET" && pathname === "/settings/security")
+    return envelope(clone(s.security)) as T;
+  if (method === "PATCH" && pathname === "/settings/security/password")
+    return envelope({ updated: true, revokedSessions: 0 }) as T;
+  if (method === "POST" && pathname === "/settings/security/2fa/setup")
+    return envelope({
+      secret: "DEMOSECRET42",
+      otpauthUri: "otpauth://totp/LeadVirt:demo?secret=DEMOSECRET42&issuer=LeadVirt",
+    }) as T;
   if (method === "POST" && pathname === "/settings/security/2fa/enable") {
-    s.security.twoFactor = { enabled: true, setupPending: false, confirmedAt: new Date().toISOString(), recoveryCodesRemaining: 8 };
-    return envelope({ twoFactor: s.security.twoFactor, recoveryCodes: ["demo-1111", "demo-2222", "demo-3333"] }) as T;
+    s.security.twoFactor = {
+      enabled: true,
+      setupPending: false,
+      confirmedAt: new Date().toISOString(),
+      recoveryCodesRemaining: 8,
+    };
+    return envelope({
+      twoFactor: s.security.twoFactor,
+      recoveryCodes: ["demo-1111", "demo-2222", "demo-3333"],
+    }) as T;
   }
   if (method === "POST" && pathname === "/settings/security/2fa/disable") {
-    s.security.twoFactor = { enabled: false, setupPending: false, confirmedAt: null, recoveryCodesRemaining: 0 };
+    s.security.twoFactor = {
+      enabled: false,
+      setupPending: false,
+      confirmedAt: null,
+      recoveryCodesRemaining: 0,
+    };
     return envelope({ twoFactor: s.security.twoFactor }) as T;
   }
-  if (method === "POST" && pathname === "/settings/security/2fa/recovery-codes") return envelope({ twoFactor: s.security.twoFactor, recoveryCodes: ["demo-4444", "demo-5555", "demo-6666"] }) as T;
-  if (method === "POST" && pathname === "/settings/security/sessions/revoke-others") return envelope({ revoked: 0 }) as T;
+  if (method === "POST" && pathname === "/settings/security/2fa/recovery-codes")
+    return envelope({
+      twoFactor: s.security.twoFactor,
+      recoveryCodes: ["demo-4444", "demo-5555", "demo-6666"],
+    }) as T;
+  if (method === "POST" && pathname === "/settings/security/sessions/revoke-others")
+    return envelope({ revoked: 0 }) as T;
   const sessionMatch = pathname.match(/^\/settings\/security\/sessions\/([^/]+)$/u);
-  if (sessionMatch && method === "DELETE") return envelope({ id: decodeURIComponent(sessionMatch[1]), revoked: true, current: false }) as T;
-  if (method === "GET" && pathname === "/settings/notifications") return envelope(clone(s.notifications)) as T;
+  if (sessionMatch && method === "DELETE")
+    return envelope({
+      id: decodeURIComponent(sessionMatch[1]),
+      revoked: true,
+      current: false,
+    }) as T;
+  if (method === "GET" && pathname === "/settings/notifications")
+    return envelope(clone(s.notifications)) as T;
   if (method === "PATCH" && pathname === "/settings/notifications") {
     s.notifications = { ...s.notifications, ...body };
     return envelope(clone(s.notifications)) as T;
   }
-  if (method === "GET" && pathname === "/settings/billing") return envelope({ billingMode: "manual_invoice", apiKeys: clone(s.apiKeys) }) as T;
+  if (method === "GET" && pathname === "/settings/billing")
+    return envelope({ billingMode: "manual_invoice", apiKeys: [] }) as T;
+  if (method === "GET" && pathname === "/settings/api-keys") return envelope(clone(s.apiKeys)) as T;
   if (method === "POST" && pathname === "/settings/api-keys") {
-    const created: ApiKeyCreated = {
-      id: id("demo-api-key"),
-      name: typeof body.name === "string" ? body.name : "Demo key",
-      keyPrefix: "lvpk_demo_new",
-      secret: "lvpk_demo_new_secret",
-      createdAt: new Date().toISOString(),
-      lastUsedAt: null,
-    };
-    s.apiKeys.unshift(created);
-    return envelope(created) as T;
+    throw new Error("API-key authentication is not available.");
   }
   const apiKeyMatch = pathname.match(/^\/settings\/api-keys\/([^/]+)$/u);
   if (apiKeyMatch && method === "DELETE") {
@@ -1158,16 +1717,23 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
   }
 
   if (method === "GET" && pathname === "/billing/plans") return envelope(plans) as T;
-  if (method === "GET" && pathname === "/billing/payment-method") return envelope(clone(s.paymentMethod)) as T;
+  if (method === "GET" && pathname === "/billing/payment-method")
+    return envelope(clone(s.paymentMethod)) as T;
   if (method === "POST" && pathname === "/billing/payment-method/change-request") {
     s.paymentRequestedAt = new Date().toISOString();
     s.paymentMethod.status = "change_requested";
     s.paymentMethod.updatedAt = s.paymentRequestedAt;
-    const result: BillingPaymentMethodUpdateRequest = { requested: true, requestedAt: s.paymentRequestedAt, mode: "manual_invoice" };
+    const result: BillingPaymentMethodUpdateRequest = {
+      requested: true,
+      requestedAt: s.paymentRequestedAt,
+      mode: "manual_invoice",
+    };
     return envelope(result) as T;
   }
-  if (method === "GET" && pathname === "/billing/invoices") return envelope(billingInvoices(s)) as T;
-  if (method === "GET" && pathname === "/billing/current-subscription") return envelope(clone(s.subscription)) as T;
+  if (method === "GET" && pathname === "/billing/invoices")
+    return envelope(billingInvoices(s)) as T;
+  if (method === "GET" && pathname === "/billing/current-subscription")
+    return envelope(clone(s.subscription)) as T;
   if (method === "PATCH" && pathname === "/billing/current-subscription") {
     const plan = plans.find((item) => item.code === body.planCode) ?? s.subscription.plan;
     s.subscription = { ...s.subscription, status: "ACTIVE", plan };
@@ -1181,10 +1747,31 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
 
   if (pathname === "/workflows" && method === "GET") {
     const includeArchived = searchParams.get("includeArchived") === "true";
-    return envelope(clone(includeArchived ? s.workflows : s.workflows.filter((workflow) => workflow.status !== "ARCHIVED"))) as T;
+    return envelope(
+      clone(
+        includeArchived
+          ? s.workflows
+          : s.workflows.filter((workflow) => workflow.status !== "ARCHIVED"),
+      ),
+    ) as T;
   }
   if (pathname === "/workflows" && method === "POST") {
-    const workflow: Workflow = workflowPatch({ id: id("demo-workflow"), tenantId, name: "Новый сценарий", status: "DRAFT", version: 0, description: null, publishedAt: null, steps: [] }, body);
+    if (body.status === "ACTIVE") {
+      throw new Error("Workflows cannot be activated in demo mode.");
+    }
+    const workflow: Workflow = workflowPatch(
+      {
+        id: id("demo-workflow"),
+        tenantId,
+        name: "Новый сценарий",
+        status: "DRAFT",
+        version: 0,
+        description: null,
+        publishedAt: null,
+        steps: [],
+      },
+      body,
+    );
     s.workflows.unshift(workflow);
     return envelope(clone(workflow)) as T;
   }
@@ -1197,19 +1784,27 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
     if (!workflow) return envelope(null) as T;
     if (method === "GET" && !action) return envelope(clone(workflow)) as T;
     if (method === "PATCH" && !action) {
+      if (body.status === "ACTIVE") {
+        throw new Error("Workflows cannot be activated in demo mode.");
+      }
       const updated = workflowPatch(workflow, body);
       s.workflows[index] = updated;
       return envelope(clone(updated)) as T;
     }
     if (method === "POST" && action === "publish") {
-      workflow.status = "ACTIVE";
-      workflow.publishedAt = new Date().toISOString();
-      return envelope(clone(workflow)) as T;
+      throw new Error("Workflows cannot be activated in demo mode.");
     }
-    if (method === "POST" && action === "test") return envelope({ runId: id("demo-run"), status: "SUCCESS", message: "Demo-сценарий прошёл тест локально" }) as T;
+    if (method === "POST" && action === "test")
+      return envelope({
+        runId: null,
+        status: "BLOCKED",
+        message: "Demo mode does not execute workflow actions.",
+        events: 0,
+      }) as T;
   }
 
-  if (method === "GET" && pathname === "/onboarding/state") return envelope(clone(s.onboarding)) as T;
+  if (method === "GET" && pathname === "/onboarding/state")
+    return envelope(clone(s.onboarding)) as T;
   if (method === "PATCH" && pathname === "/onboarding/state") {
     const nextData = isRecord(body.data) ? body.data : {};
     s.onboarding = { ...s.onboarding, ...body, data: { ...s.onboarding.data, ...nextData } };
@@ -1230,8 +1825,22 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
     const sessionId = request.sessionId || id("demo-widget-session");
     const existing = s.widgetSessions[sessionId]?.messages ?? [];
     const createdAt = new Date().toISOString();
-    const customerMessage = { id: request.clientMessageId ?? id("demo-widget-customer"), senderType: "CUSTOMER" as const, direction: "INBOUND" as const, text: request.text ?? "", createdAt, status: "RECEIVED" as const };
-    const aiMessage = { id: id("demo-widget-ai"), senderType: "AI" as const, direction: "OUTBOUND" as const, text: "Спасибо! В demo я не записываю данные в базу, но сценарий выглядит так: уточняю услугу, предлагаю время и передаю менеджеру.", createdAt: iso(0), status: "SENT" as const };
+    const customerMessage = {
+      id: request.clientMessageId ?? id("demo-widget-customer"),
+      senderType: "CUSTOMER" as const,
+      direction: "INBOUND" as const,
+      text: request.text ?? "",
+      createdAt,
+      status: "RECEIVED" as const,
+    };
+    const aiMessage = {
+      id: id("demo-widget-ai"),
+      senderType: "AI" as const,
+      direction: "OUTBOUND" as const,
+      text: "Спасибо! В demo я не записываю данные в базу, но сценарий выглядит так: уточняю услугу, предлагаю время и передаю менеджеру.",
+      createdAt: iso(0),
+      status: "SENT" as const,
+    };
     const response: WidgetMessageResponse = {
       sessionId,
       conversationId: "demo-widget-conversation",

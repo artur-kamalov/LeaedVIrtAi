@@ -9,8 +9,10 @@ test-results
 .env.local
 .env.*.local
 *.log
+*.pid
 artifacts/screenshots
 artifacts/reports
+artifacts/.knowledge-acceptance
 artifacts/playwright/*.png
 playwright-report
 *.tsbuildinfo

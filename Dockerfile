@@ -28,7 +28,9 @@ COPY packages/ai/package.json packages/ai/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/integrations/package.json packages/integrations/package.json
+COPY packages/knowledge/package.json packages/knowledge/package.json
 COPY packages/observability/package.json packages/observability/package.json
+COPY packages/runtime-queue/package.json packages/runtime-queue/package.json
 COPY packages/types/package.json packages/types/package.json
 COPY packages/ui/package.json packages/ui/package.json
 

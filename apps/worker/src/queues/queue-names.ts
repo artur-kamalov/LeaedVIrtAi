@@ -4,6 +4,7 @@ export const queueNames = [
   "ai.followUp",
   "channels.processWebhook",
   "channels.sendMessage",
+  "knowledge.ingest",
   "crm.syncLead",
   "analytics.aggregate",
   "billing.calculateUsage"

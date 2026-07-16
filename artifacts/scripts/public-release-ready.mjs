@@ -1,11 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 
 loadLocalEnv();
 
 const startedAt = new Date();
-const reportPath = resolve(process.env.LEADVIRT_PUBLIC_READY_REPORT_OUT ?? "docs/PUBLIC_RELEASE_READY_REPORT.md");
+const reportPath = resolve(
+  process.env.LEADVIRT_PUBLIC_READY_REPORT_OUT ?? "docs/PUBLIC_RELEASE_READY_REPORT.md",
+);
 const publicWebBase = normalizeBase(process.env.LEADVIRT_PUBLIC_WEB_BASE ?? "");
 const publicApiBase = normalizeApiBase(process.env.LEADVIRT_PUBLIC_API_BASE ?? "");
 const selectedChannels = process.env.LEADVIRT_PUBLIC_CHANNELS?.trim() || "webhook";
@@ -33,6 +35,45 @@ function isTruthy(value) {
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
+function validQueryHmacKeyring(activeKeyId, encodedKeys) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(activeKeyId)) return false;
+  try {
+    const keys = JSON.parse(encodedKeys);
+    if (typeof keys !== "object" || keys === null || Array.isArray(keys)) return false;
+    const entries = Object.entries(keys);
+    const forbiddenIds = new Set(["local-query-hmac-v1", "acceptance-query-v1"]);
+    const forbiddenKeys = new Set([
+      "TGVhZFZpcnQgbG9jYWwgcXVlcnkgSE1BQyBrZXkhISE=",
+      "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=",
+    ]);
+    return (
+      entries.length > 0 &&
+      Object.hasOwn(keys, activeKeyId) &&
+      !forbiddenIds.has(activeKeyId) &&
+      entries.every(
+        ([keyId, value]) =>
+          /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(keyId) &&
+          !forbiddenIds.has(keyId) &&
+          typeof value === "string" &&
+          !forbiddenKeys.has(value) &&
+          /^[A-Za-z0-9+/]{43}=$/u.test(value) &&
+          Buffer.from(value, "base64").byteLength === 32 &&
+          Buffer.from(value, "base64").toString("base64") === value,
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+const knowledgeClassifications = new Set([
+  "PUBLIC",
+  "INTERNAL",
+  "CUSTOMER_PERSONAL",
+  "SENSITIVE",
+  "SECRET",
+]);
+
 function findEnvFile(startDir = process.cwd()) {
   let dir = resolve(startDir);
   while (true) {
@@ -50,9 +91,11 @@ function parseEnvValue(raw) {
   if (trimmed.length < 2) return trimmed;
 
   const quote = trimmed[0];
-  if ((quote === "\"" || quote === "'") && trimmed.endsWith(quote)) {
+  if ((quote === '"' || quote === "'") && trimmed.endsWith(quote)) {
     const unquoted = trimmed.slice(1, -1);
-    return quote === "\"" ? unquoted.replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\"/g, "\"") : unquoted;
+    return quote === '"'
+      ? unquoted.replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\"/g, '"')
+      : unquoted;
   }
 
   return trimmed;
@@ -66,7 +109,9 @@ function loadLocalEnv() {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
 
-    const withoutExport = trimmed.startsWith("export ") ? trimmed.slice("export ".length).trim() : trimmed;
+    const withoutExport = trimmed.startsWith("export ")
+      ? trimmed.slice("export ".length).trim()
+      : trimmed;
     const separator = withoutExport.indexOf("=");
     if (separator <= 0) continue;
 
@@ -80,6 +125,8 @@ function redact(text) {
   return text
     .replace(/(AI_API_KEY=)[^\r\n]*/g, "$1[redacted]")
     .replace(/(\$env:AI_API_KEY=")[^"]*(")/g, "$1[redacted]$2")
+    .replace(/(KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY=)[^\r\n]*/g, "$1[redacted]")
+    .replace(/(KNOWLEDGE_QUERY_HMAC_KEYS=)[^\r\n]*/g, "$1[redacted]")
     .replace(/(LEADVIRT_WEBHOOK_SECRET=)[^\r\n]*/g, "$1[redacted]")
     .replace(/(LEADVIRT_PUBLIC_WEBHOOK_SECRET=)[^\r\n]*/g, "$1[redacted]")
     .replace(/(\$env:LEADVIRT_WEBHOOK_SECRET=")[^"]*(")/g, "$1[redacted]$2")
@@ -113,6 +160,99 @@ function validateEnvironment() {
   if (process.env.AI_PROVIDER !== "openai") missing.push("AI_PROVIDER=openai");
   if (process.env.AI_ENABLE_REAL_PROVIDER !== "true") missing.push("AI_ENABLE_REAL_PROVIDER=true");
   if (!requiredEnv("AI_API_KEY")) missing.push("AI_API_KEY");
+  if (
+    !validQueryHmacKeyring(
+      process.env.KNOWLEDGE_QUERY_HMAC_ACTIVE_KEY_ID?.trim() ?? "",
+      process.env.KNOWLEDGE_QUERY_HMAC_KEYS?.trim() ?? "",
+    )
+  ) {
+    missing.push(
+      "KNOWLEDGE_QUERY_HMAC_ACTIVE_KEY_ID and KNOWLEDGE_QUERY_HMAC_KEYS (active 32-byte base64 keyring)",
+    );
+  }
+  const knowledgeV2Enabled =
+    isTruthy(process.env.KNOWLEDGE_WEBSITE_IMPORT_ENABLED ?? "") ||
+    isTruthy(process.env.RAG_QDRANT_ENABLED ?? "") ||
+    process.env.RAG_RETRIEVAL_MODE === "qdrant";
+  if (knowledgeV2Enabled) {
+    if (!isTruthy(process.env.KNOWLEDGE_EMBEDDING_PROVIDER_APPROVED ?? "")) {
+      missing.push("KNOWLEDGE_EMBEDDING_PROVIDER_APPROVED=true");
+    }
+    if (!isTruthy(process.env.RAG_QDRANT_ENABLED ?? "")) {
+      missing.push("RAG_QDRANT_ENABLED=true");
+    }
+    if (process.env.RAG_RETRIEVAL_MODE !== "qdrant") missing.push("RAG_RETRIEVAL_MODE=qdrant");
+    try {
+      const qdrantUrl = new URL(process.env.RAG_QDRANT_URL ?? "");
+      if (!["http:", "https:"].includes(qdrantUrl.protocol) || !qdrantUrl.hostname) {
+        missing.push("RAG_QDRANT_URL");
+      }
+    } catch {
+      missing.push("RAG_QDRANT_URL");
+    }
+    if (!requiredEnv("KNOWLEDGE_V2_EMBEDDING_MODEL")) {
+      missing.push("KNOWLEDGE_V2_EMBEDDING_MODEL");
+    }
+    if (
+      !requiredEnv("KNOWLEDGE_V2_EMBEDDING_DEPLOYMENT") ||
+      process.env.KNOWLEDGE_V2_EMBEDDING_DEPLOYMENT === "unconfigured"
+    ) {
+      missing.push("KNOWLEDGE_V2_EMBEDDING_DEPLOYMENT");
+    }
+    if (
+      !requiredEnv("KNOWLEDGE_V2_EMBEDDING_REGION") ||
+      process.env.KNOWLEDGE_V2_EMBEDDING_REGION === "unconfigured"
+    ) {
+      missing.push("KNOWLEDGE_V2_EMBEDDING_REGION");
+    }
+    if (!requiredEnv("KNOWLEDGE_V2_EMBEDDING_POLICY_VERSION")) {
+      missing.push("KNOWLEDGE_V2_EMBEDDING_POLICY_VERSION");
+    }
+    if (!requiredEnv("KNOWLEDGE_V2_RETRIEVAL_POLICY_VERSION")) {
+      missing.push("KNOWLEDGE_V2_RETRIEVAL_POLICY_VERSION");
+    }
+    for (const name of [
+      "KNOWLEDGE_V2_EXTERNAL_EMBEDDING_MAX_CLASSIFICATION",
+      "KNOWLEDGE_V2_QUERY_EMBEDDING_MAX_CLASSIFICATION",
+      "KNOWLEDGE_V2_RERANKER_MAX_CLASSIFICATION",
+    ]) {
+      if (!knowledgeClassifications.has(process.env[name]?.trim() ?? "")) missing.push(name);
+    }
+    if (!isTruthy(process.env.KNOWLEDGE_V2_RERANKER_APPROVED ?? "")) {
+      missing.push("KNOWLEDGE_V2_RERANKER_APPROVED=true");
+    }
+    try {
+      const rerankerUrl = new URL(process.env.KNOWLEDGE_V2_RERANKER_ENDPOINT ?? "");
+      if (!["http:", "https:"].includes(rerankerUrl.protocol) || !rerankerUrl.hostname) {
+        missing.push("KNOWLEDGE_V2_RERANKER_ENDPOINT");
+      }
+    } catch {
+      missing.push("KNOWLEDGE_V2_RERANKER_ENDPOINT");
+    }
+    for (const name of [
+      "KNOWLEDGE_V2_RERANKER_PROVIDER",
+      "KNOWLEDGE_V2_RERANKER_MODEL",
+      "KNOWLEDGE_V2_RERANKER_VERSION",
+      "KNOWLEDGE_V2_RERANKER_REGION",
+    ]) {
+      if (!requiredEnv(name) || process.env[name] === "unconfigured") missing.push(name);
+    }
+    const dimensions = Number(process.env.KNOWLEDGE_V2_EMBEDDING_DIMENSIONS);
+    if (!Number.isInteger(dimensions) || dimensions <= 0 || dimensions > 65_536) {
+      missing.push("KNOWLEDGE_V2_EMBEDDING_DIMENSIONS");
+    }
+    if (!isAbsolute(process.env.KNOWLEDGE_OBJECT_STORE_PATH?.trim() ?? "")) {
+      missing.push("KNOWLEDGE_OBJECT_STORE_PATH (absolute)");
+    }
+    if (
+      !/^[A-Za-z0-9+/]{43}=$/u.test(process.env.KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY?.trim() ?? "")
+    ) {
+      missing.push("KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY (32-byte base64)");
+    }
+    if (!requiredEnv("KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY_ID")) {
+      missing.push("KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY_ID");
+    }
+  }
 
   if (missing.length > 0) {
     appendStep({
@@ -140,9 +280,7 @@ function run(label, args, options = {}) {
   const started = Date.now();
   const command = process.platform === "win32" ? "cmd.exe" : "corepack";
   const commandArgs =
-    process.platform === "win32"
-      ? ["/d", "/s", "/c", ["corepack", ...args].join(" ")]
-      : args;
+    process.platform === "win32" ? ["/d", "/s", "/c", ["corepack", ...args].join(" ")] : args;
   const result = spawnSync(command, commandArgs, {
     cwd: process.cwd(),
     env: childEnv,
@@ -201,6 +339,10 @@ function writeReport(status, reason = "") {
     `- AI real provider enabled: ${process.env.AI_ENABLE_REAL_PROVIDER?.trim() || "false"}`,
     `- AI model: ${process.env.AI_DEFAULT_MODEL?.trim() || "gpt-5.5 (default)"}`,
     `- AI API key: ${process.env.AI_API_KEY?.trim() ? "set (redacted)" : "not set"}`,
+    `- Knowledge embedding provider approved: ${process.env.KNOWLEDGE_EMBEDDING_PROVIDER_APPROVED?.trim() || "false"}`,
+    `- Knowledge retrieval mode: ${process.env.RAG_RETRIEVAL_MODE?.trim() || "database"}`,
+    `- Knowledge artifact encryption: ${process.env.KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY?.trim() ? "set (redacted)" : "not set"}`,
+    `- Knowledge query HMAC keyring: ${process.env.KNOWLEDGE_QUERY_HMAC_KEYS?.trim() ? "set (redacted)" : "not set"}`,
     `- Provision user: ${process.env.LEADVIRT_PROVISION_EMAIL?.trim() || "not set"}`,
     `- Webhook key captured: ${childEnv.LEADVIRT_PUBLIC_WEBHOOK_KEY ? "yes" : "no"}`,
     `- Webhook secret captured: ${childEnv.LEADVIRT_PUBLIC_WEBHOOK_SECRET ? "yes (redacted)" : "no"}`,
@@ -248,15 +390,23 @@ function writeReport(status, reason = "") {
   lines.push("## Next Actions");
   lines.push("");
   if (status === "passed") {
-    lines.push("- Use the terminal output from `provision:webhook-channel` to configure Master Budet env.");
+    lines.push(
+      "- Use the terminal output from `provision:webhook-channel` to configure Master Budet env.",
+    );
     lines.push("- Use `docs/PILOT_PACKET.md` for operator links and public smoke commands.");
     lines.push("- Do not commit webhook secrets into docs or source files.");
   } else if (status === "passed-with-skipped-public-preflight") {
-    lines.push("- Use the terminal output from `provision:webhook-channel` to configure Master Budet env.");
-    lines.push("- Run `corepack pnpm run qa:pilot:public` from an operator machine with Playwright browser access before inviting testers.");
+    lines.push(
+      "- Use the terminal output from `provision:webhook-channel` to configure Master Budet env.",
+    );
+    lines.push(
+      "- Run `corepack pnpm run qa:pilot:public` from an operator machine with Playwright browser access before inviting testers.",
+    );
     lines.push("- Do not commit webhook secrets into docs or source files.");
   } else {
-    lines.push("- Required AI env for public release: `AI_PROVIDER=openai`, `AI_ENABLE_REAL_PROVIDER=true`, `AI_API_KEY`, and optionally `AI_DEFAULT_MODEL`.");
+    lines.push(
+      "- Configure the approved AI and Knowledge v2 provider, Qdrant, model, and encrypted artifact store environment before release.",
+    );
     lines.push("- Fix the failed step above, then rerun `corepack pnpm run release:public-ready`.");
   }
   lines.push("");
@@ -268,22 +418,29 @@ function writeReport(status, reason = "") {
 }
 
 console.log("LeadVirt Public Release Ready");
-console.log("This command checks strict auth readiness, provisions Webhook/API, regenerates the packet, and runs public URL preflight.");
+console.log(
+  "This command checks strict auth readiness, provisions Webhook/API, regenerates the packet, and runs public URL preflight.",
+);
 if (skipPublicPreflight) {
-  console.log("Public URL preflight will be skipped. Run qa:pilot:public separately from an operator machine before external testers.");
+  console.log(
+    "Public URL preflight will be skipped. Run qa:pilot:public separately from an operator machine before external testers.",
+  );
 }
 
 validateEnvironment();
 run("AI provider smoke", ["pnpm", "run", "qa:ai:provider"]);
 run("Strict auth readiness", ["pnpm", "run", "qa:auth:staging-ready"]);
-run("Provision Webhook/API channel", ["pnpm", "run", "provision:webhook-channel"], { captureWebhookEnv: true });
+run("Provision Webhook/API channel", ["pnpm", "run", "provision:webhook-channel"], {
+  captureWebhookEnv: true,
+});
 run("Generate pilot packet", ["pnpm", "run", "pilot:packet"]);
 if (skipPublicPreflight) {
   appendStep({
     label: "Public URL preflight",
     command: "corepack pnpm run qa:pilot:public",
     status: "skipped",
-    reason: "Skipped by LEADVIRT_PUBLIC_READY_SKIP_PUBLIC_PREFLIGHT. Run this from an operator machine with Playwright browser access before inviting testers.",
+    reason:
+      "Skipped by LEADVIRT_PUBLIC_READY_SKIP_PUBLIC_PREFLIGHT. Run this from an operator machine with Playwright browser access before inviting testers.",
   });
 } else {
   run("Public URL preflight", ["pnpm", "run", "qa:pilot:public"]);
@@ -291,7 +448,9 @@ if (skipPublicPreflight) {
 
 console.log("");
 if (skipPublicPreflight) {
-  console.log("Public release non-browser checks passed. Public URL preflight still needs an operator-local run.");
+  console.log(
+    "Public release non-browser checks passed. Public URL preflight still needs an operator-local run.",
+  );
   writeReport("passed-with-skipped-public-preflight");
 } else {
   console.log("Public release checks passed.");

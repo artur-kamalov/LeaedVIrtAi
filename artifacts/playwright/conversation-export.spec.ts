@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { operationalMessages } from "../../apps/web/src/i18n/operational-messages";
 import { loginAsCleanUser } from "./helpers/auth";
 import { expect, test } from "@playwright/test";
 
@@ -6,7 +7,7 @@ const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
 
 test.beforeEach(async ({ page }) => {
-  await loginAsCleanUser(page, apiBase);
+  await loginAsCleanUser(page, apiBase, { locale: "ru" });
 });
 const conversationId = "pw-export-conversation";
 
@@ -106,11 +107,12 @@ test("conversation menu exports the visible transcript as a text file", async ({
   expect(downloadPath).toBeTruthy();
 
   const content = await readFile(downloadPath!, "utf8");
-  expect(content).toContain("Conversation ID: pw-export-conversation");
-  expect(content).toContain("Lead: Export Client");
-  expect(content).toContain("Service: Pricing details");
-  expect(content).toContain("Клиент: Need pricing details");
+  const copy = operationalMessages.ru;
+  expect(content).toContain(`${copy["ops.conversation.transcriptId"]}: pw-export-conversation`);
+  expect(content).toContain(`${copy["ops.conversation.transcriptLead"]}: Export Client`);
+  expect(content).toContain(`${copy["ops.conversation.transcriptService"]}: Pricing details`);
+  expect(content).toContain(`${copy["ops.conversation.senderClient"]}: Need pricing details`);
   expect(content).toContain("AI: Sure, I can help");
-  expect(content).toContain("Менеджер: I will send details");
+  expect(content).toContain(`${copy["ops.conversation.senderManager"]}: I will send details`);
 });
 

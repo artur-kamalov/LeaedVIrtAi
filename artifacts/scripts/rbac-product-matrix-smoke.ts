@@ -4,7 +4,12 @@ import type { MembershipRole } from "@leadvirt/db";
 import { RolesGuard } from "../../apps/api/src/common/guards/roles.guard.js";
 import type { RequestContext } from "../../apps/api/src/common/request-context.js";
 import { BillingController } from "../../apps/api/src/modules/billing/billing.controller.js";
+import {
+  ConversationDetailController,
+  ConversationsController,
+} from "../../apps/api/src/modules/conversations/conversations.controller.js";
 import { IntegrationsController } from "../../apps/api/src/modules/integrations/integrations.controller.js";
+import { LeadsController } from "../../apps/api/src/modules/leads/leads.controller.js";
 import { WorkflowsController } from "../../apps/api/src/modules/workflows/workflows.controller.js";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -78,7 +83,13 @@ for (const methodName of ["requestPaymentMethodChange", "changeSubscriptionPlan"
 }
 
 assertAllowed(guard, IntegrationsController, "list", "VIEWER");
-for (const methodName of ["connect", "disconnect", "testConnection", "sendSampleInbound", "updateSettings"] as Array<keyof IntegrationsController>) {
+for (const methodName of ["connect", "disconnect", "updateSettings"] as Array<keyof IntegrationsController>) {
+  assertAllowed(guard, IntegrationsController, methodName, "ADMIN");
+  assertForbidden(guard, IntegrationsController, methodName, "MANAGER");
+  assertForbidden(guard, IntegrationsController, methodName, "VIEWER");
+  assertForbidden(guard, IntegrationsController, methodName, "AGENT");
+}
+for (const methodName of ["testConnection", "sendSampleInbound"] as Array<keyof IntegrationsController>) {
   assertAllowed(guard, IntegrationsController, methodName, "MANAGER");
   assertForbidden(guard, IntegrationsController, methodName, "VIEWER");
   assertForbidden(guard, IntegrationsController, methodName, "AGENT");
@@ -91,6 +102,33 @@ for (const methodName of ["create", "update", "publish", "test"] as Array<keyof 
   assertAllowed(guard, WorkflowsController, methodName, "MANAGER");
   assertForbidden(guard, WorkflowsController, methodName, "VIEWER");
   assertForbidden(guard, WorkflowsController, methodName, "AGENT");
+}
+
+for (const methodName of ["list", "pipelineSummary", "get"] as Array<keyof LeadsController>) {
+  assertAllowed(guard, LeadsController, methodName, "VIEWER");
+}
+for (const methodName of [
+  "update",
+  "createEvent",
+  "sendToCrm",
+  "createTask",
+  "bookAppointment",
+] as Array<keyof LeadsController>) {
+  assertAllowed(guard, LeadsController, methodName, "AGENT");
+  assertForbidden(guard, LeadsController, methodName, "VIEWER");
+}
+
+assertAllowed(guard, ConversationsController, "list", "VIEWER");
+assertAllowed(guard, ConversationDetailController, "get", "VIEWER");
+for (const methodName of [
+  "sendMessage",
+  "draftAiReply",
+  "updateStatus",
+  "assign",
+  "handoff",
+] as Array<keyof ConversationDetailController>) {
+  assertAllowed(guard, ConversationDetailController, methodName, "AGENT");
+  assertForbidden(guard, ConversationDetailController, methodName, "VIEWER");
 }
 
 console.log(JSON.stringify({ ok: true }));

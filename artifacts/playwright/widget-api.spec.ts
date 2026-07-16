@@ -21,9 +21,9 @@ test("widget demo loads config and sends a message through public widget API", a
           position: "bottom-right",
           locale: "ru-RU",
           suggestedReplies: ["Хочу записаться", "Сколько стоит?"],
-          poweredBy: "LeadVirt.ai"
-        }
-      }
+          poweredBy: "LeadVirt.ai",
+        },
+      },
     });
   });
 
@@ -43,7 +43,7 @@ test("widget demo loads config and sends a message through public widget API", a
               direction: "INBOUND",
               text: postedBody?.text ?? "",
               createdAt: "2026-06-22T10:00:00.000Z",
-              status: "SENT"
+              status: "SENT",
             },
             {
               id: "ai-message",
@@ -51,22 +51,23 @@ test("widget demo loads config and sends a message through public widget API", a
               direction: "OUTBOUND",
               text: "API ответ виджета: подберу свободное время.",
               createdAt: "2026-06-22T10:00:01.000Z",
-              status: "SENT"
-            }
+              status: "SENT",
+            },
           ],
           ai: {
             replied: true,
             handoffRequired: false,
             confidence: 0.92,
-            intent: "booking"
-          }
-        }
-      }
+            intent: "booking",
+          },
+        },
+      },
     });
   });
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/widget/demo`, { waitUntil: "networkidle" });
+  await expect(page.getByTestId("leadvirt-widget")).toHaveAttribute("data-widget-locale", "ru");
   await page.getByRole("button", { name: "Открыть чат" }).click();
 
   await expect(page.getByText("API Widget")).toBeVisible();
@@ -78,7 +79,10 @@ test("widget demo loads config and sends a message through public widget API", a
   await expect.poll(() => postedBody?.text).toBe("Нужна запись на завтра");
   await expect.poll(() => postedBody?.sessionId?.startsWith(`lvw_${publicKey}_`)).toBe(true);
   await expect(page.getByText("API ответ виджета: подберу свободное время.")).toBeVisible();
-  await page.screenshot({ path: "artifacts/playwright/fresh-widget-demo-desktop.png", fullPage: true });
+  await page.screenshot({
+    path: "artifacts/playwright/fresh-widget-demo-desktop.png",
+    fullPage: true,
+  });
 });
 
 test("widget embed script points an iframe at the requested public key", async ({ request }) => {

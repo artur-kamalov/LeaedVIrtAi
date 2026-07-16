@@ -3,31 +3,18 @@ import type { DashboardMetricDeltas, DashboardSummary } from "@leadvirt/types";
 import type { RequestContext } from "../../common/request-context.js";
 import { PrismaService } from "../database/prisma.service.js";
 
-const chartLabels = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"] as const;
-
-const activityLabels: Record<string, string> = {
-  "seed.completed": "Демо-данные подготовлены",
-  "lead.sent_to_crm": "Лид отправлен в CRM",
-  "booking.created": "Запись создана",
-  "task.created": "Задача создана",
-  "integration.connected": "Интеграция подключена",
-  "integration.sample_inbound": "Входящий тест интеграции",
-  "integration.test_connection": "Проверка подключения интеграции",
-  "workflow.published": "Сценарий опубликован",
-  "onboarding.step_completed": "Шаг onboarding завершен",
-  "widget.message.received": "Сообщение из виджета получено"
-};
-
-const productActivityActions = Object.keys(activityLabels);
-
-const entityLabels: Record<string, string> = {
-  conversation: "диалог",
-  integration: "интеграция",
-  lead: "лид",
-  onboarding: "onboarding",
-  tenant: "tenant",
-  workflow: "сценарий"
-};
+const productActivityActions: string[] = [
+  "seed.completed",
+  "lead.sent_to_crm",
+  "booking.created",
+  "task.created",
+  "integration.connected",
+  "integration.sample_inbound",
+  "integration.test_connection",
+  "workflow.published",
+  "onboarding.step_completed",
+  "widget.message.received",
+];
 
 const convertedLeadStatuses = ["QUALIFIED", "BOOKED", "ORDERED", "SENT_TO_CRM", "CLOSED"] as const;
 
@@ -227,10 +214,10 @@ export class DashboardService {
       };
     });
 
-    const trend = chartLabels.map((name, index) => {
-      const leadsForSlot = leads.filter((_, leadIndex) => leadIndex % chartLabels.length === index);
+    const trend = Array.from({ length: 7 }, (_, weekday) => {
+      const leadsForSlot = leads.filter((_, leadIndex) => leadIndex % 7 === weekday);
       return {
-        name,
+        weekday,
         leads: leadsForSlot.length,
         booked: leadsForSlot.filter((lead) => lead.bookedAt || ["BOOKED", "ORDERED"].includes(lead.status)).length
       };
@@ -264,7 +251,6 @@ export class DashboardService {
       recentActivity: recentAuditLogs.map((log) => ({
         id: log.id,
         action: log.action,
-        title: `${activityLabels[log.action] ?? log.action.replaceAll(".", " ")}${log.entityType ? ` (${entityLabels[log.entityType] ?? log.entityType})` : ""}`,
         createdAt: log.createdAt.toISOString()
       })),
       channelPerformance: performance,

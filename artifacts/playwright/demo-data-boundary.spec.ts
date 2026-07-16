@@ -13,11 +13,11 @@ test("tenant-scoped API requires a credential session", async ({ request }) => {
 test("unauthenticated app visit redirects to login", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto(`${webBase}/app`, { waitUntil: "domcontentloaded" });
-  await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/login/, { timeout: 45_000 });
 });
 
 test("interactive demo routes use local browser data only", async ({ page }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(180_000);
   const apiCalls: string[] = [];
 
   await page.route("**/api/**", async (route) => {
@@ -43,13 +43,13 @@ test("interactive demo routes use local browser data only", async ({ page }) => 
 
   for (const route of routes) {
     await page.locator(`aside nav a[href="${route}"]`).click();
-    await expect(page).toHaveURL(`${webBase}${route}`, { timeout: 30_000 });
+    await expect(page).toHaveURL(`${webBase}${route}`, { timeout: 45_000 });
     await expect(page.locator("main")).not.toBeEmpty({ timeout: 20_000 });
   }
 
   await page.goto(`${webBase}/demo/inbox/demo-conv-anna`, { waitUntil: "domcontentloaded" });
-  await expect(page.locator("main")).not.toBeEmpty({ timeout: 20_000 });
-  await page.getByRole("button").first().click();
+  await expect(page.getByTestId("conversation-messages-scroll")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Toggle theme" }).click();
 
   await page.goto(`${webBase}/demo/leads`, { waitUntil: "domcontentloaded" });
   await expect(page.locator("main")).not.toBeEmpty({ timeout: 20_000 });

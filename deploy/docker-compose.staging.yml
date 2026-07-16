@@ -9,9 +9,12 @@ x-leadvirt-app: &leadvirt-app
       NEXT_PUBLIC_WEB_URL: ${NEXT_PUBLIC_WEB_URL:?set NEXT_PUBLIC_WEB_URL}
       NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-false}
       NEXT_PUBLIC_TELEGRAM_LOGIN_BOT: ${NEXT_PUBLIC_TELEGRAM_LOGIN_BOT:-}
+  restart: unless-stopped
+
+x-leadvirt-runtime: &leadvirt-runtime
+  <<: *leadvirt-app
   env_file:
     - ${LEADVIRT_ENV_FILE:-/opt/leadvirt/secrets/.env}
-  restart: unless-stopped
 
 services:
   postgres:
@@ -47,17 +50,64 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  clamav:
+    image: clamav/clamav:1.4.2
+    restart: unless-stopped
+    volumes:
+      - clamav_data:/var/lib/clamav
+
   migrate:
-    <<: *leadvirt-app
+    <<: *leadvirt-runtime
     restart: "no"
-    command: ["corepack", "pnpm", "--filter", "@leadvirt/db", "db:migrate"]
+    command:
+      [
+        "sh",
+        "-c",
+        "corepack pnpm --filter @leadvirt/db db:migrate && corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/knowledge-query-hmac-retained-keys-ready.ts",
+      ]
     depends_on:
       postgres:
         condition: service_healthy
 
   api:
-    <<: *leadvirt-app
-    command: ["corepack", "pnpm", "--filter", "@leadvirt/api", "start"]
+    <<: *leadvirt-runtime
+    working_dir: /app/apps/api
+    command: ["node", "--import", "tsx", "dist/apps/api/src/main.js"]
+    stop_grace_period: 30s
+    environment:
+      API_DEPLOYMENT_PREFLIGHT: "false"
+    volumes:
+      - knowledge_artifacts:/var/lib/leadvirt/knowledge-artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      clamav:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:4001/health/ready'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    <<: *leadvirt-runtime
+    working_dir: /app/apps/worker
+    command: ["node", "--import", "tsx", "dist/apps/worker/src/main.js"]
+    stop_grace_period: 2m
+    environment:
+      WORKER_DEPLOYMENT_PAUSED: ${WORKER_DEPLOYMENT_PAUSED:-false}
+    volumes:
+      - knowledge_artifacts:/var/lib/leadvirt/knowledge-artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,23 +118,15 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-
-  worker:
-    <<: *leadvirt-app
-    command: ["corepack", "pnpm", "--filter", "@leadvirt/worker", "start"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      qdrant:
-        condition: service_started
-      migrate:
-        condition: service_completed_successfully
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:4002/health/ready'').then(async r=>({ok:r.ok,v:await r.json()})).then(x=>process.exit(x.ok&&x.v.ready&&x.v.active?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 10s
 
   web:
     <<: *leadvirt-app
@@ -118,12 +160,29 @@ services:
       - "127.0.0.1:9090:9090"
     volumes:
       - ./observability/prometheus.staging.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/knowledge-alerts.yml:/etc/prometheus/knowledge-alerts.yml:ro
       - prometheus_data:/prometheus
     depends_on:
       api:
         condition: service_healthy
       worker:
         condition: service_started
+      otel-collector:
+        condition: service_started
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.156.0
+    restart: unless-stopped
+    profiles:
+      - observability
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    ports:
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:13133:13133"
+    volumes:
+      - ./observability/otel-collector.yml:/etc/otelcol-contrib/config.yml:ro
+    depends_on:
+      - tempo
 
   tempo:
     image: grafana/tempo:2.6.1
@@ -133,7 +192,6 @@ services:
     command: ["-config.file=/etc/tempo/tempo.yml"]
     ports:
       - "127.0.0.1:3200:3200"
-      - "127.0.0.1:4318:4318"
     volumes:
       - ./observability/tempo.yml:/etc/tempo/tempo.yml:ro
       - tempo_data:/var/tempo
@@ -161,6 +219,8 @@ volumes:
   postgres_data:
   redis_data:
   qdrant_data:
+  knowledge_artifacts:
+  clamav_data:
   prometheus_data:
   grafana_data:
   tempo_data:

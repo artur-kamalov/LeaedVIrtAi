@@ -13,8 +13,8 @@ const authResponse = {
     role: "OWNER",
     authMode: "telegram",
     passwordChangeRequired: false,
-    expiresAt: "2026-07-27T00:00:00.000Z"
-  }
+    expiresAt: "2026-07-27T00:00:00.000Z",
+  },
 };
 
 const emailAuthResponse = {
@@ -34,14 +34,14 @@ const currentTenantResponse = {
     status: "TRIALING",
     businessType: "education",
     timezone: "Europe/Moscow",
-    role: "OWNER"
-  }
+    role: "OWNER",
+  },
 };
 
 const apiMockHeaders = {
   "access-control-allow-origin": webBase,
   "access-control-allow-credentials": "true",
-  "content-type": "application/json"
+  "content-type": "application/json",
 };
 
 const telegramWidgetPayload = {
@@ -50,7 +50,7 @@ const telegramWidgetPayload = {
   last_name: "Telegram",
   username: "leadvirt_local",
   auth_date: 1783728000,
-  hash: "signed-widget-payload"
+  hash: "signed-widget-payload",
 };
 
 const telegramWidgetMock = `
@@ -72,7 +72,7 @@ const telegramWidgetMock = `
   button.textContent = "Log in with Telegram";
   button.addEventListener("click", () => {
     const payload = testWindow.leadvirtTelegramNextPayload || ${JSON.stringify(telegramWidgetPayload)};
-    new Function("user", script.getAttribute("data-onauth"))(payload);
+    testWindow.__leadvirtTelegramAuth(payload);
   });
   script.parentNode.insertBefore(button, script);
 `;
@@ -87,15 +87,23 @@ test.describe("telegram auth flow", () => {
   test.setTimeout(60_000);
 
   test.beforeEach(async ({ page }) => {
-    await page.context().addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
+    await page
+      .context()
+      .addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
     await page.route("**/api/auth/email-otp/config", async (route) => {
-      await route.fulfill({ headers: apiMockHeaders, json: { data: { enabled: false, codeLength: 6, resendAfterSeconds: 60 } } });
+      await route.fulfill({
+        headers: apiMockHeaders,
+        json: { data: { enabled: false, codeLength: 6, resendAfterSeconds: 60 } },
+      });
     });
     await page.route("https://telegram.org/js/telegram-widget.js**", async (route) => {
       await route.fulfill({ contentType: "application/javascript", body: telegramWidgetMock });
     });
     await page.route("**/api/auth/telegram/config", async (route) => {
-      await route.fulfill({ headers: apiMockHeaders, json: { data: { botId: "123456", botUsername: "LeadVirtAi_bot" } } });
+      await route.fulfill({
+        headers: apiMockHeaders,
+        json: { data: { botId: "123456", botUsername: "LeadVirtAi_bot" } },
+      });
     });
     await page.route("**/api/auth/me", async (route) => {
       await route.fulfill({ headers: apiMockHeaders, json: authResponse });
@@ -123,10 +131,23 @@ test.describe("telegram auth flow", () => {
     await expect(page.getByRole("heading", { level: 2 })).toContainText("LeadVirt.ai");
     await expect(page.getByTestId("telegram-brand-button")).toBeVisible();
     await expect(page.getByTestId("telegram-switch-account")).toHaveCount(0);
+    await page.evaluate(() => {
+      window.localStorage.setItem(
+        "leadvirt.auth.session",
+        JSON.stringify({ email: "legacy@example.com", authMode: "credentials" }),
+      );
+    });
     await completeTelegramAuth(page);
 
     await expect(page).toHaveURL(`${webBase}/app`, { timeout: 30000 });
-    const scripts = await page.evaluate(() => (window as Window & { leadvirtTelegramWidgetScripts?: Array<Record<string, string | null>> }).leadvirtTelegramWidgetScripts ?? []);
+    const scripts = await page.evaluate(
+      () =>
+        (
+          window as Window & {
+            leadvirtTelegramWidgetScripts?: Array<Record<string, string | null>>;
+          }
+        ).leadvirtTelegramWidgetScripts ?? [],
+    );
     expect(scripts[0]).toMatchObject({
       login: "LeadVirtAi_bot",
       size: "large",
@@ -134,10 +155,12 @@ test.describe("telegram auth flow", () => {
       radius: "12",
       requestAccess: "write",
       lang: "ru",
-      onauth: "window.__leadvirtTelegramAuth(user)"
+      onauth: "window.__leadvirtTelegramAuth(user)",
     });
     expect(oidcRequests).toBe(0);
-    await expect.poll(async () => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session") ?? "")).toContain("telegram");
+    await expect
+      .poll(async () => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session")))
+      .toBeNull();
   });
 
   test("invalid Telegram widget payload stays on login", async ({ page }) => {
@@ -153,7 +176,9 @@ test.describe("telegram auth flow", () => {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
     await page.evaluate(() => {
-      (window as Window & { leadvirtTelegramNextPayload?: unknown }).leadvirtTelegramNextPayload = { id: 100000001 };
+      (window as Window & { leadvirtTelegramNextPayload?: unknown }).leadvirtTelegramNextPayload = {
+        id: 100000001,
+      };
     });
 
     await expect(page.getByRole("heading", { level: 2 })).toContainText("LeadVirt.ai");
@@ -168,7 +193,10 @@ test.describe("telegram auth flow", () => {
     await page.route("**/api/auth/telegram", async (route) => {
       const body = route.request().postDataJSON() as typeof telegramWidgetPayload;
       expect(body).toMatchObject(telegramWidgetPayload);
-      await route.fulfill({ headers: apiMockHeaders, json: { data: { ...authResponse.data, isNewUser: true } } });
+      await route.fulfill({
+        headers: apiMockHeaders,
+        json: { data: { ...authResponse.data, isNewUser: true } },
+      });
     });
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -178,7 +206,48 @@ test.describe("telegram auth flow", () => {
     await completeTelegramAuth(page);
 
     await expect(page).toHaveURL(`${webBase}/onboarding`, { timeout: 15000 });
-    await expect.poll(async () => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session") ?? "")).toContain("telegram");
+    await expect
+      .poll(async () => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session")))
+      .toBeNull();
+  });
+});
+
+test.describe("email OTP configuration", () => {
+  test("keeps a transient configuration failure distinct and retries", async ({ page }) => {
+    let configRequests = 0;
+    let configAvailable = false;
+    await page
+      .context()
+      .addCookies([{ name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" }]);
+    await page.route("**/api/auth/email-otp/config", async (route) => {
+      configRequests += 1;
+      if (!configAvailable) {
+        await route.fulfill({
+          status: 503,
+          headers: apiMockHeaders,
+          json: { error: { code: "SERVICE_UNAVAILABLE", message: "Temporary outage" } },
+        });
+        return;
+      }
+      await route.fulfill({
+        headers: apiMockHeaders,
+        json: { data: { enabled: true, codeLength: 6, resendAfterSeconds: 60 } },
+      });
+    });
+
+    await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
+    await expect(page.getByTestId("email-otp-config-error")).toBeVisible();
+    await expect(page.getByTestId("auth-method-email")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("auth-method-telegram")).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+
+    const requestsBeforeRetry = configRequests;
+    configAvailable = true;
+    await page.getByTestId("email-otp-config-retry").click();
+    await expect(page.getByTestId("email-otp-request-form")).toBeVisible();
+    expect(configRequests).toBeGreaterThan(requestsBeforeRetry);
   });
 });
 
@@ -186,9 +255,14 @@ test.describe("email OTP auth flow", () => {
   test.setTimeout(60_000);
 
   test.beforeEach(async ({ page }) => {
-    await page.context().addCookies([{ name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" }]);
+    await page
+      .context()
+      .addCookies([{ name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" }]);
     await page.route("**/api/auth/email-otp/config", async (route) => {
-      await route.fulfill({ headers: apiMockHeaders, json: { data: { enabled: true, codeLength: 6, resendAfterSeconds: 60 } } });
+      await route.fulfill({
+        headers: apiMockHeaders,
+        json: { data: { enabled: true, codeLength: 6, resendAfterSeconds: 60 } },
+      });
     });
     await page.route("**/api/auth/me", async (route) => {
       await route.fulfill({ headers: apiMockHeaders, json: emailAuthResponse });
@@ -198,7 +272,7 @@ test.describe("email OTP auth flow", () => {
     });
   });
 
-  test("email code login opens the app and persists email auth mode", async ({ page }) => {
+  test("email code login opens the app without persisting identity data", async ({ page }) => {
     let requestCount = 0;
     let verifyCount = 0;
     await page.route("**/api/auth/email-otp/request", async (route) => {
@@ -219,7 +293,10 @@ test.describe("email OTP auth flow", () => {
     });
     await page.route("**/api/auth/email-otp/verify", async (route) => {
       verifyCount += 1;
-      expect(route.request().postDataJSON()).toEqual({ challengeId: "a".repeat(48), code: "384921" });
+      expect(route.request().postDataJSON()).toEqual({
+        challengeId: "a".repeat(48),
+        code: "384921",
+      });
       await route.fulfill({ headers: apiMockHeaders, json: emailAuthResponse });
     });
 
@@ -233,14 +310,19 @@ test.describe("email OTP auth flow", () => {
     await expect(page.getByTestId("email-otp-resend")).toBeDisabled();
     await expect(page.getByTestId("email-otp-code-input").locator("input")).toHaveCount(6);
     if (process.env.LEADVIRT_EMAIL_AUTH_SCREENSHOTS === "1") {
-      await page.screenshot({ path: "artifacts/screenshots/email-auth-code-desktop.png", animations: "disabled" });
+      await page.screenshot({
+        path: "artifacts/screenshots/email-auth-code-desktop.png",
+        animations: "disabled",
+      });
     }
     await page.getByTestId("email-otp-verify").click();
 
     await expect(page).toHaveURL(`${webBase}/app`, { timeout: 30_000 });
     expect(requestCount).toBe(1);
     expect(verifyCount).toBe(1);
-    await expect.poll(async () => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session") ?? "")).toContain('"authMode":"email"');
+    await expect
+      .poll(async () => page.evaluate(() => window.localStorage.getItem("leadvirt.auth.session")))
+      .toBeNull();
   });
 
   test("email code signup opens onboarding on mobile", async ({ page }) => {
@@ -259,7 +341,10 @@ test.describe("email OTP auth flow", () => {
       });
     });
     await page.route("**/api/auth/email-otp/verify", async (route) => {
-      await route.fulfill({ headers: apiMockHeaders, json: { data: { ...emailAuthResponse.data, isNewUser: true } } });
+      await route.fulfill({
+        headers: apiMockHeaders,
+        json: { data: { ...emailAuthResponse.data, isNewUser: true } },
+      });
     });
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -267,7 +352,10 @@ test.describe("email OTP auth flow", () => {
     await page.getByLabel("Work email").fill("new-owner@example.com");
     await page.getByTestId("email-otp-request").click();
     if (process.env.LEADVIRT_EMAIL_AUTH_SCREENSHOTS === "1") {
-      await page.screenshot({ path: "artifacts/screenshots/email-auth-code-mobile.png", animations: "disabled" });
+      await page.screenshot({
+        path: "artifacts/screenshots/email-auth-code-mobile.png",
+        animations: "disabled",
+      });
     }
     await page.getByTestId("email-otp-verify").click();
     await expect(page).toHaveURL(`${webBase}/onboarding`, { timeout: 15_000 });
@@ -289,7 +377,10 @@ test.describe("email OTP auth flow", () => {
       });
     });
     await page.route("**/api/auth/email-otp/verify", async (route) => {
-      await route.fulfill({ headers: apiMockHeaders, json: { data: { ...emailAuthResponse.data, isNewUser: false } } });
+      await route.fulfill({
+        headers: apiMockHeaders,
+        json: { data: { ...emailAuthResponse.data, isNewUser: false } },
+      });
     });
 
     await page.goto(`${webBase}/signup`, { waitUntil: "networkidle" });
@@ -298,5 +389,55 @@ test.describe("email OTP auth flow", () => {
     await page.getByTestId("email-otp-verify").click();
 
     await expect(page).toHaveURL(`${webBase}/app`, { timeout: 15_000 });
+  });
+});
+
+test.describe("authenticated route guard", () => {
+  test.beforeEach(async ({ context }) => {
+    await context.addCookies([
+      { name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" },
+    ]);
+  });
+
+  test("redirects to login only when the session is unauthorized", async ({ page }) => {
+    await page.route("**/api/auth/me", async (route) => {
+      await route.fulfill({
+        status: 401,
+        headers: apiMockHeaders,
+        json: { error: { code: "UNAUTHORIZED", message: "Authentication required" } },
+      });
+    });
+
+    await page.goto(`${webBase}/app`);
+
+    await expect(page).toHaveURL(`${webBase}/login`, { timeout: 15_000 });
+  });
+
+  test("preserves the session and retries a transient auth check", async ({ page }) => {
+    let authChecks = 0;
+    await page.route("**/api/auth/me", async (route) => {
+      authChecks += 1;
+      if (authChecks === 1) {
+        await route.fulfill({
+          status: 503,
+          headers: apiMockHeaders,
+          json: { error: { code: "SERVICE_UNAVAILABLE", message: "Temporary outage" } },
+        });
+        return;
+      }
+      await route.fulfill({ headers: apiMockHeaders, json: authResponse });
+    });
+    await page.route("**/api/current-tenant", async (route) => {
+      await route.fulfill({ headers: apiMockHeaders, json: currentTenantResponse });
+    });
+
+    await page.goto(`${webBase}/app`);
+
+    await expect(page).toHaveURL(`${webBase}/app`);
+    await expect(page.getByTestId("auth-check-error")).toBeVisible();
+    await expect(page.getByText("Your session is preserved.", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "Try again" }).click();
+    await expect(page.getByTestId("product-shell")).toBeVisible({ timeout: 15_000 });
+    expect(authChecks).toBeGreaterThanOrEqual(2);
   });
 });

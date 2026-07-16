@@ -1,10 +1,23 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { Queue, type ConnectionOptions } from "bullmq";
 import { AI_PROVIDER_TOKEN, type AiProvider } from "@leadvirt/ai";
-import type { AiDraftReply, Channel, ChannelSendMessageJobData, ConversationDetail, Lead, Message, PaginatedEnvelope } from "@leadvirt/types";
-import type { Prisma } from "@leadvirt/db";
+import {
+  decryptIntegrationCredentials,
+  readWebhookOutboundConfiguration,
+} from "@leadvirt/integrations";
+import type {
+  AiDraftReply,
+  Channel,
+  ChannelSendMessageJobData,
+  ConversationDetail,
+  Lead,
+  Message,
+  PaginatedEnvelope,
+} from "@leadvirt/types";
+import { Prisma } from "@leadvirt/db";
 import { positiveInt } from "../../common/pagination.js";
 import type { RequestContext } from "../../common/request-context.js";
+import { RuntimeQueueService } from "../ai/runtime-queue.service.js";
+import { projectChannelSettings } from "../channels/channel-settings.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type { AssignConversationDto } from "./dto/assign-conversation.dto.js";
 import type { ListConversationsDto } from "./dto/list-conversations.dto.js";
@@ -19,36 +32,51 @@ type ConversationWithPreview = Prisma.ConversationGetPayload<{
   include: {
     lead: { include: { assignedTo: { select: { name: true } } } };
     channel: true;
-    messages: { orderBy: { createdAt: "desc" }; take: 1 };
+    messages: { orderBy: [{ createdAt: "desc" }, { id: "desc" }]; take: 1 };
   };
 }>;
 
 type ConversationWithDetail = Prisma.ConversationGetPayload<{
   include: {
-    lead: { include: { assignedTo: { select: { name: true } }; events: { orderBy: { createdAt: "desc" }; take: 20 } } };
+    lead: {
+      include: {
+        assignedTo: { select: { name: true } };
+        events: { orderBy: { createdAt: "desc" }; take: 20 };
+      };
+    };
     channel: true;
-    messages: { orderBy: { createdAt: "asc" }; include: { attachments: true } };
+    messages: {
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }];
+      include: { attachments: true };
+    };
   };
 }>;
 
-function channelSendSource(channel: ConversationWithDetail["channel"]): ChannelSendMessageJobData["source"] | null {
-  if (!channel || channel.status !== "ACTIVE") return null;
+function channelSendSource(
+  channel: ConversationWithDetail["channel"],
+): ChannelSendMessageJobData["source"] | null {
+  if (!channel) return null;
+  if (channel.type === "WEBHOOK" && channel.status !== "ACTIVE") {
+    throw new BadRequestException("Activate the webhook channel before sending replies.");
+  }
+  if (channel.status !== "ACTIVE") return null;
   if (channel.type === "TELEGRAM") return "telegram";
-  if (channel.type === "WEBHOOK") return "webhook";
+  if (channel.type === "WEBHOOK") {
+    try {
+      readWebhookOutboundConfiguration(
+        channel.settings,
+        channel.encryptedCredentials
+          ? decryptIntegrationCredentials(channel.encryptedCredentials)
+          : undefined,
+      );
+    } catch {
+      throw new BadRequestException(
+        "Configure a valid outbound webhook target before sending replies.",
+      );
+    }
+    return "webhook";
+  }
   return null;
-}
-
-function connectionFromRedisUrl(redisUrl: string): ConnectionOptions {
-  const parsed = new URL(redisUrl);
-  const connection: ConnectionOptions = {
-    host: parsed.hostname,
-    port: Number(parsed.port || 6380),
-    maxRetriesPerRequest: null
-  };
-
-  if (parsed.username) connection.username = decodeURIComponent(parsed.username);
-  if (parsed.password) connection.password = decodeURIComponent(parsed.password);
-  return connection;
 }
 
 function attachmentKind(mimeType?: string) {
@@ -65,10 +93,14 @@ function attachmentSummary(attachments: NonNullable<SendMessageDto["attachments"
 export class ConversationsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(AI_PROVIDER_TOKEN) private readonly aiProvider: AiProvider
+    @Inject(AI_PROVIDER_TOKEN) private readonly aiProvider: AiProvider,
+    @Inject(RuntimeQueueService) private readonly runtimeQueue: RuntimeQueueService,
   ) {}
 
-  async list(context: RequestContext, query: ListConversationsDto): Promise<PaginatedEnvelope<ConversationDetail>> {
+  async list(
+    context: RequestContext,
+    query: ListConversationsDto,
+  ): Promise<PaginatedEnvelope<ConversationDetail>> {
     const where: Prisma.ConversationWhereInput = {
       tenantId: context.tenantId,
       deletedAt: null,
@@ -79,10 +111,10 @@ export class ConversationsService {
             OR: [
               { subject: { contains: query.search, mode: "insensitive" } },
               { lead: { name: { contains: query.search, mode: "insensitive" } } },
-              { messages: { some: { text: { contains: query.search, mode: "insensitive" } } } }
-            ]
+              { messages: { some: { text: { contains: query.search, mode: "insensitive" } } } },
+            ],
           }
-        : {})
+        : {}),
     };
 
     const page = positiveInt(query.page, 1, 100);
@@ -94,12 +126,12 @@ export class ConversationsService {
         include: {
           lead: { include: { assignedTo: { select: { name: true } } } },
           channel: true,
-          messages: { orderBy: { createdAt: "desc" }, take: 1 }
+          messages: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 },
         },
         orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
         skip: (page - 1) * limit,
-        take: limit
-      })
+        take: limit,
+      }),
     ]);
 
     return {
@@ -108,8 +140,8 @@ export class ConversationsService {
         page,
         limit,
         total,
-        hasMore: page * limit < total
-      }
+        hasMore: page * limit < total,
+      },
     };
   }
 
@@ -127,12 +159,16 @@ export class ConversationsService {
       ...(context.tenant.businessType ? { businessType: context.tenant.businessType } : {}),
       messages: conversation.messages.map((message) => ({
         role: message.senderType === "AI" ? "assistant" : "user",
-        content: message.text ?? ""
-      }))
+        content: message.text ?? "",
+      })),
     });
   }
 
-  async sendMessage(context: RequestContext, id: string, dto: SendMessageDto): Promise<ConversationDetail> {
+  async sendMessage(
+    context: RequestContext,
+    id: string,
+    dto: SendMessageDto,
+  ): Promise<ConversationDetail> {
     const conversation = await this.loadConversation(context.tenantId, id);
     const createdAt = new Date();
     const attachments = dto.attachments ?? [];
@@ -142,157 +178,175 @@ export class ConversationsService {
     }
     const deliverySource = text ? channelSendSource(conversation.channel) : null;
 
-    const userMessage = await this.prisma.message.create({
-      data: {
-        tenantId: context.tenantId,
-        conversationId: conversation.id,
-        direction: "OUTBOUND",
-        senderType: "USER",
-        senderUserId: context.userId,
-        text: text || null,
-        status: deliverySource ? "QUEUED" : "SENT",
-        ...(deliverySource ? { metadata: { outboundStatus: "queued", attachmentCount: attachments.length } } : {}),
-        createdAt,
-        updatedAt: createdAt
-      }
-    });
-
-    if (attachments.length > 0) {
-      await this.prisma.messageAttachment.createMany({
-        data: attachments.map((attachment) => ({
-          tenantId: context.tenantId,
-          messageId: userMessage.id,
-          kind: attachmentKind(attachment.mimeType),
-          url: attachment.dataUrl,
-          ...(attachment.filename ? { filename: attachment.filename } : {}),
-          ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
-          ...(typeof attachment.sizeBytes === "number" ? { sizeBytes: attachment.sizeBytes } : {})
-        }))
-      });
-    }
-
-    await this.prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { lastMessageAt: createdAt, updatedAt: createdAt }
-    });
-
-    const deliveryJobId = deliverySource ? await this.enqueueChannelDelivery(context, conversation.id, userMessage.id, deliverySource, createdAt) : null;
-    if (deliveryJobId) {
-      await this.prisma.message.update({
-        where: { id: userMessage.id },
-        data: {
-          metadata: {
-            outboundStatus: "queued",
-            deliveryJobId
-          }
-        }
-      });
-    }
-
-    if (conversation.leadId) {
-      await this.prisma.leadEvent.create({
+    const persisted = await this.prisma.$transaction(async (tx) => {
+      await this.fencePendingAiReply(tx, context.tenantId, conversation.id, "HUMAN_MESSAGE_SENT");
+      const userMessage = await tx.message.create({
         data: {
           tenantId: context.tenantId,
-          leadId: conversation.leadId,
-          type: "message_sent",
-          title: "Message sent",
-          message: text || attachmentSummary(attachments),
-          metadata: { conversationId: conversation.id }
-        }
+          conversationId: conversation.id,
+          direction: "OUTBOUND",
+          senderType: "USER",
+          senderUserId: context.userId,
+          text: text || null,
+          status: deliverySource ? "QUEUED" : "SENT",
+          ...(deliverySource
+            ? {
+                metadata: {
+                  outboundStatus: "queued",
+                  attachmentCount: attachments.length,
+                },
+              }
+            : {}),
+          createdAt,
+          updatedAt: createdAt,
+        },
       });
-    }
+      const deliveryJobId = deliverySource ? `channel-send-${userMessage.id}` : null;
 
-    await this.prisma.auditLog.create({
-      data: {
-        tenantId: context.tenantId,
-        actorUserId: context.userId,
-        action: "message.sent",
-        entityType: "conversation",
-        entityId: conversation.id,
-        payload: {
-          deliverySource,
-          deliveryJobId,
-          attachmentCount: attachments.length
-        }
+      if (attachments.length > 0) {
+        await tx.messageAttachment.createMany({
+          data: attachments.map((attachment) => ({
+            tenantId: context.tenantId,
+            messageId: userMessage.id,
+            kind: attachmentKind(attachment.mimeType),
+            url: attachment.dataUrl,
+            ...(attachment.filename ? { filename: attachment.filename } : {}),
+            ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+            ...(typeof attachment.sizeBytes === "number"
+              ? { sizeBytes: attachment.sizeBytes }
+              : {}),
+          })),
+        });
       }
+
+      await tx.conversation.update({
+        where: { id: conversation.id },
+        data: { lastMessageAt: createdAt, updatedAt: createdAt },
+      });
+
+      const deliveryEvent = deliverySource
+        ? await this.runtimeQueue.createChannelDeliveryEvent(tx, {
+            tenantId: context.tenantId,
+            conversationId: conversation.id,
+            messageId: userMessage.id,
+            source: deliverySource,
+            requestedByUserId: context.userId,
+            requestedAt: createdAt.toISOString(),
+          })
+        : null;
+      if (deliveryEvent && deliveryJobId) {
+        await tx.message.update({
+          where: { id: userMessage.id },
+          data: {
+            metadata: {
+              outboundStatus: "queued",
+              deliveryJobId,
+              deliveryOutboxId: deliveryEvent.id,
+              attachmentCount: attachments.length,
+            },
+          },
+        });
+      }
+
+      if (conversation.leadId) {
+        await tx.leadEvent.create({
+          data: {
+            tenantId: context.tenantId,
+            leadId: conversation.leadId,
+            type: "message_sent",
+            title: "Message sent",
+            message: text || attachmentSummary(attachments),
+            metadata: { conversationId: conversation.id },
+          },
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          tenantId: context.tenantId,
+          actorUserId: context.userId,
+          action: "message.sent",
+          entityType: "conversation",
+          entityId: conversation.id,
+          payload: {
+            deliverySource,
+            deliveryJobId,
+            deliveryOutboxId: deliveryEvent?.id ?? null,
+            attachmentCount: attachments.length,
+          },
+        },
+      });
+      return { deliveryEventId: deliveryEvent?.id ?? null };
     });
+
+    if (persisted.deliveryEventId) this.runtimeQueue.dispatch(persisted.deliveryEventId);
 
     return this.get(context, id);
   }
 
-  private async enqueueChannelDelivery(
+  async updateStatus(
     context: RequestContext,
-    conversationId: string,
-    messageId: string,
-    source: ChannelSendMessageJobData["source"],
-    requestedAt: Date
-  ) {
-    const queue = new Queue<ChannelSendMessageJobData>("channels.sendMessage", {
-      connection: connectionFromRedisUrl(process.env.REDIS_URL ?? "redis://localhost:6380")
-    });
-    const jobId = `channel-send-${messageId}`;
-
-    try {
-      const job = await queue.add(
-        "send-message",
-        {
-          tenantId: context.tenantId,
-          conversationId,
-          messageId,
-          source,
-          requestedByUserId: context.userId,
-          requestedAt: requestedAt.toISOString()
-        } as ChannelSendMessageJobData & { requestedByUserId: string },
-        {
-          jobId,
-          attempts: 3,
-          backoff: { type: "exponential", delay: 1000 },
-          removeOnComplete: { count: 1000 },
-          removeOnFail: { count: 5000 }
-        }
+    id: string,
+    dto: UpdateConversationStatusDto,
+  ): Promise<ConversationDetail> {
+    await this.prisma.$transaction(async (tx) => {
+      await this.fencePendingAiReply(tx, context.tenantId, id, "HUMAN_STATUS_CHANGED");
+      await tx.conversation.update({
+        where: { id },
+        data: {
+          status: dto.status,
+          handoffRequested: dto.status === "WAITING_FOR_HUMAN",
+        },
+      });
+      await this.logConversationAction(
+        context,
+        "conversation.status_changed",
+        id,
+        { status: dto.status },
+        tx,
       );
-      return job.id ?? jobId;
-    } finally {
-      await queue.close().catch(() => undefined);
-    }
-  }
-
-  async updateStatus(context: RequestContext, id: string, dto: UpdateConversationStatusDto): Promise<ConversationDetail> {
-    await this.ensureConversation(context.tenantId, id);
-    const conversation = await this.prisma.conversation.update({
-      where: { id },
-      data: {
-        status: dto.status,
-        handoffRequested: dto.status === "WAITING_FOR_HUMAN"
-      }
     });
-    await this.logConversationAction(context, "conversation.status_changed", conversation.id, { status: dto.status });
     return this.get(context, id);
   }
 
-  async assign(context: RequestContext, id: string, dto: AssignConversationDto): Promise<ConversationDetail> {
-    await this.ensureConversation(context.tenantId, id);
-    await this.prisma.conversation.update({
-      where: { id },
-      data: {
-        assignedToUserId: dto.userId ?? context.userId,
-        status: "WAITING_FOR_HUMAN"
-      }
+  async assign(
+    context: RequestContext,
+    id: string,
+    dto: AssignConversationDto,
+  ): Promise<ConversationDetail> {
+    await this.prisma.$transaction(async (tx) => {
+      await this.fencePendingAiReply(tx, context.tenantId, id, "HUMAN_ASSIGNED");
+      await tx.conversation.update({
+        where: { id },
+        data: {
+          assignedToUserId: dto.userId ?? context.userId,
+          status: "WAITING_FOR_HUMAN",
+          handoffRequested: true,
+        },
+      });
+      await this.logConversationAction(
+        context,
+        "conversation.assigned",
+        id,
+        { userId: dto.userId ?? context.userId },
+        tx,
+      );
     });
-    await this.logConversationAction(context, "conversation.assigned", id, { userId: dto.userId ?? context.userId });
     return this.get(context, id);
   }
 
   async handoff(context: RequestContext, id: string): Promise<ConversationDetail> {
-    await this.ensureConversation(context.tenantId, id);
-    await this.prisma.conversation.update({
-      where: { id },
-      data: {
-        handoffRequested: true,
-        status: "WAITING_FOR_HUMAN"
-      }
+    await this.prisma.$transaction(async (tx) => {
+      await this.fencePendingAiReply(tx, context.tenantId, id, "HUMAN_HANDOFF_REQUESTED");
+      await tx.conversation.update({
+        where: { id },
+        data: {
+          handoffRequested: true,
+          status: "WAITING_FOR_HUMAN",
+        },
+      });
+      await this.logConversationAction(context, "conversation.handoff_requested", id, {}, tx);
     });
-    await this.logConversationAction(context, "conversation.handoff_requested", id, {});
     return this.get(context, id);
   }
 
@@ -303,23 +357,15 @@ export class ConversationsService {
         lead: {
           include: {
             assignedTo: { select: { name: true } },
-            events: { orderBy: { createdAt: "desc" }, take: 20 }
-          }
+            events: { orderBy: { createdAt: "desc" }, take: 20 },
+          },
         },
         channel: true,
-        messages: { orderBy: { createdAt: "asc" }, include: { attachments: true } }
-      }
-    });
-    if (!conversation) {
-      throw new NotFoundException("Conversation was not found.");
-    }
-    return conversation;
-  }
-
-  private async ensureConversation(tenantId: string, id: string) {
-    const conversation = await this.prisma.conversation.findFirst({
-      where: { id, tenantId, deletedAt: null },
-      select: { id: true }
+        messages: {
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          include: { attachments: true },
+        },
+      },
     });
     if (!conversation) {
       throw new NotFoundException("Conversation was not found.");
@@ -341,9 +387,12 @@ export class ConversationsService {
       handoffRequested: conversation.handoffRequested,
       lead: conversation.lead ? this.mapLead(conversation.lead) : null,
       lastMessage: conversation.messages[0]?.text ?? null,
-      unreadCount: conversation.status === "OPEN" ? 1 : 0,
+      unreadCount:
+        conversation.status !== "CLOSED" && conversation.messages[0]?.direction === "INBOUND"
+          ? 1
+          : 0,
       messages: [],
-      events: []
+      events: [],
     };
   }
 
@@ -361,7 +410,10 @@ export class ConversationsService {
       handoffRequested: conversation.handoffRequested,
       lead: conversation.lead ? this.mapLead(conversation.lead) : null,
       lastMessage: conversation.messages.at(-1)?.text ?? null,
-      unreadCount: conversation.status === "OPEN" ? 1 : 0,
+      unreadCount:
+        conversation.status !== "CLOSED" && conversation.messages.at(-1)?.direction === "INBOUND"
+          ? 1
+          : 0,
       messages: conversation.messages.map((message) => this.mapMessage(message)),
       events:
         conversation.lead?.events.map((event) => ({
@@ -370,8 +422,8 @@ export class ConversationsService {
           type: event.type,
           title: event.title,
           message: event.message,
-          createdAt: event.createdAt.toISOString()
-        })) ?? []
+          createdAt: event.createdAt.toISOString(),
+        })) ?? [],
     };
   }
 
@@ -394,7 +446,7 @@ export class ConversationsService {
       assignedToUserId: lead.assignedToUserId,
       assignedToName: lead.assignedTo?.name ?? null,
       lastMessageAt: lead.lastMessageAt?.toISOString() ?? null,
-      createdAt: lead.createdAt.toISOString()
+      createdAt: lead.createdAt.toISOString(),
     };
   }
 
@@ -417,8 +469,8 @@ export class ConversationsService {
         mimeType: attachment.mimeType,
         url: attachment.url,
         sizeBytes: attachment.sizeBytes,
-        createdAt: attachment.createdAt.toISOString()
-      }))
+        createdAt: attachment.createdAt.toISOString(),
+      })),
     };
   }
 
@@ -432,20 +484,98 @@ export class ConversationsService {
       type: channel.type,
       status: channel.status,
       name: channel.name,
-      lastHealthAt: channel.lastHealthAt?.toISOString() ?? null
+      publicKey: channel.publicKey,
+      settings: projectChannelSettings(channel.type, channel.settings),
+      lastHealthAt: channel.lastHealthAt?.toISOString() ?? null,
+      automaticRepliesEnabled: channel.automaticRepliesEnabled,
+      automaticRepliesGeneration: channel.automaticRepliesGeneration,
+      automaticRepliesPublicationId: channel.automaticRepliesPublicationId,
+      automaticRepliesPublicationEtag: channel.automaticRepliesPublicationEtag,
+      automaticRepliesActivatedAt: channel.automaticRepliesActivatedAt?.toISOString() ?? null,
     };
   }
 
-  private async logConversationAction(context: RequestContext, action: string, entityId: string, payload: Prisma.JsonObject) {
-    await this.prisma.auditLog.create({
+  private async fencePendingAiReply(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    conversationId: string,
+    reason: string,
+  ) {
+    const conversations = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id"
+      FROM "Conversation"
+      WHERE "id" = ${conversationId}
+        AND "tenantId" = ${tenantId}
+        AND "deletedAt" IS NULL
+      FOR UPDATE
+    `);
+    if (conversations.length !== 1) {
+      throw new NotFoundException("Conversation was not found.");
+    }
+    await tx.aiReplyRun.updateMany({
+      where: {
+        tenantId,
+        conversationId,
+        status: { in: ["QUEUED", "RUNNING", "RETRY_SCHEDULED", "FAILED", "CANCEL_REQUESTED"] },
+      },
+      data: {
+        status: "SUPERSEDED",
+        completedAt: new Date(),
+        errorCode: reason,
+        errorMessage: null,
+      },
+    });
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE "RuntimeOutbox" AS outbox
+      SET "status" = 'DEAD_LETTER'::"RuntimeOutboxStatus",
+          "lastErrorCode" = ${reason},
+          "lastErrorMessage" = NULL,
+          "lockedAt" = NULL,
+          "lockExpiresAt" = NULL,
+          "lockedBy" = NULL,
+          "updatedAt" = CURRENT_TIMESTAMP
+      WHERE outbox."tenantId" = ${tenantId}
+        AND outbox."eventType" = 'ai.reply.requested'
+        AND outbox."status" IN (
+          'PENDING'::"RuntimeOutboxStatus",
+          'PUBLISHING'::"RuntimeOutboxStatus",
+          'FAILED'::"RuntimeOutboxStatus"
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM "Message" AS message
+          WHERE message."tenantId" = outbox."tenantId"
+            AND message."id" = outbox."aggregateId"
+            AND message."conversationId" = ${conversationId}
+        )
+    `);
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE "Conversation"
+      SET "aiGeneration" = "aiGeneration" + 1,
+          "aiReplySequence" = "aiReplySequence" + 1,
+          "aiReplyFence" = "aiReplySequence" + 1,
+          "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${conversationId}
+        AND "tenantId" = ${tenantId}
+    `);
+  }
+
+  private async logConversationAction(
+    context: RequestContext,
+    action: string,
+    entityId: string,
+    payload: Prisma.JsonObject,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    await db.auditLog.create({
       data: {
         tenantId: context.tenantId,
         actorUserId: context.userId,
         action,
         entityType: "conversation",
         entityId,
-        payload
-      }
+        payload,
+      },
     });
   }
 }

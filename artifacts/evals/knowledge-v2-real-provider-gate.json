@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "policyVersion": "knowledge-v2-real-provider-multilingual-v1",
+  "criticalPassRate": 1,
+  "requiredBehaviors": ["ANSWER", "ABSTAIN", "HANDOFF"],
+  "localeFloors": {
+    "de": {
+      "minRetrievalRecall": 0.85,
+      "minGroundingRate": 0.95,
+      "minSafeBehaviorRate": 0.95,
+      "minCases": 3
+    },
+    "en": {
+      "minRetrievalRecall": 0.9,
+      "minGroundingRate": 0.95,
+      "minSafeBehaviorRate": 0.95,
+      "minCases": 3
+    },
+    "es": {
+      "minRetrievalRecall": 0.85,
+      "minGroundingRate": 0.95,
+      "minSafeBehaviorRate": 0.95,
+      "minCases": 3
+    },
+    "fr": {
+      "minRetrievalRecall": 0.85,
+      "minGroundingRate": 0.95,
+      "minSafeBehaviorRate": 0.95,
+      "minCases": 3
+    },
+    "pt": {
+      "minRetrievalRecall": 0.85,
+      "minGroundingRate": 0.95,
+      "minSafeBehaviorRate": 0.95,
+      "minCases": 3
+    },
+    "ru": {
+      "minRetrievalRecall": 0.85,
+      "minGroundingRate": 0.95,
+      "minSafeBehaviorRate": 0.95,
+      "minCases": 3
+    }
+  }
+}

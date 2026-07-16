@@ -29,6 +29,8 @@ env:
   NEXT_PUBLIC_WEB_URL: https://leadvirt.com
   NEXT_PUBLIC_DEMO_MODE: "false"
   NEXT_PUBLIC_TELEGRAM_LOGIN_BOT: LeadVirtAi_bot
+  EXPECTED_TELEGRAM_BOT_API_BASE_URL: https://147-90-14-240.sslip.io:8443/telegram
+  EXPECTED_TELEGRAM_WEBHOOK_BASE_URL: https://147-90-14-240.sslip.io:8443/telegram-webhook
 
 jobs:
   verify:
@@ -57,6 +59,10 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      qdrant:
+        image: qdrant/qdrant:v1.15.5
+        ports:
+          - 6333:6333
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/leadvirt_ci?schema=public
       REDIS_URL: redis://localhost:6380
@@ -69,6 +75,8 @@ jobs:
       AI_ENABLE_REAL_PROVIDER: "false"
       AI_REPLY_MODE: queue
       RAG_QDRANT_ENABLED: "false"
+      RAG_RETRIEVAL_MODE: "database"
+      RAG_QDRANT_URL: http://localhost:6333
 
     steps:
       - name: Checkout
@@ -97,6 +105,13 @@ jobs:
       - name: Prepare quality gate database
         run: corepack pnpm --filter @leadvirt/db db:migrate
 
+      - name: Verify tenant transaction context
+        run: |
+          corepack pnpm --filter @leadvirt/db typecheck
+          corepack pnpm --filter @leadvirt/db lint
+          corepack pnpm --filter @leadvirt/db build
+          corepack pnpm run qa:db:tenant-context
+
       - name: Typecheck shared types
         run: corepack pnpm --filter @leadvirt/types typecheck
 
@@ -106,6 +121,15 @@ jobs:
           corepack pnpm --filter @leadvirt/integrations lint
           corepack pnpm --filter @leadvirt/integrations build
           corepack pnpm --filter @leadvirt/integrations runtime-check
+
+      - name: Verify knowledge and runtime queue packages
+        run: |
+          corepack pnpm --filter @leadvirt/knowledge typecheck
+          corepack pnpm --filter @leadvirt/knowledge lint
+          corepack pnpm --filter @leadvirt/knowledge build
+          corepack pnpm --filter @leadvirt/runtime-queue typecheck
+          corepack pnpm --filter @leadvirt/runtime-queue lint
+          corepack pnpm --filter @leadvirt/runtime-queue build
 
       - name: Verify API
         run: |
@@ -126,7 +150,10 @@ jobs:
           corepack pnpm --filter @leadvirt/worker build
 
       - name: Verify release readiness scripts
-        run: corepack pnpm run qa:release-readiness
+        run: |
+          bash -n artifacts/scripts/deployment-journal.sh
+          corepack pnpm run qa:release-readiness
+          corepack pnpm run qa:runtime:readiness
 
       - name: Verify UniSender email OTP contract
         run: corepack pnpm run qa:auth:unisender-contract
@@ -145,36 +172,157 @@ jobs:
       - name: Verify AI quality gate
         run: corepack pnpm run qa:ai:quality
 
-      - name: Verify AI clean Telegram acceptance
+      - name: Verify Phase 0 knowledge and reply reliability
+        run: |
+          corepack pnpm run qa:knowledge:publication
+          corepack pnpm run qa:knowledge:graph
+          corepack pnpm run qa:knowledge:qdrant-failure
+          corepack pnpm run qa:knowledge:qdrant-reconciliation
+          corepack pnpm run qa:knowledge:v2:http
+          corepack pnpm run qa:knowledge:v2:idempotency
+          corepack pnpm run qa:knowledge:v2:sources
+          corepack pnpm run qa:knowledge:v2:feedback
+          corepack pnpm run qa:knowledge:v2:review
+          corepack pnpm run qa:knowledge:v2:review-decisions
+          corepack pnpm run qa:knowledge:v2:conflict-hydration
+          corepack pnpm run qa:knowledge:v2:bulk-review
+          corepack pnpm run qa:knowledge:v2:test-cases
+          corepack pnpm run qa:knowledge:v2:processor-query-admission
+          corepack pnpm run qa:knowledge:v2:query-key-registry
+          corepack pnpm run qa:knowledge:v2:operational-query
+          corepack pnpm run qa:knowledge:v2:operational-runtime
+          corepack pnpm run qa:knowledge:v2:diagnostic-search
+          corepack pnpm run qa:knowledge:v2:live-tool-ledger
+          corepack pnpm run qa:knowledge:v2:grounded-gate
+          corepack pnpm run qa:knowledge:v2:grounded-test-run
+          corepack pnpm run qa:knowledge:v2:evaluation-publication
+          corepack pnpm run qa:knowledge:v2:real-provider-contract
+          corepack pnpm run qa:knowledge:v2:content-reconciliation
+          corepack pnpm run qa:knowledge:file-admission
+          corepack pnpm run qa:knowledge:v2:file-ingestion
+          corepack pnpm run qa:onboarding:atomic
+          corepack pnpm run qa:operator:operations
+          corepack pnpm run qa:knowledge:v2:hybrid-qdrant
+          corepack pnpm run qa:knowledge:v2:hybrid-qdrant-real
+          corepack pnpm run qa:knowledge:v2:review-schema
+          corepack pnpm run qa:knowledge:v2:legacy-migration
+          corepack pnpm run qa:knowledge:v2:observability
+          corepack pnpm run qa:knowledge:v2:publication-telemetry
+          corepack pnpm run qa:knowledge:website-security
+          corepack pnpm run qa:knowledge:website-connector
+          corepack pnpm run qa:knowledge:website-parser
+          corepack pnpm run qa:knowledge:website-content-security
+          corepack pnpm run qa:knowledge:object-store
+          corepack pnpm run qa:knowledge:v2:ingestion
+          corepack pnpm run qa:runtime:outbox
+          corepack pnpm run qa:runtime:inbox
+          corepack pnpm run qa:runtime:manual-delivery
+          corepack pnpm run qa:runtime:relationships
+          corepack pnpm run qa:ai:reply-reliability
+          corepack pnpm run qa:ai:structured-reply
+          corepack pnpm run qa:channels:delivery
+          corepack pnpm run qa:channels:structured-delivery
+          corepack pnpm run qa:webhook:reliability
+          corepack pnpm run qa:worker:dlq
+          corepack pnpm run qa:rbac:knowledge
+
+      - name: Verify AI and Knowledge acceptance
         env:
+          APP_ENV: acceptance
           LEADVIRT_API_BASE: http://localhost:4001/api
+          LEADVIRT_WEB_BASE: http://localhost:3001
+          NEXT_PUBLIC_API_URL: http://localhost:4001/api
           WORKER_ENABLE_PROCESSORS: "true"
           WORKER_METRICS_PORT: "4002"
           WORKER_METRICS_URL: http://localhost:4002/metrics
+          RAG_QDRANT_ENABLED: "true"
+          RAG_RETRIEVAL_MODE: qdrant
+          RAG_QDRANT_URL: http://localhost:6333
+          RAG_QDRANT_COLLECTION: leadvirt_knowledge_acceptance
+          RAG_QDRANT_TIMEOUT_MS: "5000"
+          RAG_MIN_SCORE: "0.01"
+          RAG_CANDIDATE_LIMIT: "50"
+          AI_API_KEY: acceptance-only
+          AI_BASE_URL: http://127.0.0.1:4011/v1
+          KNOWLEDGE_EMBEDDING_PROVIDER_APPROVED: "true"
+          KNOWLEDGE_V2_EMBEDDING_MODEL: acceptance-embedding-v1
+          KNOWLEDGE_V2_EMBEDDING_DIMENSIONS: "16"
+          KNOWLEDGE_V2_EMBEDDING_BATCH_SIZE: "16"
+          KNOWLEDGE_V2_EMBEDDING_DEPLOYMENT: acceptance-embedding
+          KNOWLEDGE_V2_EMBEDDING_REGION: local-acceptance
+          KNOWLEDGE_V2_EMBEDDING_POLICY_VERSION: external-embedding-v1
+          KNOWLEDGE_V2_EXTERNAL_EMBEDDING_MAX_CLASSIFICATION: INTERNAL
+          KNOWLEDGE_V2_RETRIEVAL_POLICY_VERSION: external-retrieval-v1
+          KNOWLEDGE_V2_QUERY_EMBEDDING_MAX_CLASSIFICATION: SECRET
+          KNOWLEDGE_V2_RERANKER_MAX_CLASSIFICATION: INTERNAL
+          KNOWLEDGE_V2_SPARSE_MAX_NON_ZERO: "256"
+          KNOWLEDGE_V2_RERANKER_APPROVED: "true"
+          KNOWLEDGE_V2_RERANKER_ENDPOINT: http://127.0.0.1:4011/rerank
+          KNOWLEDGE_V2_RERANKER_PROVIDER: acceptance-reranker
+          KNOWLEDGE_V2_RERANKER_MODEL: acceptance-reranker-v1
+          KNOWLEDGE_V2_RERANKER_VERSION: v1
+          KNOWLEDGE_V2_RERANKER_REGION: local-acceptance
+          KNOWLEDGE_V2_GROUNDED_ANSWER_APPROVED: "true"
+          KNOWLEDGE_V2_GROUNDED_ANSWER_BASE_URL: http://127.0.0.1:4011/v1
+          KNOWLEDGE_V2_GROUNDED_ANSWER_API_KEY: acceptance-only
+          KNOWLEDGE_V2_GROUNDED_ANSWER_PROVIDER: acceptance-grounded
+          KNOWLEDGE_V2_GROUNDED_ANSWER_MODEL: acceptance-grounded-v1
+          KNOWLEDGE_V2_GROUNDED_ANSWER_VERSION: v1
+          KNOWLEDGE_V2_GROUNDED_ANSWER_REGION: local-acceptance
+          KNOWLEDGE_V2_MODEL_PROCESSOR_POLICY_VERSION: external-model-v1
+          KNOWLEDGE_V2_GROUNDED_PROMPT_POLICY_VERSION: grounded-answer-v1
+          KNOWLEDGE_V2_MODEL_PROCESSOR_MAX_CLASSIFICATION: INTERNAL
+          KNOWLEDGE_WEBSITE_IMPORT_ENABLED: "true"
+          KNOWLEDGE_WEBSITE_EGRESS_READY: "true"
+          KNOWLEDGE_ACCEPTANCE_WEBSITE_FIXTURE_ENABLED: "true"
+          KNOWLEDGE_OBJECT_STORE_PATH: /tmp/leadvirt-knowledge-acceptance
+          KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+          KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY_ID: acceptance-artifact-v1
+          KNOWLEDGE_QUERY_HMAC_ACTIVE_KEY_ID: acceptance-query-v1
+          KNOWLEDGE_QUERY_HMAC_KEYS: '{"acceptance-query-v1":"CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk="}'
+          KNOWLEDGE_ACCEPTANCE_PROVIDER_URL: http://127.0.0.1:4011
         run: |
           set -euo pipefail
           mkdir -p artifacts/logs
           cleanup() {
             if [ -f artifacts/logs/ci-api.pid ]; then kill "$(cat artifacts/logs/ci-api.pid)" 2>/dev/null || true; fi
             if [ -f artifacts/logs/ci-worker.pid ]; then kill "$(cat artifacts/logs/ci-worker.pid)" 2>/dev/null || true; fi
+            if [ -f artifacts/logs/ci-web.pid ]; then kill "$(cat artifacts/logs/ci-web.pid)" 2>/dev/null || true; fi
+            if [ -f artifacts/logs/ci-knowledge-provider.pid ]; then kill "$(cat artifacts/logs/ci-knowledge-provider.pid)" 2>/dev/null || true; fi
+            rm -rf /tmp/leadvirt-knowledge-acceptance
           }
           trap cleanup EXIT
+          node artifacts/scripts/knowledge-fresh-owner-provider-fixture.mjs > artifacts/logs/ci-knowledge-provider.log 2> artifacts/logs/ci-knowledge-provider.err.log &
+          echo "$!" > artifacts/logs/ci-knowledge-provider.pid
           corepack pnpm --filter @leadvirt/api dev > artifacts/logs/ci-api.log 2> artifacts/logs/ci-api.err.log &
           echo "$!" > artifacts/logs/ci-api.pid
           WORKER_ENABLE_PROCESSORS=true WORKER_METRICS_PORT=4002 corepack pnpm --filter @leadvirt/worker dev > artifacts/logs/ci-worker.log 2> artifacts/logs/ci-worker.err.log &
           echo "$!" > artifacts/logs/ci-worker.pid
+          NEXT_PUBLIC_API_URL=http://localhost:4001/api corepack pnpm --filter @leadvirt/web dev > artifacts/logs/ci-web.log 2> artifacts/logs/ci-web.err.log &
+          echo "$!" > artifacts/logs/ci-web.pid
           for attempt in $(seq 1 60); do
-            if curl -fsS http://localhost:4001/health >/dev/null 2>&1 && curl -fsS http://localhost:4002/metrics >/dev/null 2>&1; then
+            if curl -fsS http://127.0.0.1:4011/health >/dev/null 2>&1 && curl -fsS http://localhost:6333/healthz >/dev/null 2>&1 && curl -fsS http://localhost:4001/health/ready >/dev/null 2>&1 && curl -fsS http://localhost:4002/health/ready >/dev/null 2>&1 && curl -fsS http://localhost:4002/metrics >/dev/null 2>&1 && curl -fsS http://localhost:3001/app/knowledge >/dev/null 2>&1; then
               break
             fi
             if [ "$attempt" = "60" ]; then
-              echo "API/worker did not become ready" >&2
-              tail -n 120 artifacts/logs/ci-api.log artifacts/logs/ci-api.err.log artifacts/logs/ci-worker.log artifacts/logs/ci-worker.err.log || true
+              echo "API/worker/web did not become ready" >&2
+              tail -n 120 artifacts/logs/ci-knowledge-provider.log artifacts/logs/ci-knowledge-provider.err.log artifacts/logs/ci-api.log artifacts/logs/ci-api.err.log artifacts/logs/ci-worker.log artifacts/logs/ci-worker.err.log artifacts/logs/ci-web.log artifacts/logs/ci-web.err.log || true
               exit 1
             fi
             sleep 2
           done
           corepack pnpm run qa:auth:email-otp
+          corepack pnpm dlx @playwright/test test artifacts/playwright/onboarding-knowledge-sources.spec.ts --reporter=line --workers=1
+          corepack pnpm dlx @playwright/test test artifacts/playwright/inbox-live-refresh.spec.ts --reporter=line --workers=1
+          corepack pnpm run qa:knowledge:v2:api
+          corepack pnpm run qa:knowledge:v2:workspace
+          corepack pnpm run qa:knowledge:v2:editors
+          corepack pnpm run qa:knowledge:v2:sources-ui
+          corepack pnpm run qa:knowledge:v2:review-ui
+          corepack pnpm run qa:knowledge:v2:bulk-review-ui
+          corepack pnpm run qa:knowledge:v2:test-ui
+          corepack pnpm run qa:knowledge:v2:fresh-owner
+          corepack pnpm run qa:browser-security
           corepack pnpm run qa:ai:acceptance
 
       - name: Upload AI eval report
@@ -272,19 +420,412 @@ jobs:
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/leadvirt_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
-            "DEPLOY_ROOT='$DEPLOY_ROOT' DEPLOY_ENV_FILE='$DEPLOY_ENV_FILE' DOMAIN_TARGET_IP='$DEPLOY_TARGET_IP' PRIMARY_DOMAIN='$PRIMARY_DOMAIN' WWW_DOMAIN='$WWW_DOMAIN' PUBLIC_URL='$PUBLIC_URL' RELEASE_SHA='$GITHUB_SHA' bash -s" <<'REMOTE'
+            "DEPLOY_ROOT='$DEPLOY_ROOT' DEPLOY_ENV_FILE='$DEPLOY_ENV_FILE' DOMAIN_TARGET_IP='$DEPLOY_TARGET_IP' PRIMARY_DOMAIN='$PRIMARY_DOMAIN' WWW_DOMAIN='$WWW_DOMAIN' PUBLIC_URL='$PUBLIC_URL' RELEASE_SHA='$GITHUB_SHA' EXPECTED_TELEGRAM_BOT_API_BASE_URL='$EXPECTED_TELEGRAM_BOT_API_BASE_URL' EXPECTED_TELEGRAM_WEBHOOK_BASE_URL='$EXPECTED_TELEGRAM_WEBHOOK_BASE_URL' bash -s" <<'REMOTE'
           set -euo pipefail
 
-          release_id="${RELEASE_SHA:0:12}"
+          release_sha_id="${RELEASE_SHA:0:12}"
           archive="/tmp/leadvirt-release-${RELEASE_SHA}.tar.gz"
-          release_dir="$DEPLOY_ROOT/releases/$release_id"
           current_link="$DEPLOY_ROOT/current"
 
           mkdir -p "$DEPLOY_ROOT/releases"
-          rm -rf "$release_dir"
-          mkdir -p "$release_dir"
+          exec 9>"$DEPLOY_ROOT/.deploy.lock"
+          if ! flock -n 9; then
+            echo "Another deployment is already running." >&2
+            exit 1
+          fi
+          installed_deployment_journal="$DEPLOY_ROOT/.deployment-journal.sh"
+          deployment_journal_file="$DEPLOY_ROOT/.deployment-journal.v1"
+          if [ -f "$installed_deployment_journal" ] && [ ! -L "$installed_deployment_journal" ]; then
+            LEADVIRT_DEPLOY_LOCK_HELD=1 DEPLOY_ROOT="$DEPLOY_ROOT" \
+              bash "$installed_deployment_journal" reconcile
+          elif [ -e "$deployment_journal_file" ] || [ -L "$deployment_journal_file" ]; then
+            echo "A deployment journal exists but its reconciler is unavailable." >&2
+            exit 1
+          fi
+          release_dir="$(mktemp -d "$DEPLOY_ROOT/releases/${release_sha_id}-attempt-XXXXXX")"
+          chmod 755 "$release_dir"
+          release_id="$(basename "$release_dir")"
           tar -xzf "$archive" -C "$release_dir"
           mkdir -p "$release_dir/artifacts" "$release_dir/deploy/certbot/www"
+          printf '%s\n' "$RELEASE_SHA" > "$release_dir/.leadvirt-release-sha"
+          printf '%s\n' "$release_id" > "$release_dir/.leadvirt-image-tag"
+
+          node "$release_dir/artifacts/scripts/knowledge-v2-staging-ready.mjs" "$DEPLOY_ENV_FILE"
+          sudo env DEPLOY_ROOT="$DEPLOY_ROOT" \
+            bash "$release_dir/artifacts/scripts/deployment-journal.sh" install-service
+          installed_deployment_journal="$DEPLOY_ROOT/.deployment-journal.sh"
+
+          release_compose_file="$release_dir/deploy/docker-compose.staging.yml"
+          previous_current_kind="missing"
+          previous_link_target=""
+          previous_root=""
+          previous_path_identity=""
+          previous_marker_project=""
+          previous_backup_dir=""
+          compose_project_name="deploy"
+          deployment_phase="preparation"
+          pending_current_link=""
+          candidate_api_container="leadvirt-api-preflight-$release_id"
+          candidate_worker_container="leadvirt-worker-preflight-$release_id"
+          candidate_web_container="leadvirt-web-preflight-$release_id"
+          declare -A previous_container_by_service=()
+          declare -A previous_running_container_by_service=()
+
+          if [ -L "$current_link" ]; then
+            previous_current_kind="symlink"
+            previous_link_target="$(readlink "$current_link")"
+            previous_root="$(readlink -f "$current_link" 2>/dev/null || true)"
+          elif [ -e "$current_link" ]; then
+            previous_current_kind="path"
+            previous_root="$(readlink -f "$current_link" 2>/dev/null || true)"
+            previous_path_identity="$(stat -Lc '%d:%i' "$current_link" 2>/dev/null || true)"
+          fi
+
+          container_matches_previous_root() {
+            candidate_working_dir="$1"
+            candidate_config_files="$2"
+            if [ -z "$previous_root" ]; then
+              return 1
+            fi
+            if [ -n "$candidate_working_dir" ]; then
+              resolved_working_dir="$(readlink -f -- "$candidate_working_dir" 2>/dev/null || true)"
+              if [ "$resolved_working_dir" = "$previous_root" ]; then
+                return 0
+              fi
+            fi
+            IFS=',' read -r -a candidate_config_paths <<< "$candidate_config_files"
+            for candidate_config_path in "${candidate_config_paths[@]}"; do
+              resolved_config_path="$(readlink -f -- "$candidate_config_path" 2>/dev/null || true)"
+              if [ "$resolved_config_path" = "$previous_root/deploy/docker-compose.staging.yml" ]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          if [ "$previous_current_kind" != "missing" ] && [ -z "$previous_root" ]; then
+            echo "Existing current release does not resolve to a directory." >&2
+            exit 1
+          fi
+          if [ "$previous_current_kind" = "path" ] && [ -z "$previous_path_identity" ]; then
+            echo "Existing current path identity cannot be captured." >&2
+            exit 1
+          fi
+          if [ "$previous_current_kind" != "missing" ] && [ ! -f "$previous_root/deploy/docker-compose.staging.yml" ]; then
+            echo "Existing current release has no staging Compose file." >&2
+            exit 1
+          fi
+          if [ "$previous_current_kind" = "path" ]; then
+            previous_backup_dir="$DEPLOY_ROOT/current.backup.$release_id"
+            if [ -e "$previous_backup_dir" ] || [ -L "$previous_backup_dir" ]; then
+              echo "Refusing to overwrite an existing current backup." >&2
+              exit 1
+            fi
+          fi
+          previous_project_marker="$previous_root/.leadvirt-compose-project"
+          if [ "$previous_current_kind" != "missing" ] && [ -e "$previous_project_marker" ]; then
+            if [ ! -f "$previous_project_marker" ] || [ -L "$previous_project_marker" ]; then
+              echo "Invalid Compose project marker on the current release." >&2
+              exit 1
+            fi
+            previous_marker_project="$(cat "$previous_project_marker")"
+            marker_size="$(wc -c < "$previous_project_marker" | tr -d '[:space:]')"
+            project_size="${#previous_marker_project}"
+            if [ "$marker_size" -eq "$project_size" ]; then
+              :
+            elif [ "$marker_size" -eq $((project_size + 1)) ] && \
+              [ "$(tail -c 1 "$previous_project_marker" | od -An -tu1 | tr -d '[:space:]')" = "10" ]; then
+              :
+            else
+              echo "Invalid Compose project marker encoding on the current release." >&2
+              exit 1
+            fi
+            case "$previous_marker_project" in
+              ""|[!a-z0-9]*|*[!a-z0-9_-]*)
+                echo "Invalid Compose project marker value on the current release." >&2
+                exit 1
+                ;;
+            esac
+          fi
+
+          detected_projects=()
+          if [ -n "$previous_root" ] && [ -f "$previous_root/deploy/docker-compose.staging.yml" ]; then
+            for service in api worker web nginx postgres redis qdrant clamav; do
+              while IFS= read -r candidate_container; do
+                if [ -z "$candidate_container" ]; then
+                  continue
+                fi
+                candidate_metadata="$(
+                  docker inspect \
+                    --format '{{ index .Config.Labels "com.docker.compose.project" }}|{{ index .Config.Labels "com.docker.compose.project.working_dir" }}|{{ index .Config.Labels "com.docker.compose.project.config_files" }}' \
+                    "$candidate_container" 2>/dev/null || true
+                )"
+                IFS='|' read -r candidate_project candidate_working_dir candidate_config_files <<< "$candidate_metadata"
+                if ! container_matches_previous_root "$candidate_working_dir" "$candidate_config_files"; then
+                  continue
+                fi
+                case "$candidate_project" in
+                  ""|[!a-z0-9]*|*[!a-z0-9_-]*)
+                    echo "Invalid Compose project label on container $candidate_container." >&2
+                    exit 1
+                    ;;
+                esac
+                case "$service" in
+                  api|worker|web|nginx)
+                    if [ -n "${previous_container_by_service[$service]:-}" ]; then
+                      echo "Multiple canonical $service containers match the prior release." >&2
+                      exit 1
+                    fi
+                    previous_container_by_service[$service]="$candidate_container"
+                    ;;
+                esac
+                project_already_detected=false
+                for detected_project in "${detected_projects[@]}"; do
+                  if [ "$detected_project" = "$candidate_project" ]; then
+                    project_already_detected=true
+                    break
+                  fi
+                done
+                if [ "$project_already_detected" = "false" ]; then
+                  detected_projects+=("$candidate_project")
+                fi
+              done < <(docker ps -a --no-trunc \
+                --filter "label=com.docker.compose.service=$service" \
+                --filter "label=com.docker.compose.oneoff=False" \
+                --format '{{.ID}}')
+            done
+          fi
+          if [ "${#detected_projects[@]}" -gt 1 ]; then
+            echo "Ambiguous canonical Compose projects for the prior release: ${detected_projects[*]}" >&2
+            exit 1
+          fi
+          if [ -n "$previous_marker_project" ]; then
+            for detected_project in "${detected_projects[@]}"; do
+              if [ "$detected_project" != "$previous_marker_project" ]; then
+                echo "Canonical container project disagrees with the current release marker." >&2
+                exit 1
+              fi
+            done
+            compose_project_name="$previous_marker_project"
+          elif [ "$previous_current_kind" != "missing" ] && [ "${#detected_projects[@]}" -ne 1 ]; then
+            echo "No unambiguous canonical Compose project is tied to the current release." >&2
+            exit 1
+          elif [ "${#detected_projects[@]}" -eq 1 ]; then
+            compose_project_name="${detected_projects[0]}"
+          fi
+          printf '%s\n' "$compose_project_name" > "$release_dir/.leadvirt-compose-project"
+          sync -f "$release_dir/.leadvirt-release-sha"
+          sync -f "$release_dir/.leadvirt-image-tag"
+          sync -f "$release_dir/.leadvirt-compose-project"
+          sync -f "$release_dir"
+
+          for service in api worker web nginx; do
+            candidate_container="${previous_container_by_service[$service]:-}"
+            if [ -n "$candidate_container" ] && [ "$(docker inspect --format '{{.State.Running}}' "$candidate_container")" = "true" ]; then
+              previous_running_container_by_service[$service]="$candidate_container"
+            fi
+          done
+          previous_writer_container_ids=()
+          previous_nginx_container_ids=()
+          for service in api worker; do
+            if [ -n "${previous_running_container_by_service[$service]:-}" ]; then
+              previous_writer_container_ids+=("${previous_running_container_by_service[$service]}")
+            fi
+          done
+          if [ -n "${previous_running_container_by_service[nginx]:-}" ]; then
+            previous_nginx_container_ids+=("${previous_running_container_by_service[nginx]}")
+          fi
+          previous_api_running=0
+          previous_worker_running=0
+          previous_web_running=0
+          previous_nginx_running=0
+          [ -n "${previous_running_container_by_service[api]:-}" ] && previous_api_running=1
+          [ -n "${previous_running_container_by_service[worker]:-}" ] && previous_worker_running=1
+          [ -n "${previous_running_container_by_service[web]:-}" ] && previous_web_running=1
+          [ -n "${previous_running_container_by_service[nginx]:-}" ] && previous_nginx_running=1
+          echo "DEPLOY_PREPARE: compose-project=$compose_project_name"
+
+          assert_previous_containers_unchanged() {
+            assert_previous_current_unchanged || return 1
+            for service in api worker web nginx; do
+              expected_container="${previous_container_by_service[$service]:-}"
+              expected_running_container="${previous_running_container_by_service[$service]:-}"
+              canonical_containers="$(docker ps -a --no-trunc \
+                --filter "label=com.docker.compose.project=$compose_project_name" \
+                --filter "label=com.docker.compose.service=$service" \
+                --filter "label=com.docker.compose.oneoff=False" \
+                --format '{{.ID}}')"
+              running_containers="$(docker ps --no-trunc \
+                --filter "label=com.docker.compose.project=$compose_project_name" \
+                --filter "label=com.docker.compose.service=$service" \
+                --filter "label=com.docker.compose.oneoff=False" \
+                --format '{{.ID}}')"
+              if [ "$canonical_containers" != "$expected_container" ]; then
+                echo "Canonical $service container changed while deployment preflight was running." >&2
+                return 1
+              fi
+              if [ "$running_containers" != "$expected_running_container" ]; then
+                echo "Running $service container changed while deployment preflight was running." >&2
+                return 1
+              fi
+            done
+          }
+
+          assert_previous_current_unchanged() {
+            case "$previous_current_kind" in
+              symlink)
+                [ -L "$current_link" ] && [ "$(readlink "$current_link")" = "$previous_link_target" ]
+                ;;
+              path)
+                [ -e "$current_link" ] &&
+                  [ ! -L "$current_link" ] &&
+                  [ "$(stat -Lc '%d:%i' "$current_link" 2>/dev/null || true)" = "$previous_path_identity" ]
+                ;;
+              missing)
+                [ ! -e "$current_link" ] && [ ! -L "$current_link" ]
+                ;;
+              *)
+                return 1
+                ;;
+            esac || {
+              echo "Current release path changed while deployment preflight was running." >&2
+              return 1
+            }
+          }
+
+          release_compose() {
+            LEADVIRT_IMAGE_TAG="$release_id" \
+            LEADVIRT_ENV_FILE="$DEPLOY_ENV_FILE" \
+              docker compose \
+                --project-name "$compose_project_name" \
+                --env-file "$DEPLOY_ENV_FILE" \
+                -f "$release_compose_file" \
+                "$@"
+          }
+
+          release_compose_paused_worker() {
+            LEADVIRT_IMAGE_TAG="$release_id" \
+            LEADVIRT_ENV_FILE="$DEPLOY_ENV_FILE" \
+            WORKER_DEPLOYMENT_PAUSED=true \
+              docker compose \
+                --project-name "$compose_project_name" \
+                --env-file "$DEPLOY_ENV_FILE" \
+                -f "$release_compose_file" \
+                "$@"
+          }
+
+          persist_deployment_journal() {
+            journal_phase="$1"
+            LEADVIRT_DEPLOY_LOCK_HELD=1 \
+            DEPLOY_ROOT="$DEPLOY_ROOT" \
+            JOURNAL_RELEASE_DIR="$release_dir" \
+            JOURNAL_RELEASE_ID="$release_id" \
+            JOURNAL_RELEASE_SHA="$RELEASE_SHA" \
+            JOURNAL_COMPOSE_PROJECT="$compose_project_name" \
+            JOURNAL_ENV_FILE="$DEPLOY_ENV_FILE" \
+            JOURNAL_PUBLIC_URL="$PUBLIC_URL" \
+            JOURNAL_PREVIOUS_CURRENT_KIND="$previous_current_kind" \
+            JOURNAL_PREVIOUS_LINK_TARGET="$previous_link_target" \
+            JOURNAL_PREVIOUS_ROOT="$previous_root" \
+            JOURNAL_PREVIOUS_PATH_IDENTITY="$previous_path_identity" \
+            JOURNAL_PREVIOUS_BACKUP_DIR="$previous_backup_dir" \
+            JOURNAL_PREVIOUS_API_CONTAINER="${previous_container_by_service[api]:-}" \
+            JOURNAL_PREVIOUS_API_RUNNING="$previous_api_running" \
+            JOURNAL_PREVIOUS_WORKER_CONTAINER="${previous_container_by_service[worker]:-}" \
+            JOURNAL_PREVIOUS_WORKER_RUNNING="$previous_worker_running" \
+            JOURNAL_PREVIOUS_WEB_CONTAINER="${previous_container_by_service[web]:-}" \
+            JOURNAL_PREVIOUS_WEB_RUNNING="$previous_web_running" \
+            JOURNAL_PREVIOUS_NGINX_CONTAINER="${previous_container_by_service[nginx]:-}" \
+            JOURNAL_PREVIOUS_NGINX_RUNNING="$previous_nginx_running" \
+              bash "$installed_deployment_journal" write "$journal_phase"
+          }
+
+          wait_for_stateful_dependencies() {
+            for attempt in $(seq 1 30); do
+              if release_compose exec -T postgres pg_isready -U leadvirt -d leadvirt >/dev/null && \
+                release_compose exec -T redis redis-cli ping | grep -Fx PONG >/dev/null; then
+                break
+              fi
+              if [ "$attempt" = "30" ]; then
+                echo "PostgreSQL or Redis did not become ready without recreation." >&2
+                return 1
+              fi
+              sleep 2
+            done
+
+            for attempt in $(seq 1 60); do
+              if release_compose run --rm --no-deps -T api \
+                node -e "const net=require('node:net');const tcp=()=>new Promise((resolve,reject)=>{const socket=net.createConnection({host:'clamav',port:3310});const fail=(error)=>{socket.destroy();reject(error)};socket.setTimeout(3000);socket.once('connect',()=>{socket.destroy();resolve()});socket.once('error',fail);socket.once('timeout',()=>fail(new Error('timeout')))});Promise.all([fetch('http://qdrant:6333/healthz',{signal:AbortSignal.timeout(3000)}).then(response=>{if(!response.ok)throw new Error('qdrant')}),tcp()]).then(()=>process.exit(0)).catch(()=>process.exit(1))"; then
+                break
+              fi
+              if [ "$attempt" = "60" ]; then
+                echo "Qdrant HTTP or ClamAV TCP did not become ready from the app network." >&2
+                return 1
+              fi
+              sleep 2
+            done
+            echo "DEPLOY_PREPARE: stateful-dependencies-ready"
+          }
+
+          atomic_replace_current_symlink() {
+            link_target="$1"
+            pending_current_link="$DEPLOY_ROOT/.current-link.$release_id.$$.$RANDOM"
+            if [ -e "$pending_current_link" ] || [ -L "$pending_current_link" ]; then
+              echo "Refusing to overwrite an existing temporary current link." >&2
+              pending_current_link=""
+              return 1
+            fi
+            if ! ln -s -- "$link_target" "$pending_current_link"; then
+              pending_current_link=""
+              return 1
+            fi
+            if mv -Tf -- "$pending_current_link" "$current_link"; then
+              pending_current_link=""
+              sync -f "$DEPLOY_ROOT"
+              return 0
+            fi
+            rm -f -- "$pending_current_link"
+            pending_current_link=""
+            return 1
+          }
+
+          remove_candidate_preflights() {
+            candidate_cleanup_status=0
+            for candidate_container in "$candidate_api_container" "$candidate_worker_container" "$candidate_web_container"; do
+              if docker inspect "$candidate_container" >/dev/null 2>&1; then
+                if ! docker rm -f "$candidate_container" >/dev/null; then
+                  echo "Failed to remove candidate preflight container $candidate_container." >&2
+                  candidate_cleanup_status=1
+                fi
+              fi
+            done
+            return "$candidate_cleanup_status"
+          }
+
+          rollforward_candidate() {
+            LEADVIRT_DEPLOY_LOCK_HELD=1 DEPLOY_ROOT="$DEPLOY_ROOT" \
+              bash "$installed_deployment_journal" reconcile
+          }
+
+          handle_deployment_exit() {
+            original_status=$?
+            trap - EXIT HUP INT TERM
+            if [ "$deployment_phase" = "preparation" ] || [ "$deployment_phase" = "complete" ]; then
+              exit "$original_status"
+            fi
+            if [ "$original_status" -eq 0 ]; then
+              original_status=1
+            fi
+            set +e
+            if LEADVIRT_DEPLOY_LOCK_HELD=1 DEPLOY_ROOT="$DEPLOY_ROOT" \
+              bash "$installed_deployment_journal" reconcile; then
+              echo "DEPLOY_RECOVERY: journal reconciliation succeeded original-status=$original_status" >&2
+            else
+              recovery_status=$?
+              echo "DEPLOY_RECOVERY_FAILED: status=$recovery_status original-status=$original_status" >&2
+            fi
+            exit "$original_status"
+          }
 
           active_root="$(readlink -f "$current_link" 2>/dev/null || true)"
           certbot_webroot="$release_dir/deploy/certbot/www"
@@ -299,32 +840,140 @@ jobs:
           LEADVIRT_SKIP_REBUILD=true \
             sh "$release_dir/deploy/enable-leadvirt-com-https.sh"
 
-          if [ -L "$current_link" ]; then
-            ln -sfn "$release_dir" "$current_link"
-          elif [ -e "$current_link" ]; then
-            backup_dir="$DEPLOY_ROOT/current.backup.$(date +%Y%m%d%H%M%S)"
-            mv "$current_link" "$backup_dir"
-            ln -s "$release_dir" "$current_link"
-          else
-            ln -s "$release_dir" "$current_link"
+          release_compose config --quiet
+          release_compose build migrate
+          release_compose up -d --no-recreate postgres redis qdrant clamav
+          wait_for_stateful_dependencies
+
+          telegram_bot_api_base="$(release_compose run --rm --no-deps -T api printenv TELEGRAM_BOT_API_BASE_URL | tr -d '\r')"
+          telegram_webhook_base="$(release_compose run --rm --no-deps -T api printenv TELEGRAM_WEBHOOK_BASE_URL | tr -d '\r')"
+          if [ "$telegram_bot_api_base" != "$EXPECTED_TELEGRAM_BOT_API_BASE_URL" ]; then
+            echo "Unexpected production Telegram Bot API gateway." >&2
+            exit 1
           fi
-
-          cd "$current_link"
-          docker compose --env-file "$DEPLOY_ENV_FILE" -f deploy/docker-compose.staging.yml up -d --build --force-recreate --remove-orphans migrate api worker web nginx
-          docker compose --env-file "$DEPLOY_ENV_FILE" -f deploy/docker-compose.staging.yml exec -T nginx nginx -t
-          docker compose --env-file "$DEPLOY_ENV_FILE" -f deploy/docker-compose.staging.yml ps
-
-          curl -fsS "$PUBLIC_URL/health" >/dev/null
-          auth_status="$(curl -sS -o /dev/null -w '%{http_code}' "$PUBLIC_URL/api/auth/me")"
-          if [ "$auth_status" != "401" ]; then
-            echo "Expected /api/auth/me without cookie to return 401, got $auth_status" >&2
+          if [ "$telegram_webhook_base" != "$EXPECTED_TELEGRAM_WEBHOOK_BASE_URL" ]; then
+            echo "Unexpected production Telegram webhook relay." >&2
+            exit 1
+          fi
+          relay_status="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -H 'X-Telegram-Bot-Api-Secret-Token: deployment-probe' \
+            --data '{"update_id":1}' \
+            "$telegram_webhook_base/lvtg_deployment_probe/webhook")"
+          if [ "$relay_status" != "404" ]; then
+            echo "Telegram webhook relay probe returned HTTP $relay_status, expected 404." >&2
             exit 1
           fi
 
-          find "$DEPLOY_ROOT/releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
-            | sort -rn \
-            | tail -n +6 \
-            | cut -d' ' -f2- \
-            | xargs -r rm -rf
+          assert_previous_containers_unchanged
+          persist_deployment_journal precommit
+          deployment_phase="rollback"
+          trap handle_deployment_exit EXIT
+          trap 'exit 129' HUP
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          release_compose run -d --no-deps \
+            --name "$candidate_api_container" \
+            -e API_DEPLOYMENT_PREFLIGHT=true \
+            api >/dev/null
+          release_compose run -d --no-deps \
+            --name "$candidate_worker_container" \
+            -e WORKER_DEPLOYMENT_PAUSED=true \
+            worker >/dev/null
+          release_compose run -d --no-deps \
+            --name "$candidate_web_container" \
+            web >/dev/null
+
+          for attempt in $(seq 1 30); do
+            if docker exec "$candidate_api_container" \
+              node -e "fetch('http://127.0.0.1:4001/health/ready').then(async r=>({ok:r.ok,v:await r.json()})).then(x=>process.exit(x.ok&&x.v.data?.deploymentPreflight===true?0:1)).catch(()=>process.exit(1))"; then
+              break
+            fi
+            if [ "$attempt" = "30" ]; then
+              echo "Candidate API preflight did not become healthy." >&2
+              exit 1
+            fi
+            sleep 2
+          done
+          for attempt in $(seq 1 30); do
+            if docker exec "$candidate_worker_container" \
+              node -e "fetch('http://127.0.0.1:4002/health/ready').then(async r=>({ok:r.ok,v:await r.json()})).then(x=>process.exit(x.ok&&x.v.ready&&!x.v.active&&x.v.deploymentPaused?0:1)).catch(()=>process.exit(1))"; then
+              break
+            fi
+            if [ "$attempt" = "30" ]; then
+              echo "Paused candidate worker preflight did not become ready." >&2
+              exit 1
+            fi
+              sleep 2
+            done
+          for attempt in $(seq 1 30); do
+            if docker exec "$candidate_web_container" \
+              node -e "fetch('http://127.0.0.1:3001').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+              break
+            fi
+            if [ "$attempt" = "30" ]; then
+              echo "Candidate web preflight did not become ready." >&2
+              exit 1
+            fi
+              sleep 2
+            done
+          release_compose run --rm --no-deps -T nginx nginx -t
+          remove_candidate_preflights
+          assert_previous_containers_unchanged
+          echo "DEPLOY_GATE: isolated-candidate-api-worker-and-web-ready"
+
+          if [ "${#previous_writer_container_ids[@]}" -gt 0 ]; then
+            docker stop --time 120 "${previous_writer_container_ids[@]}"
+          fi
+          echo "DEPLOY_GATE: exact-prior-writers-drained"
+
+          if [ "${#previous_nginx_container_ids[@]}" -gt 0 ]; then
+            docker stop --time 30 "${previous_nginx_container_ids[@]}"
+          fi
+          echo "DEPLOY_GATE: public-nginx-stopped"
+
+          case "$previous_current_kind" in
+            symlink)
+              if [ ! -L "$current_link" ] || [ "$(readlink "$current_link")" != "$previous_link_target" ]; then
+                echo "Current link changed while the release gate was running." >&2
+                exit 1
+              fi
+              atomic_replace_current_symlink "$release_dir"
+              ;;
+            path)
+              assert_previous_current_unchanged
+              mv -- "$current_link" "$previous_backup_dir"
+              sync -f "$DEPLOY_ROOT"
+              if [ "$(stat -Lc '%d:%i' "$previous_backup_dir" 2>/dev/null || true)" != "$previous_path_identity" ]; then
+                echo "Current path identity changed while it was being switched." >&2
+                exit 1
+              fi
+              atomic_replace_current_symlink "$release_dir"
+              ;;
+            missing)
+              if [ -e "$current_link" ] || [ -L "$current_link" ]; then
+                echo "Current path appeared while the release gate was running." >&2
+                exit 1
+              fi
+              atomic_replace_current_symlink "$release_dir"
+              ;;
+          esac
+
+          persist_deployment_journal committed
+          deployment_phase="rollforward"
+          echo "DEPLOY_COMMIT: old-code-rollback-disarmed"
+          rollforward_candidate primary
+
+          release_compose ps
+          echo "DEPLOY_COMPLETE: health-worker-and-key-coverage-succeeded"
+          deployment_phase="complete"
+          trap - EXIT HUP INT TERM
+
+          if ! LEADVIRT_DEPLOY_LOCK_HELD=1 DEPLOY_ROOT="$DEPLOY_ROOT" \
+            bash "$installed_deployment_journal" prune 5; then
+            echo "DEPLOY_PRUNE: deferred because references could not be proven." >&2
+          fi
           rm -f "$archive"
           REMOTE

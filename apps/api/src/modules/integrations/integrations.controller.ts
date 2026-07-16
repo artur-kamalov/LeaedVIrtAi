@@ -18,13 +18,13 @@ export class IntegrationsController {
     return { data: await this.integrationsService.list(context) };
   }
 
-  @Roles("OWNER", "ADMIN", "MANAGER")
+  @Roles("OWNER", "ADMIN")
   @Post(":provider/connect")
   async connect(@CurrentContext() context: RequestContext, @Param("provider") provider: string, @Body() dto: ConnectIntegrationDto) {
     return { data: await this.integrationsService.connect(context, provider, dto) };
   }
 
-  @Roles("OWNER", "ADMIN", "MANAGER")
+  @Roles("OWNER", "ADMIN")
   @Post(":provider/disconnect")
   async disconnect(@CurrentContext() context: RequestContext, @Param("provider") provider: string) {
     return { data: await this.integrationsService.disconnect(context, provider) };
@@ -42,7 +42,7 @@ export class IntegrationsController {
     return { data: await this.integrationsService.sendSampleInbound(context, provider) };
   }
 
-  @Roles("OWNER", "ADMIN", "MANAGER")
+  @Roles("OWNER", "ADMIN")
   @Patch(":provider/settings")
   async updateSettings(
     @CurrentContext() context: RequestContext,

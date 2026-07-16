@@ -1,4 +1,4 @@
-import type { Workflow } from "@leadvirt/types";
+import type { Workflow, WorkflowTestResult } from "@leadvirt/types";
 import { apiData, jsonBody, withQuery } from "./client";
 
 export type WorkflowStepPayload = Omit<
@@ -34,5 +34,5 @@ export function publishWorkflow(id: string) {
 }
 
 export function testWorkflow(id: string) {
-  return apiData<{ runId: string; status: string; message: string }>(`/workflows/${id}/test`, { method: "POST" });
+  return apiData<WorkflowTestResult>(`/workflows/${id}/test`, { method: "POST" });
 }

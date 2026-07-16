@@ -14,7 +14,11 @@
     "db:push": "prisma db push --schema prisma/schema.prisma",
     "db:validate": "prisma validate --schema prisma/schema.prisma",
     "db:seed": "tsx prisma/seed.ts",
-    "db:cleanup:pilot": "tsx prisma/cleanup-pilot.ts"
+    "db:cleanup:pilot": "tsx prisma/cleanup-pilot.ts",
+    "qa:snapshot-authorization-race": "tsx prisma/knowledge-v2-snapshot-authorization-race-smoke.ts",
+    "qa:capability-snapshot-migration": "tsx ../../artifacts/scripts/knowledge-v2-capability-snapshot-migration-smoke.ts",
+    "qa:validation-history-migration": "tsx prisma/knowledge-v2-validation-history-migration-smoke.ts",
+    "qa:tenant-context": "tsx prisma/tenant-transaction-context-smoke.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.9.0"

@@ -3,7 +3,9 @@ import { expect, test } from "@playwright/test";
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 
 test.beforeEach(async ({ page }) => {
-  await page.context().addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
+  await page
+    .context()
+    .addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
 });
 
 test("onboarding hydrates state and persists progress", async ({ page }) => {
@@ -27,7 +29,10 @@ test("onboarding hydrates state and persists progress", async ({ page }) => {
       return;
     }
 
-    const body = route.request().postDataJSON() as { currentStep?: string; data?: Record<string, unknown> };
+    const body = route.request().postDataJSON() as {
+      currentStep?: string;
+      data?: Record<string, unknown>;
+    };
     statePatches.push(body);
     await route.fulfill({
       json: {
@@ -68,6 +73,268 @@ test("onboarding hydrates state and persists progress", async ({ page }) => {
   await expect(page.getByText("Откуда приходят клиенты?")).toBeVisible();
   await expect.poll(() => completedSteps).toContain("business");
   await expect
-    .poll(() => statePatches.some((patch) => patch.currentStep === "channels" && patch.data?.businessType === "beauty"))
+    .poll(() =>
+      statePatches.some(
+        (patch) => patch.currentStep === "channels" && patch.data?.businessType === "beauty",
+      ),
+    )
     .toBe(true);
+});
+
+test("onboarding does not expose a blank form when saved state cannot load", async ({
+  context,
+  page,
+}) => {
+  await context.addCookies([
+    { name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" },
+  ]);
+  let recover = false;
+  let getRequests = 0;
+
+  await page.route("**/api/onboarding/state", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fulfill({ status: 500, json: { message: "Unexpected write" } });
+      return;
+    }
+    getRequests += 1;
+    if (!recover) {
+      await route.fulfill({
+        status: 503,
+        json: { error: { code: "SERVICE_UNAVAILABLE", message: "Temporary outage" } },
+      });
+      return;
+    }
+    await route.fulfill({
+      json: {
+        data: {
+          currentStep: "scenario",
+          completedSteps: ["business", "channels"],
+          data: {
+            businessType: "clinic",
+            selectedChannels: ["telegram"],
+          },
+          completedAt: null,
+        },
+      },
+    });
+  });
+
+  await page.goto(`${webBase}/onboarding`);
+
+  const error = page.getByTestId("onboarding-state-load-error");
+  await expect(error).toBeVisible();
+  await expect(page.getByTestId("onboarding-step-panel")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Next", exact: true })).toHaveCount(0);
+
+  recover = true;
+  await error.getByRole("button").click();
+  await expect(error).toBeHidden();
+  await expect(page.getByRole("heading", { name: "Choose an AI workflow" })).toBeVisible();
+  expect(getRequests).toBeGreaterThanOrEqual(2);
+});
+
+test("onboarding blocks navigation and allows retry when persistence fails", async ({ page }) => {
+  await page
+    .context()
+    .addCookies([{ name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" }]);
+
+  let patchAttempts = 0;
+  const completedSteps: string[] = [];
+
+  await page.route("**/api/onboarding/state", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        json: {
+          data: {
+            currentStep: "business",
+            completedSteps: [],
+            data: {},
+            completedAt: null,
+          },
+        },
+      });
+      return;
+    }
+
+    patchAttempts += 1;
+    if (patchAttempts === 1) {
+      await route.fulfill({ status: 503, json: { message: "Persistence unavailable" } });
+      return;
+    }
+
+    const body = route.request().postDataJSON() as {
+      currentStep?: string;
+      data?: Record<string, unknown>;
+    };
+    await route.fulfill({
+      json: {
+        data: {
+          currentStep: body.currentStep ?? "business",
+          completedSteps,
+          data: body.data ?? {},
+          completedAt: null,
+        },
+      },
+    });
+  });
+
+  await page.route("**/api/onboarding/complete-step", async (route) => {
+    const body = route.request().postDataJSON() as { step?: string };
+    if (body.step) completedSteps.push(body.step);
+    await route.fulfill({
+      json: {
+        data: {
+          currentStep: body.step ?? "business",
+          completedSteps,
+          data: {},
+          completedAt: null,
+        },
+      },
+    });
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${webBase}/onboarding`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Beauty studio" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
+
+  await expect(page.getByTestId("onboarding-persistence-error")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What kind of business is this?" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next" })).toBeEnabled();
+  expect(completedSteps).toEqual([]);
+
+  await page.getByRole("button", { name: "Next" }).click();
+
+  await expect(page.getByTestId("onboarding-persistence-error")).toBeHidden();
+  await expect(
+    page.getByRole("heading", { name: "Where do customers contact you?" }),
+  ).toBeVisible();
+  await expect.poll(() => completedSteps).toContain("business");
+});
+
+test("onboarding does not present a fresh setup when saved state cannot be loaded", async ({
+  page,
+}) => {
+  await page
+    .context()
+    .addCookies([{ name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" }]);
+
+  let recover = false;
+  let requests = 0;
+  await page.route("**/api/onboarding/state", async (route) => {
+    requests += 1;
+    if (!recover) {
+      await route.fulfill({
+        status: 503,
+        json: { error: { code: "SERVICE_UNAVAILABLE", message: "Temporary outage" } },
+      });
+      return;
+    }
+    await route.fulfill({
+      json: {
+        data: {
+          currentStep: "company",
+          completedSteps: ["business", "channels", "scenario"],
+          data: {
+            businessType: "beauty",
+            selectedChannels: ["telegram"],
+            scenario: "support",
+            companyInfo: {
+              name: "Recovered workspace",
+              description: "Recovered description",
+            },
+          },
+          completedAt: null,
+        },
+      },
+    });
+  });
+
+  await page.goto(`${webBase}/onboarding`);
+
+  const error = page.getByTestId("onboarding-state-load-error");
+  await expect(error).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What kind of business is this?" })).toHaveCount(
+    0,
+  );
+
+  recover = true;
+  await error.getByRole("button").click();
+
+  await expect(error).toBeHidden();
+  await expect(page.getByRole("heading", { name: "Company information" })).toBeVisible();
+  await expect(page.getByPlaceholder("For example: Aura Beauty Studio")).toHaveValue(
+    "Recovered workspace",
+  );
+  expect(requests).toBeGreaterThanOrEqual(2);
+});
+
+test("successful onboarding launch opens Knowledge review", async ({ page }) => {
+  await page
+    .context()
+    .addCookies([{ name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" }]);
+  const data = {
+    businessType: "beauty",
+    selectedChannels: ["telegram"],
+    scenario: "support",
+    companyInfo: { name: "Launch fixture", description: "Launch fixture description" },
+    crm: "none",
+  };
+  let stateUpdates = 0;
+  let launchCompletions = 0;
+
+  await page.route("**/api/onboarding/state", async (route) => {
+    const isPatch = route.request().method() === "PATCH";
+    const body = isPatch ? route.request().postDataJSON() : null;
+    if (isPatch) stateUpdates += 1;
+    await route.fulfill({
+      json: {
+        data: {
+          currentStep: body?.currentStep ?? "launch",
+          completedSteps: ["business", "channels", "scenario", "company", "crm"],
+          data: body?.data ?? data,
+          completedAt: null,
+        },
+      },
+    });
+  });
+  await page.route("**/api/onboarding/complete-step", async (route) => {
+    launchCompletions += 1;
+    await route.fulfill({
+      json: {
+        data: {
+          currentStep: "launch",
+          completedSteps: ["business", "channels", "scenario", "company", "crm", "launch"],
+          data,
+          completedAt: new Date().toISOString(),
+        },
+      },
+    });
+  });
+  await page.route("**/api/knowledge/v2/overview", async (route) => {
+    await route.fulfill({ status: 503, json: { message: "Fixture overview unavailable" } });
+  });
+  await page.route("**/api/auth/me", async (route) => {
+    await route.fulfill({
+      json: {
+        data: {
+          id: "owner",
+          email: "owner@example.test",
+          role: "OWNER",
+          tenantId: "tenant",
+          authMode: "email",
+        },
+      },
+    });
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${webBase}/onboarding`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Launch AI Administrator" }).click();
+
+  await expect.poll(() => stateUpdates).toBe(1);
+  await expect.poll(() => launchCompletions).toBe(1);
+  await expect(page.getByTestId("onboarding-persistence-error")).toBeHidden();
+  await expect(page).toHaveURL(`${webBase}/app/knowledge?welcome=1`, { timeout: 15_000 });
+  await expect(page.getByText("Your setup answers are saved.")).toBeVisible();
 });

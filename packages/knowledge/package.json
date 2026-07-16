@@ -1,0 +1,28 @@
+{
+  "name": "@leadvirt/knowledge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "qa:capability-autonomy": "tsx src/capability-autonomy-v1.smoke.ts",
+    "qa:capability-intent": "tsx src/capability-intent-v1.smoke.ts",
+    "qa:capability-runtime-evidence": "tsx src/capability-runtime-evidence-v1.smoke.ts",
+    "qa:capability-snapshot": "tsx src/capability-snapshot-v1.smoke.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@leadvirt/ai": "workspace:*",
+    "@leadvirt/db": "workspace:*",
+    "@leadvirt/types": "workspace:*",
+    "parse5": "8.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.3",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}

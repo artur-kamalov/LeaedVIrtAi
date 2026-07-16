@@ -1,22 +1,45 @@
 import { createHash } from "node:crypto";
-import { Inject, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
-import { AI_PROVIDER_TOKEN, type AiMessage, type AiProvider } from "@leadvirt/ai";
-import { decryptIntegrationCredentials, TelegramAdapter, type NormalizedInboundMessage, type SendMessageResult } from "@leadvirt/integrations";
-import type { Prisma } from "@leadvirt/db";
-import type { AiReplyJobData } from "@leadvirt/types";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from "@nestjs/common";
+import {
+  TelegramAdapter,
+  type NormalizedInboundMessage,
+  type SendMessageResult,
+} from "@leadvirt/integrations";
+import {
+  authenticatedCustomerChannelBindingHash,
+  authenticatedCustomerIdentityAttestationHash,
+  authenticatedCustomerSubjectHash,
+} from "@leadvirt/knowledge";
+import { Prisma } from "@leadvirt/db";
+import type {
+  AiReplyEnqueueRequest,
+  AuthenticatedCustomerIdentityReference,
+} from "@leadvirt/types";
 import { PrismaService } from "../database/prisma.service.js";
 import { WorkflowsService } from "../workflows/workflows.service.js";
 import { AiReplyQueueService } from "../ai/ai-reply-queue.service.js";
+import {
+  claimWebhookEvent,
+  completeWebhookEvent,
+  completeWebhookEventStage,
+  failWebhookEvent,
+} from "../../common/webhook-event-claim.js";
+import { assertTenantRuntimeActive } from "../../common/tenant-lifecycle.js";
+import { withTelegramLifecycleLock } from "../../common/telegram-lifecycle-lock.js";
 
 type TelegramChannel = Prisma.ChannelGetPayload<{
   include: { tenant: true };
 }>;
 
 type TelegramConversation = Prisma.ConversationGetPayload<{
-  include: {
-    lead: true;
-    messages: { orderBy: { createdAt: "asc" } };
-  };
+  include: { lead: true };
 }>;
 
 export interface TelegramWebhookResult {
@@ -29,6 +52,14 @@ export interface TelegramWebhookResult {
   outboundStatus: SendMessageResult["status"] | "skipped";
   reply: string | null;
 }
+
+type TelegramAiDispatchResult = {
+  messageId: string | null;
+  reply: string | null;
+  outbound: SendMessageResult | { externalMessageId: string; status: "skipped" };
+};
+
+export type TelegramWebhookOrigin = "TELEGRAM_WEBHOOK" | "INTERNAL_SAMPLE";
 
 const providerName = "telegram";
 const adapter = new TelegramAdapter();
@@ -46,22 +77,6 @@ function optionalString(value: string | undefined): string | undefined {
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
-function channelCredentials(encryptedCredentials?: string | null) {
-  if (!encryptedCredentials) return undefined;
-  try {
-    return decryptIntegrationCredentials(encryptedCredentials);
-  } catch {
-    return undefined;
-  }
-}
-
-function isLeadVirtSample(value: unknown) {
-  const update = asRecord(value);
-  const message = isRecord(update.message) ? update.message : isRecord(update.edited_message) ? update.edited_message : {};
-  const sender = asRecord(message.from);
-  return sender.username === "leadvirt_sample";
-}
-
 function payloadHash(payload: Prisma.InputJsonValue) {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
@@ -72,94 +87,276 @@ function shortSubject(text?: string) {
 
 function jsonPayload(body: unknown): Prisma.InputJsonValue {
   if (body === null) return { value: null };
-  if (typeof body === "string" || typeof body === "number" || typeof body === "boolean") return body;
+  if (typeof body === "string" || typeof body === "number" || typeof body === "boolean")
+    return body;
   if (Array.isArray(body) || isRecord(body)) return body as Prisma.InputJsonValue;
   return { unsupportedPayloadType: typeof body };
+}
+
+function assertTelegramInboundPayload(body: unknown) {
+  const update = asRecord(body);
+  const message = isRecord(update.message)
+    ? update.message
+    : isRecord(update.edited_message)
+      ? update.edited_message
+      : null;
+  const chat = message && isRecord(message.chat) ? message.chat : null;
+  const updateId = update.update_id;
+  const messageId = message?.message_id;
+  const chatId = chat?.id;
+  if (
+    typeof updateId !== "number" ||
+    !Number.isSafeInteger(updateId) ||
+    updateId < 0 ||
+    !message ||
+    typeof messageId !== "number" ||
+    !Number.isSafeInteger(messageId) ||
+    messageId <= 0 ||
+    !chat ||
+    typeof chatId !== "number" ||
+    !Number.isSafeInteger(chatId) ||
+    chatId === 0
+  ) {
+    throw new BadRequestException("Telegram update payload is invalid.");
+  }
 }
 
 @Injectable()
 export class TelegramService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(AI_PROVIDER_TOKEN) private readonly aiProvider: AiProvider,
     @Inject(AiReplyQueueService) private readonly aiReplyQueue: AiReplyQueueService,
-    @Inject(WorkflowsService) private readonly workflowsService: WorkflowsService
+    @Inject(WorkflowsService) private readonly workflowsService: WorkflowsService,
   ) {}
 
   async handleWebhook(
     publicKey: string,
     body: unknown,
-    headers: Record<string, string | string[] | undefined>
+    headers: Record<string, string | string[] | undefined>,
+    origin: TelegramWebhookOrigin,
   ): Promise<TelegramWebhookResult> {
-    const channel = await this.loadTelegramChannel(publicKey);
+    assertTelegramInboundPayload(body);
+    const initialChannel = await this.loadTelegramChannel(publicKey);
+    return withTelegramLifecycleLock(
+      this.prisma,
+      initialChannel.tenantId,
+      async (lockBotIdentities) => {
+        const channel = await this.loadTelegramChannel(publicKey);
+        if (channel.tenantId !== initialChannel.tenantId) {
+          throw new ServiceUnavailableException({
+            code: "TELEGRAM_WEBHOOK_CHANNEL_CHANGED",
+            message: "Telegram channel changed while the update was being accepted.",
+            retryable: true,
+          });
+        }
+        await lockBotIdentities([initialChannel.externalId, channel.externalId]);
+        return this.handleWebhookLocked(channel, body, headers, origin);
+      },
+    );
+  }
+
+  private async handleWebhookLocked(
+    channel: TelegramChannel,
+    body: unknown,
+    headers: Record<string, string | string[] | undefined>,
+    origin: TelegramWebhookOrigin,
+  ): Promise<TelegramWebhookResult> {
+    const botId = optionalString(channel.externalId ?? undefined);
+    if (!botId || !/^[1-9]\d*$/u.test(botId)) {
+      throw new ServiceUnavailableException({
+        code: "TELEGRAM_WEBHOOK_IDENTITY_MISSING",
+        message: "Telegram webhook identity is not ready.",
+        retryable: true,
+      });
+    }
     const settings = asRecord(channel.settings);
     const telegramSettings = asRecord(settings.telegram);
-    const secret = optionalString(typeof telegramSettings.webhookSecret === "string" ? telegramSettings.webhookSecret : undefined);
-    const verified = await adapter.verifyWebhook?.({ headers, body, ...(secret ? { secret } : {}) });
-    if (!verified) {
+    const activeSecret = optionalString(
+      typeof telegramSettings.webhookSecret === "string"
+        ? telegramSettings.webhookSecret
+        : undefined,
+    );
+    const pendingSecret = optionalString(
+      typeof telegramSettings.webhookPendingSecret === "string"
+        ? telegramSettings.webhookPendingSecret
+        : undefined,
+    );
+    const retiredCredentials = optionalString(
+      typeof telegramSettings.retiredBotEncryptedCredentials === "string"
+        ? telegramSettings.retiredBotEncryptedCredentials
+        : undefined,
+    );
+    const retiredSecret = optionalString(
+      typeof telegramSettings.retiredBotWebhookSecret === "string"
+        ? telegramSettings.retiredBotWebhookSecret
+        : undefined,
+    );
+    const retiredBotId = optionalString(
+      typeof telegramSettings.retiredBotId === "string" ? telegramSettings.retiredBotId : undefined,
+    );
+    const hasRetiredState = Boolean(retiredCredentials || retiredSecret || retiredBotId);
+    if (
+      hasRetiredState &&
+      (!retiredCredentials ||
+        !retiredSecret ||
+        !retiredBotId ||
+        retiredSecret === activeSecret ||
+        retiredBotId === botId)
+    ) {
+      throw new ServiceUnavailableException({
+        code: "TELEGRAM_WEBHOOK_IDENTITY_CUTOVER_PENDING",
+        message: "Telegram bot replacement cleanup is still in progress.",
+        retryable: true,
+      });
+    }
+    if (!activeSecret) {
+      if (
+        pendingSecret &&
+        (await adapter.verifyWebhook?.({ headers, body, secret: pendingSecret }))
+      ) {
+        throw new ServiceUnavailableException({
+          code: "TELEGRAM_WEBHOOK_CUTOVER_IN_PROGRESS",
+          message: "Telegram bot replacement is still being activated.",
+          retryable: true,
+        });
+      }
+      throw new UnauthorizedException("Telegram webhook is not configured.");
+    }
+    const activeVerified = await adapter.verifyWebhook?.({
+      headers,
+      body,
+      secret: activeSecret,
+    });
+    if (!activeVerified) {
+      if (
+        pendingSecret &&
+        pendingSecret !== activeSecret &&
+        (await adapter.verifyWebhook?.({ headers, body, secret: pendingSecret }))
+      ) {
+        throw new ServiceUnavailableException({
+          code: "TELEGRAM_WEBHOOK_CUTOVER_IN_PROGRESS",
+          message: "Telegram bot replacement is still being activated.",
+          retryable: true,
+        });
+      }
       throw new UnauthorizedException("Telegram webhook secret is invalid.");
     }
 
-    const normalized = await adapter.normalizeInbound(body);
+    const parsedInbound = await adapter.normalizeInbound(body);
+    const normalized: NormalizedInboundMessage = {
+      ...parsedInbound,
+      externalMessageId: this.externalMessageId(body, parsedInbound, botId),
+    };
     const payload = jsonPayload(body);
-    const externalEventId = this.externalEventId(body, normalized);
-    const existingEvent = await this.prisma.webhookEvent.findUnique({
-      where: { provider_externalEventId: { provider: providerName, externalEventId } }
+    const eventPayloadHash = payloadHash(payload);
+    const externalEventId = this.externalEventId(body, botId);
+    const provider = `${providerName}:${channel.id}`;
+    const claim = await claimWebhookEvent(this.prisma, {
+      tenantId: channel.tenantId,
+      provider,
+      externalEventId,
+      payloadHash: eventPayloadHash,
+      payload,
+      receivedAt: new Date(),
     });
-    if (existingEvent) {
+    if (!claim.claimed) {
+      if (claim.event.status === "RECEIVED") {
+        throw new ServiceUnavailableException({
+          code: "TELEGRAM_WEBHOOK_IN_PROGRESS",
+          message: "Telegram update processing is still in progress.",
+          retryable: true,
+        });
+      }
       return this.duplicateResponse(channel, normalized);
     }
-
-    const webhookEvent = await this.prisma.webhookEvent.create({
-      data: {
-        tenantId: channel.tenantId,
-        provider: providerName,
-        externalEventId,
-        payloadHash: payloadHash(payload),
-        payload,
-        status: "RECEIVED",
-        receivedAt: new Date()
-      }
-    });
+    const webhookEvent = claim.event;
+    const claimToken = claim.claimToken;
 
     try {
       const conversation = await this.upsertConversation(channel, normalized);
-      const inboundMessage = await this.createInboundMessage(channel, conversation, normalized);
-      const aiResult = await this.generateAndQueueReply(channel, conversation, normalized, inboundMessage?.id ?? normalized.externalMessageId);
-      await this.workflowsService.runForEvent({
-        tenantId: channel.tenantId,
-        eventType: "message.received",
-        conversationId: conversation.id,
-        leadId: conversation.leadId,
-        channelType: "TELEGRAM",
-        text: normalized.text ?? null,
-        source: "telegram",
-        receivedAt: new Date(normalized.timestamp),
-        metadata: {
-          publicKey: channel.publicKey ?? "",
-          externalConversationId: normalized.externalConversationId,
-          externalMessageId: normalized.externalMessageId
-        }
+      const inbound = await this.createInboundMessage(channel, conversation, normalized, {
+        origin,
+        webhookEventId: webhookEvent.id,
+        claimToken,
+        eventPayloadHash,
+        authenticatedAt: webhookEvent.receivedAt,
       });
-
-      await this.prisma.webhookEvent.update({
-        where: { id: webhookEvent.id },
-        data: { status: "PROCESSED", processedAt: new Date() }
-      });
-
-      await this.prisma.auditLog.create({
-        data: {
-          tenantId: channel.tenantId,
-          action: "telegram.webhook.processed",
-          entityType: "conversation",
-          entityId: conversation.id,
-          payload: {
-            publicKey: channel.publicKey ?? "",
-            externalEventId,
-            externalMessageId: normalized.externalMessageId,
-            outboundStatus: aiResult.outbound.status
-          }
+      const shouldProcessMessage =
+        inbound.created || (claim.resumed && normalized.eventKind !== "MESSAGE_EDITED");
+      let aiResult: TelegramAiDispatchResult = {
+        messageId: null,
+        reply: null,
+        outbound: inbound.aiDispatchPersisted
+          ? {
+              externalMessageId: `ai-reply:${conversation.id}:${inbound.message.id}`,
+              status: "queued",
+            }
+          : { externalMessageId: "", status: "skipped" as const },
+      };
+      if (!webhookEvent.aiDispatchCompletedAt && !inbound.aiDispatchCompleted) {
+        if (shouldProcessMessage) {
+          aiResult = await this.generateAndQueueReply(
+            channel,
+            conversation,
+            normalized,
+            inbound.message.id,
+          );
         }
+        await completeWebhookEventStage(this.prisma, {
+          eventId: webhookEvent.id,
+          claimToken,
+          stage: "aiDispatchCompletedAt",
+        });
+      }
+
+      if (!webhookEvent.workflowDispatchCompletedAt) {
+        if (shouldProcessMessage) {
+          await this.workflowsService.runForEvent({
+            tenantId: channel.tenantId,
+            eventType: "message.received",
+            idempotencyKey: `telegram-webhook:${webhookEvent.id}`,
+            conversationId: conversation.id,
+            leadId: conversation.leadId,
+            channelType: "TELEGRAM",
+            text: normalized.text ?? null,
+            source: "telegram",
+            receivedAt: new Date(normalized.timestamp),
+            metadata: {
+              publicKey: channel.publicKey ?? "",
+              externalConversationId: normalized.externalConversationId,
+              externalMessageId: normalized.externalMessageId,
+            },
+          });
+        }
+        await completeWebhookEventStage(this.prisma, {
+          eventId: webhookEvent.id,
+          claimToken,
+          stage: "workflowDispatchCompletedAt",
+        });
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        await completeWebhookEvent(tx, { eventId: webhookEvent.id, claimToken });
+        await tx.auditLog.create({
+          data: {
+            tenantId: channel.tenantId,
+            action: "telegram.webhook.processed",
+            entityType: "conversation",
+            entityId: conversation.id,
+            payload: {
+              publicKey: channel.publicKey ?? "",
+              externalEventId,
+              externalMessageId: normalized.externalMessageId,
+              botId,
+              eventKind: normalized.eventKind ?? "MESSAGE",
+              messageCreated: inbound.created,
+              outboundStatus: aiResult.outbound.status,
+              ...(inbound.aiDispatchRejectionReason
+                ? { aiDispatchRejectionReason: inbound.aiDispatchRejectionReason }
+                : {}),
+            },
+          },
+        });
       });
 
       return {
@@ -167,19 +364,17 @@ export class TelegramService {
         duplicate: false,
         conversationId: conversation.id,
         leadId: conversation.leadId,
-        inboundMessageId: inboundMessage?.id ?? null,
+        inboundMessageId: inbound.message.id,
         aiMessageId: aiResult.messageId,
         outboundStatus: aiResult.outbound.status,
-        reply: aiResult.reply
+        reply: aiResult.reply,
       };
     } catch (error) {
-      await this.prisma.webhookEvent.update({
-        where: { id: webhookEvent.id },
-        data: {
-          status: "FAILED",
-          errorMessage: error instanceof Error ? error.message : "Unknown Telegram webhook processing error",
-          processedAt: new Date()
-        }
+      await failWebhookEvent(this.prisma, {
+        eventId: webhookEvent.id,
+        claimToken,
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown Telegram webhook processing error",
       });
       throw error;
     }
@@ -192,34 +387,53 @@ export class TelegramService {
         type: "TELEGRAM",
         status: "ACTIVE",
         deletedAt: null,
-        tenant: { deletedAt: null }
+        tenant: { deletedAt: null },
       },
-      include: { tenant: true }
+      include: { tenant: true },
     });
     if (!channel) {
       throw new NotFoundException("Telegram channel was not found.");
     }
+    assertTenantRuntimeActive(channel.tenant.status);
     return channel;
   }
 
-  private externalEventId(body: unknown, normalized: NormalizedInboundMessage) {
+  private externalEventId(body: unknown, botId: string) {
     const update = asRecord(body);
     const updateId = update.update_id;
     if (typeof updateId === "string" || typeof updateId === "number") {
-      return `telegram:update:${String(updateId)}`;
+      return `telegram:bot:${botId}:update:${String(updateId)}`;
     }
-    return normalized.externalMessageId;
+    return `telegram:bot:${botId}:payload:${payloadHash(jsonPayload(body))}`;
   }
 
-  private async duplicateResponse(channel: TelegramChannel, normalized: NormalizedInboundMessage): Promise<TelegramWebhookResult> {
+  private externalMessageId(body: unknown, normalized: NormalizedInboundMessage, botId: string) {
+    const update = asRecord(body);
+    const message = isRecord(update.message)
+      ? update.message
+      : isRecord(update.edited_message)
+        ? update.edited_message
+        : null;
+    const messageId = message?.message_id;
+    return `telegram:bot:${botId}:message:${
+      typeof messageId === "number" || typeof messageId === "string"
+        ? String(messageId)
+        : normalized.externalMessageId
+    }`;
+  }
+
+  private async duplicateResponse(
+    channel: TelegramChannel,
+    normalized: NormalizedInboundMessage,
+  ): Promise<TelegramWebhookResult> {
     const conversation = await this.prisma.conversation.findFirst({
       where: {
         tenantId: channel.tenantId,
         channelId: channel.id,
         externalConversationId: normalized.externalConversationId,
-        deletedAt: null
+        deletedAt: null,
       },
-      select: { id: true, leadId: true }
+      select: { id: true, leadId: true },
     });
     return {
       ok: true,
@@ -229,330 +443,440 @@ export class TelegramService {
       inboundMessageId: null,
       aiMessageId: null,
       outboundStatus: "skipped",
-      reply: null
+      reply: null,
     };
   }
 
-  private async upsertConversation(channel: TelegramChannel, inbound: NormalizedInboundMessage): Promise<TelegramConversation> {
-    const existing = await this.prisma.conversation.findFirst({
-      where: {
-        tenantId: channel.tenantId,
-        channelId: channel.id,
-        externalConversationId: inbound.externalConversationId,
-        deletedAt: null
-      },
-      include: { lead: true, messages: { orderBy: { createdAt: "asc" } } }
-    });
-    const receivedAt = new Date(inbound.timestamp);
-
-    if (existing) {
-      if (existing.leadId) {
-        await this.prisma.lead.update({
-          where: { id: existing.leadId },
-          data: {
-            lastMessageAt: receivedAt,
-            ...(inbound.customerName ? { name: inbound.customerName } : {}),
-            ...(inbound.customerPhone ? { phone: inbound.customerPhone } : {}),
-            interest: shortSubject(inbound.text)
-          }
-        });
-      }
-      await this.prisma.conversation.update({
-        where: { id: existing.id },
-        data: {
-          lastMessageAt: receivedAt,
-          status: existing.status === "CLOSED" ? "OPEN" : existing.status,
-          updatedAt: receivedAt
-        }
+  private async upsertConversation(
+    channel: TelegramChannel,
+    inbound: NormalizedInboundMessage,
+  ): Promise<TelegramConversation> {
+    return this.prisma.$transaction(async (tx) => {
+      const lockKey = `conversation:${channel.tenantId}:${channel.id}:${inbound.externalConversationId}`;
+      await tx.$queryRaw(Prisma.sql`
+        SELECT TRUE AS "locked"
+        FROM (SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))) AS advisory_lock
+      `);
+      const channelState = await tx.$queryRaw<Array<{ automaticRepliesEnabled: boolean }>>(
+        Prisma.sql`
+          SELECT "automaticRepliesEnabled"
+          FROM "Channel"
+          WHERE "id" = ${channel.id}
+            AND "tenantId" = ${channel.tenantId}
+            AND "deletedAt" IS NULL
+          FOR SHARE
+        `,
+      );
+      const existing = await tx.conversation.findFirst({
+        where: {
+          tenantId: channel.tenantId,
+          channelId: channel.id,
+          externalConversationId: inbound.externalConversationId,
+          deletedAt: null,
+        },
+        include: { lead: true },
       });
-      return existing;
-    }
+      const receivedAt = new Date(inbound.timestamp);
 
-    const lead = await this.prisma.lead.create({
-      data: {
-        tenantId: channel.tenantId,
-        ...(inbound.customerName ? { name: inbound.customerName } : {}),
-        ...(inbound.customerPhone ? { phone: inbound.customerPhone } : {}),
-        source: "Telegram-бот",
-        channelType: "TELEGRAM",
-        status: "NEW",
-        temperature: "WARM",
-        interest: shortSubject(inbound.text),
-        summary: "Новый диалог из Telegram.",
-        customFields: {
-          telegramCustomerExternalId: inbound.customerExternalId,
-          telegramConversationExternalId: inbound.externalConversationId
-        },
-        lastMessageAt: receivedAt,
-        createdAt: receivedAt,
-        updatedAt: receivedAt
-      }
-    });
+      if (existing) return existing;
 
-    const conversation = await this.prisma.conversation.create({
-      data: {
-        tenantId: channel.tenantId,
-        leadId: lead.id,
-        channelId: channel.id,
-        externalConversationId: inbound.externalConversationId,
-        status: "OPEN",
-        subject: shortSubject(inbound.text),
-        lastMessageAt: receivedAt,
-        aiEnabled: true,
-        metadata: {
-          telegramCustomerExternalId: inbound.customerExternalId,
-          telegramConversationExternalId: inbound.externalConversationId
-        },
-        createdAt: receivedAt,
-        updatedAt: receivedAt
-      },
-      include: { lead: true, messages: { orderBy: { createdAt: "asc" } } }
-    });
-
-    await this.prisma.leadEvent.create({
-      data: {
-        tenantId: channel.tenantId,
-        leadId: lead.id,
-        type: "conversation_started",
-        title: "Telegram conversation started",
-        message: inbound.text ?? null,
-        metadata: { conversationId: conversation.id, externalConversationId: inbound.externalConversationId }
-      }
-    });
-
-    return conversation;
-  }
-
-  private async createInboundMessage(channel: TelegramChannel, conversation: TelegramConversation, inbound: NormalizedInboundMessage) {
-    const existing = await this.prisma.message.findFirst({
-      where: {
-        tenantId: channel.tenantId,
-        conversationId: conversation.id,
-        externalMessageId: inbound.externalMessageId
-      },
-      select: { id: true }
-    });
-    if (existing) {
-      return null;
-    }
-
-    const message = await this.prisma.message.create({
-      data: {
-        tenantId: channel.tenantId,
-        conversationId: conversation.id,
-        direction: "INBOUND",
-        senderType: "CUSTOMER",
-        externalMessageId: inbound.externalMessageId,
-        text: inbound.text ?? null,
-        status: "RECEIVED",
-        metadata: {
-          customerExternalId: inbound.customerExternalId,
-          raw: jsonPayload(inbound.raw)
-        },
-        createdAt: new Date(inbound.timestamp),
-        updatedAt: new Date(inbound.timestamp)
-      }
-    });
-
-    if (conversation.leadId) {
-      await this.prisma.leadEvent.create({
+      const lead = await tx.lead.create({
         data: {
           tenantId: channel.tenantId,
-          leadId: conversation.leadId,
-          type: "telegram_message_received",
-          title: "Telegram message received",
-          message: inbound.text ?? null,
-          metadata: { conversationId: conversation.id, externalMessageId: inbound.externalMessageId }
-        }
+          ...(inbound.customerName ? { name: inbound.customerName } : {}),
+          ...(inbound.customerPhone ? { phone: inbound.customerPhone } : {}),
+          source: "Telegram-бот",
+          channelType: "TELEGRAM",
+          status: "NEW",
+          temperature: "WARM",
+          interest: shortSubject(inbound.text),
+          summary: "Новый диалог из Telegram.",
+          customFields: {
+            telegramCustomerExternalId: inbound.customerExternalId,
+            telegramConversationExternalId: inbound.externalConversationId,
+          },
+          lastMessageAt: receivedAt,
+          createdAt: receivedAt,
+          updatedAt: receivedAt,
+        },
       });
-    }
 
-    return message;
+      const conversation = await tx.conversation.create({
+        data: {
+          tenantId: channel.tenantId,
+          leadId: lead.id,
+          channelId: channel.id,
+          externalConversationId: inbound.externalConversationId,
+          status: "OPEN",
+          subject: shortSubject(inbound.text),
+          lastMessageAt: receivedAt,
+          aiEnabled: channelState[0]?.automaticRepliesEnabled ?? false,
+          metadata: {
+            telegramCustomerExternalId: inbound.customerExternalId,
+            telegramConversationExternalId: inbound.externalConversationId,
+          },
+          createdAt: receivedAt,
+          updatedAt: receivedAt,
+        },
+        include: { lead: true },
+      });
+
+      await tx.leadEvent.create({
+        data: {
+          tenantId: channel.tenantId,
+          leadId: lead.id,
+          type: "conversation_started",
+          title: "Telegram conversation started",
+          message: inbound.text ?? null,
+          metadata: {
+            conversationId: conversation.id,
+            externalConversationId: inbound.externalConversationId,
+          },
+        },
+      });
+
+      return conversation;
+    });
+  }
+
+  private async createInboundMessage(
+    channel: TelegramChannel,
+    conversation: TelegramConversation,
+    inbound: NormalizedInboundMessage,
+    authentication: {
+      origin: TelegramWebhookOrigin;
+      webhookEventId: string;
+      claimToken: string;
+      eventPayloadHash: string;
+      authenticatedAt: Date;
+    },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const authenticatedCustomer =
+        authentication.origin === "TELEGRAM_WEBHOOK" &&
+        channel.externalId &&
+        channel.publicKey &&
+        inbound.authenticatedCustomer
+          ? inbound.authenticatedCustomer
+          : undefined;
+      const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT "id" FROM "Conversation"
+        WHERE "id" = ${conversation.id} AND "tenantId" = ${channel.tenantId} AND "deletedAt" IS NULL
+        FOR UPDATE
+      `);
+      if (locked.length !== 1) throw new NotFoundException("Telegram conversation was not found.");
+      const existing = await tx.message.findFirst({
+        where: {
+          tenantId: channel.tenantId,
+          conversationId: conversation.id,
+          externalMessageId: inbound.externalMessageId,
+        },
+        select: { id: true, createdAt: true, metadata: true },
+      });
+      if (existing) {
+        const expectedSubjectHash = authenticatedCustomer
+          ? authenticatedCustomerSubjectHash({
+              tenantId: channel.tenantId,
+              channelId: channel.id,
+              provider: authenticatedCustomer.provider,
+              externalSubjectId: authenticatedCustomer.externalSubjectId,
+            })
+          : null;
+        const customerIdentity = expectedSubjectHash
+          ? await tx.authenticatedCustomerIdentity.findFirst({
+              where: {
+                tenantId: channel.tenantId,
+                messageId: existing.id,
+                subjectHash: expectedSubjectHash,
+              },
+              select: { id: true, version: true, subjectHash: true, attestationHash: true },
+            })
+          : null;
+        const message =
+          inbound.eventKind === "MESSAGE_EDITED"
+            ? await tx.message.update({
+                where: { id: existing.id },
+                data: {
+                  text: inbound.text ?? null,
+                  metadata: {
+                    ...asRecord(existing.metadata),
+                    customerExternalId: inbound.customerExternalId,
+                    raw: jsonPayload(inbound.raw),
+                  },
+                  updatedAt: new Date(),
+                },
+              })
+            : existing;
+        const latestMessage = await tx.message.findFirst({
+          where: {
+            tenantId: channel.tenantId,
+            conversationId: conversation.id,
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: { id: true, createdAt: true },
+        });
+        if (inbound.eventKind === "MESSAGE_EDITED" && conversation.leadId) {
+          await tx.lead.update({
+            where: { id: conversation.leadId },
+            data: {
+              ...(latestMessage ? { lastMessageAt: latestMessage.createdAt } : {}),
+              ...(inbound.customerName ? { name: inbound.customerName } : {}),
+              ...(inbound.customerPhone ? { phone: inbound.customerPhone } : {}),
+              ...(latestMessage?.id === message.id ? { interest: shortSubject(inbound.text) } : {}),
+            },
+          });
+        }
+        if (inbound.eventKind === "MESSAGE_EDITED" && latestMessage) {
+          await tx.conversation.update({
+            where: { id: conversation.id },
+            data: { lastMessageAt: latestMessage.createdAt },
+          });
+        }
+        await completeWebhookEventStage(tx, {
+          eventId: authentication.webhookEventId,
+          claimToken: authentication.claimToken,
+          stage: "intakeCompletedAt",
+        });
+        return {
+          message,
+          created: false,
+          aiDispatchPersisted: false,
+          aiDispatchCompleted: false,
+          aiDispatchRejectionReason: null,
+          ...(customerIdentity?.version === 1
+            ? {
+                customerIdentity: {
+                  id: customerIdentity.id,
+                  version: 1 as const,
+                  subjectHash: customerIdentity.subjectHash,
+                  attestationHash: customerIdentity.attestationHash,
+                },
+              }
+            : {}),
+        };
+      }
+
+      const receivedAt = new Date(inbound.timestamp);
+      const currentConversation = await tx.conversation.findUniqueOrThrow({
+        where: { id: conversation.id },
+        select: { status: true },
+      });
+
+      const message = await tx.message.create({
+        data: {
+          tenantId: channel.tenantId,
+          conversationId: conversation.id,
+          direction: "INBOUND",
+          senderType: "CUSTOMER",
+          externalMessageId: inbound.externalMessageId,
+          text: inbound.text ?? null,
+          status: "RECEIVED",
+          metadata: {
+            customerExternalId: inbound.customerExternalId,
+            raw: jsonPayload(inbound.raw),
+          },
+          createdAt: receivedAt,
+          updatedAt: receivedAt,
+        },
+      });
+      const latestMessage = await tx.message.findFirstOrThrow({
+        where: {
+          tenantId: channel.tenantId,
+          conversationId: conversation.id,
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { id: true, createdAt: true },
+      });
+      if (conversation.leadId) {
+        await tx.lead.update({
+          where: { id: conversation.leadId },
+          data: {
+            lastMessageAt: latestMessage.createdAt,
+            ...(inbound.customerName ? { name: inbound.customerName } : {}),
+            ...(inbound.customerPhone ? { phone: inbound.customerPhone } : {}),
+            ...(latestMessage.id === message.id ? { interest: shortSubject(inbound.text) } : {}),
+          },
+        });
+      }
+      await tx.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastMessageAt: latestMessage.createdAt,
+          ...(currentConversation.status === "CLOSED" ? { status: "OPEN" as const } : {}),
+          updatedAt: new Date(),
+        },
+      });
+
+      let customerIdentity: AuthenticatedCustomerIdentityReference | undefined;
+      if (authenticatedCustomer) {
+        const version = 1 as const;
+        const subjectHash = authenticatedCustomerSubjectHash({
+          tenantId: channel.tenantId,
+          channelId: channel.id,
+          provider: authenticatedCustomer.provider,
+          externalSubjectId: authenticatedCustomer.externalSubjectId,
+        });
+        const channelBindingHash = authenticatedCustomerChannelBindingHash({
+          tenantId: channel.tenantId,
+          channelId: channel.id,
+          channelType: channel.type,
+          channelExternalId: channel.externalId ?? "",
+          channelPublicKey: channel.publicKey ?? "",
+        });
+        const identity = {
+          tenantId: channel.tenantId,
+          version,
+          channelId: channel.id,
+          conversationId: conversation.id,
+          messageId: message.id,
+          webhookEventId: authentication.webhookEventId,
+          provider: authenticatedCustomer.provider,
+          authenticationMethod: "TELEGRAM_WEBHOOK_SECRET" as const,
+          subjectSource: authenticatedCustomer.subjectSource,
+          conversationType: authenticatedCustomer.conversationType,
+          subjectHash,
+          channelBindingHash,
+          eventPayloadHash: authentication.eventPayloadHash,
+          authenticatedAt: authentication.authenticatedAt,
+        };
+        const attestationHash = authenticatedCustomerIdentityAttestationHash(identity);
+        const persisted = await tx.authenticatedCustomerIdentity.create({
+          data: { ...identity, attestationHash },
+          select: { id: true },
+        });
+        customerIdentity = {
+          id: persisted.id,
+          version,
+          subjectHash,
+          attestationHash,
+        };
+      }
+
+      if (conversation.leadId) {
+        await tx.leadEvent.create({
+          data: {
+            tenantId: channel.tenantId,
+            leadId: conversation.leadId,
+            type: "telegram_message_received",
+            title: "Telegram message received",
+            message: inbound.text ?? null,
+            metadata: {
+              conversationId: conversation.id,
+              externalMessageId: inbound.externalMessageId,
+            },
+          },
+        });
+      }
+
+      await completeWebhookEventStage(tx, {
+        eventId: authentication.webhookEventId,
+        claimToken: authentication.claimToken,
+        stage: "intakeCompletedAt",
+      });
+
+      let aiDispatchPersisted = false;
+      let aiDispatchCompleted = false;
+      let aiDispatchRejectionReason: string | null = null;
+      if (this.aiReplyQueue.enabled) {
+        const queueResult = await this.aiReplyQueue.createEvent(
+          tx,
+          this.aiReplyRequest(channel, conversation, message.id, inbound.text ?? ""),
+        );
+        if (queueResult.created && conversation.leadId) {
+          const queuedJobId = `ai-reply:${conversation.id}:${message.id}`;
+          await tx.leadEvent.create({
+            data: {
+              tenantId: channel.tenantId,
+              leadId: conversation.leadId,
+              type: "telegram_ai_reply_queued",
+              title: "Telegram AI reply queued",
+              message: inbound.text ?? "",
+              metadata: {
+                conversationId: conversation.id,
+                externalMessageId: queuedJobId,
+                outboundStatus: "queued",
+              },
+            },
+          });
+        }
+        aiDispatchPersisted = queueResult.created;
+        if (!queueResult.created) aiDispatchRejectionReason = queueResult.reason;
+        await completeWebhookEventStage(tx, {
+          eventId: authentication.webhookEventId,
+          claimToken: authentication.claimToken,
+          stage: "aiDispatchCompletedAt",
+        });
+        aiDispatchCompleted = true;
+      }
+      return {
+        message,
+        created: true,
+        aiDispatchPersisted,
+        aiDispatchCompleted,
+        aiDispatchRejectionReason,
+        ...(customerIdentity ? { customerIdentity } : {}),
+      };
+    });
+  }
+
+  private aiReplyRequest(
+    channel: TelegramChannel,
+    conversation: TelegramConversation,
+    triggerMessageId: string,
+    text: string,
+  ): AiReplyEnqueueRequest {
+    return {
+      tenantId: channel.tenantId,
+      conversationId: conversation.id,
+      triggerMessageId,
+      text,
+      source: "telegram",
+    };
   }
 
   private async generateAndQueueReply(
     channel: TelegramChannel,
     conversation: TelegramConversation,
     inbound: NormalizedInboundMessage,
-    triggerMessageId: string
+    triggerMessageId: string,
   ) {
     const text = inbound.text ?? "";
-    const messages: AiMessage[] = [
-      ...conversation.messages.map((message) => ({
-        role: message.senderType === "AI" ? ("assistant" as const) : ("user" as const),
-        content: message.text ?? ""
-      })),
-      { role: "user", content: text }
-    ];
-
-    if (this.aiReplyQueue.enabled) {
-      const jobData: AiReplyJobData = {
-        tenantId: channel.tenantId,
-        conversationId: conversation.id,
-        triggerMessageId,
-        text,
-        businessName: channel.tenant.name,
-        ...(channel.tenant.businessType ? { businessType: channel.tenant.businessType } : {}),
-        leadId: conversation.leadId,
-        ...(conversation.lead?.status ? { leadStatus: conversation.lead.status } : {}),
-        source: "telegram",
-        receivedAt: inbound.timestamp
+    const jobData = this.aiReplyRequest(channel, conversation, triggerMessageId, text);
+    if (!this.aiReplyQueue.enabled) {
+      return {
+        messageId: null,
+        reply: null,
+        outbound: { externalMessageId: "", status: "skipped" as const },
       };
-      const queueResult = await this.aiReplyQueue.enqueue(jobData);
-      if (queueResult.queued) {
-        const outbound: SendMessageResult = {
-          externalMessageId: queueResult.jobId ?? `ai-reply:${conversation.id}:${triggerMessageId}`,
-          status: "queued"
-        };
-        if (conversation.leadId) {
-          await this.prisma.leadEvent.create({
-            data: {
-              tenantId: channel.tenantId,
-              leadId: conversation.leadId,
-              type: "telegram_ai_reply_queued",
-              title: "Telegram AI reply queued",
-              message: text,
-              metadata: {
-                conversationId: conversation.id,
-                externalMessageId: outbound.externalMessageId,
-                outboundStatus: outbound.status
-              }
-            }
-          });
-        }
-        return {
-          messageId: null,
-          reply: null,
-          outbound
-        };
-      }
     }
-
-    const [extraction, aiReply, recommendation] = await Promise.all([
-      this.aiProvider.extractLeadFields({
-        tenantId: channel.tenantId,
-        conversationId: conversation.id,
-        text
-      }),
-      this.aiProvider.generateReply({
-        tenantId: channel.tenantId,
-        businessName: channel.tenant.name,
-        ...(channel.tenant.businessType ? { businessType: channel.tenant.businessType } : {}),
-        conversationId: conversation.id,
-        messages
-      }),
-      this.aiProvider.recommendNextAction({
-        tenantId: channel.tenantId,
-        conversationId: conversation.id,
-        ...(conversation.lead?.status ? { leadStatus: conversation.lead.status } : {}),
-        text
-      })
-    ]);
-
-    const credentials = channelCredentials(channel.encryptedCredentials);
-    const outbound = await adapter.sendMessage({
-      tenantId: channel.tenantId,
-      channelAccountId: channel.externalId ?? channel.id,
-      conversationId: conversation.id,
-      externalConversationId: inbound.externalConversationId,
-      text: aiReply.reply,
-      ...(credentials ? { credentials } : {}),
-      metadata: {
-        triggerMessageId: inbound.externalMessageId,
-        intent: aiReply.intent,
-        sample: isLeadVirtSample(inbound.raw)
+    const queueResult = await this.aiReplyQueue.enqueue(jobData);
+    if (queueResult.queued) {
+      const outbound: SendMessageResult = {
+        externalMessageId: queueResult.jobId,
+        status: "queued",
+      };
+      if (conversation.leadId) {
+        await this.prisma.leadEvent.create({
+          data: {
+            tenantId: channel.tenantId,
+            leadId: conversation.leadId,
+            type: "telegram_ai_reply_queued",
+            title: "Telegram AI reply queued",
+            message: text,
+            metadata: {
+              conversationId: conversation.id,
+              externalMessageId: outbound.externalMessageId,
+              outboundStatus: outbound.status,
+            },
+          },
+        });
       }
-    });
-
-    const aiCreatedAt = new Date(new Date(inbound.timestamp).getTime() + 1000);
-    const handoffRequired = aiReply.handoffRequired || recommendation.handoffRequired;
-    const aiMessage = await this.prisma.message.create({
-      data: {
-        tenantId: channel.tenantId,
-        conversationId: conversation.id,
-        direction: "OUTBOUND",
-        senderType: "AI",
-        externalMessageId: outbound.externalMessageId,
-        text: aiReply.reply,
-        status: outbound.status === "queued" ? "QUEUED" : outbound.status === "sent" ? "SENT" : "FAILED",
-        metadata: {
-          provider: "telegram",
-          intent: aiReply.intent,
-          confidence: aiReply.confidence,
-          nextAction: recommendation.action,
-          outboundStatus: outbound.status,
-          handoffRequired
-        },
-        createdAt: aiCreatedAt,
-        updatedAt: aiCreatedAt
-      }
-    });
-
-    await this.prisma.aiUsageLog.create({
-      data: {
-        tenantId: channel.tenantId,
-        conversationId: conversation.id,
-        leadId: conversation.leadId,
-        provider: this.aiProvider.providerName ?? "unknown",
-        model: this.aiProvider.modelName ?? "unknown",
-        actionType: "telegram_generate_reply",
-        inputTokens: Math.max(24, Math.round(text.length / 4)),
-        outputTokens: Math.max(18, Math.round(aiReply.reply.length / 4)),
-        estimatedCost: "0.000000",
-        latencyMs: 32,
-        status: "SUCCESS",
-        metadata: {
-          recommendation: recommendation.action,
-          reason: recommendation.reason,
-          extractionConfidence: extraction.confidence
-        }
-      }
-    });
-
-    await this.prisma.conversation.update({
-      where: { id: conversation.id },
-      data: {
-        lastMessageAt: aiCreatedAt,
-        handoffRequested: conversation.handoffRequested || handoffRequired,
-        status: handoffRequired ? "WAITING_FOR_HUMAN" : "OPEN",
-        updatedAt: aiCreatedAt
-      }
-    });
-
-    if (conversation.leadId) {
-      const summary = typeof extraction.fields.summary === "string" ? extraction.fields.summary : undefined;
-      await this.prisma.lead.update({
-        where: { id: conversation.leadId },
-        data: {
-          lastMessageAt: aiCreatedAt,
-          status: conversation.lead?.status === "NEW" ? "IN_PROGRESS" : (conversation.lead?.status ?? "IN_PROGRESS"),
-          ...(summary ? { summary } : {}),
-          updatedAt: aiCreatedAt
-        }
-      });
-
-      await this.prisma.leadEvent.create({
-        data: {
-          tenantId: channel.tenantId,
-          leadId: conversation.leadId,
-          type: "telegram_ai_reply_queued",
-          title: "Telegram AI reply queued",
-          message: aiReply.reply,
-          metadata: {
-            conversationId: conversation.id,
-            messageId: aiMessage.id,
-            externalMessageId: outbound.externalMessageId,
-            outboundStatus: outbound.status,
-            intent: aiReply.intent
-          }
-        }
-      });
+      return { messageId: null, reply: null, outbound };
     }
-
     return {
-      messageId: aiMessage.id,
-      reply: aiReply.reply,
-      outbound
+      messageId: null,
+      reply: null,
+      outbound: { externalMessageId: "", status: "skipped" as const },
     };
   }
 }

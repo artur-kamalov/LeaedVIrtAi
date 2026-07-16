@@ -162,12 +162,9 @@ export class AnalyticsService {
         .map((channel) => ({ channelType: channel.channelType, score: channel.conversionRate }))
         .sort((left, right) => right.score - left.score)
         .slice(0, 3),
-      aiInsights: analyticsHasSignals ? [
-        "Сайт и Instagram дают самые дорогие квалифицированные лиды на этой неделе.",
-        "Медицинские и юридические вопросы лучше передавать менеджеру до ответа AI.",
-        "Сценарии записи работают лучше, когда AI раньше спрашивает удобное время.",
-        "Follow-up возвращает теплых лидов, которые пропали после вопроса о цене."
-      ] : []
+      aiInsightCodes: analyticsHasSignals
+        ? ["CHANNEL_VALUE", "HIGH_RISK_HANDOFF", "EARLY_BOOKING_TIME", "PRICE_FOLLOWUP"]
+        : [],
     };
   }
 }

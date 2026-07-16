@@ -49,9 +49,10 @@ assert(!workflow.includes("leadvirt.ru"), "Deploy workflow still configures the 
 assert(!workflow.includes("LEGACY_DOMAIN"), "Deploy workflow still passes legacy-domain inputs.");
 
 const prepareIndex = workflow.indexOf("enable-leadvirt-com-https.sh");
-const switchIndex = workflow.indexOf('if [ -L "$current_link" ]');
+const drainedNginxIndex = workflow.indexOf("DEPLOY_GATE: public-nginx-stopped", prepareIndex);
+const switchIndex = workflow.indexOf('case "$previous_current_kind" in', drainedNginxIndex);
 assert(
-  prepareIndex >= 0 && switchIndex > prepareIndex,
+  prepareIndex >= 0 && drainedNginxIndex > prepareIndex && switchIndex > drainedNginxIndex,
   "Domain preparation must finish before the active release changes.",
 );
 

@@ -3,10 +3,11 @@ import { loginAsCleanUser } from "./helpers/auth";
 
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
+const localizedWidgetSource = "Виджет сайта";
 
 test.beforeEach(async ({ page }) => {
   await page.context().addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
-  await loginAsCleanUser(page, apiBase);
+  await loginAsCleanUser(page, apiBase, { locale: "ru" });
 });
 
 type IntakeLead = {
@@ -133,14 +134,15 @@ test("webhook and widget intake stay traceable in inbox and pipeline", async ({ 
   await expect(page.getByText("Сайт").first()).toBeVisible();
 
   await page.getByText("Widget Pilot").first().click();
-  await expect(page.getByText(widgetLead.source).first()).toBeVisible();
+  await expect(page.getByText(localizedWidgetSource).first()).toBeVisible();
   await expect(page.getByText("Widget booking request").first()).toBeVisible();
 
-  await page.goto(`${webBase}/app/leads`, { waitUntil: "networkidle" });
+  await page.getByRole("link", { name: "Воронка / CRM" }).click();
+  await expect(page).toHaveURL(/\/app\/leads$/, { timeout: 45_000 });
 
   await expect(page.getByText("Webhook Pilot").first()).toBeVisible();
   await expect(page.getByText("Webhook/API").first()).toBeVisible();
   await expect(page.getByText("Widget Pilot").first()).toBeVisible();
-  await expect(page.getByText(widgetLead.source).first()).toBeVisible();
+  await expect(page.getByText(localizedWidgetSource).first()).toBeVisible();
 });
 

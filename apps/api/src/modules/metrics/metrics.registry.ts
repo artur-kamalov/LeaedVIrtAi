@@ -17,7 +17,15 @@ interface HistogramMetric {
   values: Map<string, { labels: Record<string, string>; buckets: number[]; sum: number; count: number }>;
 }
 
-type Metric = CounterMetric | HistogramMetric;
+interface GaugeMetric {
+  kind: "gauge";
+  name: string;
+  help: string;
+  labelNames: string[];
+  values: Map<string, { labels: Record<string, string>; value: number }>;
+}
+
+type Metric = CounterMetric | HistogramMetric | GaugeMetric;
 
 const metrics = new Map<string, Metric>();
 
@@ -96,6 +104,33 @@ export function observeHistogram(name: string, help: string, labelNames: string[
   metric.values.set(key, current);
 }
 
+export function replaceGauge(
+  name: string,
+  help: string,
+  labelNames: string[],
+  samples: Array<{ labels: Labels; value: number }>,
+) {
+  let metric = metrics.get(name);
+  if (!metric) {
+    metric = { kind: "gauge", name, help, labelNames, values: new Map() };
+    metrics.set(name, metric);
+  }
+
+  if (metric.kind !== "gauge") {
+    throw new Error(`Metric ${name} is already registered as ${metric.kind}.`);
+  }
+
+  metric.values.clear();
+  for (const sample of samples) {
+    if (!Number.isFinite(sample.value)) continue;
+    const normalized = normalizeLabels(metric.labelNames, sample.labels);
+    metric.values.set(labelKey(metric.labelNames, normalized), {
+      labels: normalized,
+      value: sample.value,
+    });
+  }
+}
+
 function renderCounter(metric: CounterMetric) {
   const lines = [`# HELP ${metric.name} ${escapeHelp(metric.help)}`, `# TYPE ${metric.name} counter`];
   for (const value of metric.values.values()) {
@@ -117,10 +152,20 @@ function renderHistogram(metric: HistogramMetric) {
   return lines;
 }
 
+function renderGauge(metric: GaugeMetric) {
+  const lines = [`# HELP ${metric.name} ${escapeHelp(metric.help)}`, `# TYPE ${metric.name} gauge`];
+  for (const value of metric.values.values()) {
+    lines.push(`${metric.name}${renderLabels(value.labels)} ${value.value}`);
+  }
+  return lines;
+}
+
 export function renderPrometheusMetrics() {
   const lines: string[] = [];
   for (const metric of metrics.values()) {
-    lines.push(...(metric.kind === "counter" ? renderCounter(metric) : renderHistogram(metric)));
+    if (metric.kind === "counter") lines.push(...renderCounter(metric));
+    else if (metric.kind === "histogram") lines.push(...renderHistogram(metric));
+    else lines.push(...renderGauge(metric));
   }
   return `${lines.join("\n")}\n`;
 }

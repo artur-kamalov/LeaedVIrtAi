@@ -1,6 +1,6 @@
 # LeadVirt Server Setup
 
-Last updated: 2026-07-10
+Last updated: 2026-07-15
 
 ## Chosen Server Baseline
 
@@ -130,9 +130,11 @@ cd /opt/leadvirt/current
 deploy/enable-leadvirt-com-https.sh
 ```
 
-The script checks DNS and ACME routing, issues the `.com` certificate, updates public app env, validates nginx, rebuilds the web/API/worker/nginx services, and verifies `/health`.
+The script checks DNS and ACME routing, issues the `.com` certificate, updates public app env, validates nginx, rebuilds the web/API/worker/nginx services, and verifies `/health/ready`. On a first deployment with port `80` free, it serves the webroot through a uniquely named temporary nginx until Certbot finishes. An incompatible existing port `80` listener is never stopped; the cutover fails closed.
 
 After a successful cutover it installs `/etc/cron.d/leadvirt-certbot`, which renews active certificates daily.
+
+Deployments persist their Compose project in `.leadvirt-compose-project`. HTTPS validation and renewal validate and use that marker; releases without it keep the legacy Compose project lookup.
 
 Certificates:
 
@@ -148,7 +150,8 @@ docker compose --env-file /opt/leadvirt/secrets/.env -f deploy/docker-compose.st
 
 Verified:
 
-- `GET https://leadvirt.com/health` returns `200`.
+- `GET https://leadvirt.com/health` returns `200` for process liveness.
+- `GET https://leadvirt.com/health/ready` returns `200` only when PostgreSQL and Redis are reachable.
 - `GET http://leadvirt.com/` redirects to `https://leadvirt.com/`.
 - `https://www.leadvirt.com/` redirects to `https://leadvirt.com/`.
 - `GET https://leadvirt.com/api/auth/me` without a cookie returns `401`.
@@ -158,6 +161,48 @@ Verified:
 - Strict auth readiness passes for `staging-admin@leadvirt.ai`; 2FA is still disabled and should be enabled before wider external access.
 - Real OpenAI provider smoke passes from the staging API container through the FR AI gateway.
 - Main reverse proxy was migrated from Caddy to nginx on 2026-07-04.
+
+Deployment preflight starts an isolated API with `API_DEPLOYMENT_PREFLIGHT=true`, a paused worker, and web while the prior stack remains live. API and worker readiness prove PostgreSQL and Redis before the deployment drains the exact prior writers, stops nginx, switches `current`, and commits to candidate-only recovery before any migration. Canonical promotion reruns migration and retained-key gates, verifies the API in normal mode, activates the worker, proves web/nginx/public readiness, and otherwise leaves nginx stopped. Do not add deployment preflight flags to `/opt/leadvirt/secrets/.env`.
+
+The workflow installs `leadvirt-deployment-reconcile.service`. Before drain it fsyncs `/opt/leadvirt/.deployment-journal.v1` with exact prior container and `current` state; after the synced link switch it durably changes the phase to `committed`. Deploy startup and host boot both reconcile this file. Do not delete or edit the journal manually: rerun `sudo /bin/bash /opt/leadvirt/.deployment-journal.sh reconcile` and inspect its error if automatic recovery remains fail-closed.
+
+Recovery uses the same deployment lock as the workflow. A `precommit` journal restores the exact recorded `current` target and restarts only prior containers recorded as running; a `committed` journal never returns to old code and resumes candidate migration and promotion. Ambiguous or failed recovery retains the journal and keeps nginx stopped. The systemd oneshot starts after Docker and the network and retries after failure.
+
+Inspect or retry recovery with:
+
+```bash
+sudo systemctl status leadvirt-deployment-reconcile.service
+sudo journalctl -u leadvirt-deployment-reconcile.service
+sudo /bin/bash /opt/leadvirt/.deployment-journal.sh reconcile
+```
+
+Release cleanup retains five marker-valid managed releases and skips releases or images referenced by `current`, the journal, top-level symlinks, or any stopped/running container. Failed reference discovery retains data.
+
+Local verification covers Bash syntax, static recovery/order assertions, a mocked first-deploy journal write and duplicate-attempt fence, and mocked fail-closed pruning. It does not prove real Linux Docker/systemd crash recovery. Before treating the recovery path as production-proven, run the checklist crash matrix on a disposable Linux host with real containers, `SIGKILL`, and reboot.
+
+## Knowledge Query HMAC Keys
+
+Generate each production key as 32 random bytes encoded in canonical base64:
+
+```bash
+openssl rand -base64 32
+```
+
+Store the active key ID and JSON keyring only in `/opt/leadvirt/secrets/.env`:
+
+```dotenv
+KNOWLEDGE_QUERY_HMAC_ACTIVE_KEY_ID=knowledge-query-2026-07
+KNOWLEDGE_QUERY_HMAC_KEYS={"knowledge-query-2026-07":"<base64-key>"}
+```
+
+Rotation:
+
+1. Add a new uniquely named key to `KNOWLEDGE_QUERY_HMAC_KEYS`, retain every old key, and change `KNOWLEDGE_QUERY_HMAC_ACTIVE_KEY_ID` to the new ID.
+2. Deploy. The release drains query-hash writers before migrations and the retained-key gate; new services start only after the gate passes.
+3. Never change material behind an existing key ID or reuse an ID. The immutable registry rejects either action.
+4. Remove an old verify-only key only after no retained database record references it and the coverage gate passes.
+
+On the first gated deploy, legacy rows without key metadata or referenced key IDs absent from the immutable registry fail closed. Explicitly regenerate or purge legacy artifacts according to retention policy; do not relabel raw hashes or silently adopt a referenced key ID. The nullable expand schema remains until all pre-HMAC writers are retired, then a contract migration will require the metadata.
 
 ## FR External API Gateway
 
@@ -180,7 +225,7 @@ Runtime:
 Purpose:
 
 - Route staging OpenAI and Telegram Bot API traffic through a supported-region VPS.
-- Allow outbound proxy access only from main staging IP `193.187.92.88`; accept POST-only inbound Telegram webhooks and forward them to LeadVirt for secret verification.
+- Allow outbound proxy access only from main staging IP `193.187.92.88`; accept POST-only inbound Telegram webhooks, limit each source IP to `50` requests per second with a burst of `100`, and forward them to LeadVirt for secret verification.
 - Disable Telegram access and non-emergency error logs to avoid recording bot paths or tokens.
 - Keep local/direct access to OpenAI routes blocked with `403 forbidden`.
 
@@ -193,5 +238,6 @@ Verified:
 - The POST-only `/telegram-webhook/` relay preserves Telegram's secret header and body; production migration drained seven pending updates to zero and all seven returned `201` from LeadVirt.
 - Staging `AI_BASE_URL` now points at `https://147-90-14-240.sslip.io:8443/v1`.
 - Staging `TELEGRAM_BOT_API_BASE_URL` points at `https://147-90-14-240.sslip.io:8443/telegram`.
+- Staging `TELEGRAM_WEBHOOK_BASE_URL` points at `https://147-90-14-240.sslip.io:8443/telegram-webhook`. The Integrations health action checks Telegram's backlog, delivery error state, relay URL, and exact inbound update policy, then repairs stale registration once before reporting readiness; the internal sample does not test the relay.
 - `qa:ai:provider` passes inside the staging API container.
 - Gateway runtime was migrated from Caddy to nginx on 2026-07-04.

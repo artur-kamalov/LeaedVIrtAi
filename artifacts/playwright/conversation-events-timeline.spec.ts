@@ -5,7 +5,7 @@ const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
 
 test.beforeEach(async ({ page }) => {
-  await loginAsCleanUser(page, apiBase);
+  await loginAsCleanUser(page, apiBase, { locale: "ru" });
 });
 const conversationId = "pw-events-conversation";
 const leadId = "lead-events";

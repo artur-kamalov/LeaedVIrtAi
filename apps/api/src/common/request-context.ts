@@ -7,7 +7,9 @@ export interface RequestContext {
   role: MembershipRole;
   authMode: "credentials" | "email" | "telegram";
   tenant: Pick<Tenant, "id" | "name" | "slug" | "status" | "businessType" | "timezone">;
-  user: Pick<User, "id" | "email" | "phone" | "name" | "avatarUrl" | "passwordChangeRequired">;
+  user: Pick<User, "id" | "email" | "phone" | "name" | "avatarUrl" | "passwordChangeRequired"> & {
+    locale?: string | null;
+  };
 }
 
 export interface RequestWithContext {

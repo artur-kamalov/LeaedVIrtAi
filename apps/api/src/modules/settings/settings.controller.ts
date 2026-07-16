@@ -1,24 +1,36 @@
-﻿import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, UseGuards } from "@nestjs/common";
+﻿import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import { CurrentContext } from "../../common/decorators/current-context.decorator.js";
+import { Roles } from "../../common/decorators/roles.decorator.js";
+import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { RequestContext } from "../../common/request-context.js";
 import { AuthService } from "../auth/auth.service.js";
 import { WorkspaceAuthGuard } from "../auth/workspace-auth.guard.js";
 import { ChangePasswordDto } from "./dto/change-password.dto.js";
-import { CreateApiKeyDto } from "./dto/create-api-key.dto.js";
 import { InviteTeamMemberDto } from "./dto/invite-team-member.dto.js";
 import { TwoFactorCodeDto } from "./dto/two-factor-code.dto.js";
 import { TwoFactorPasswordDto } from "./dto/two-factor-password.dto.js";
 import { UpdateAccountSettingsDto } from "./dto/update-account-settings.dto.js";
+import { UpdateLocalePreferenceDto } from "./dto/update-locale-preference.dto.js";
 import { UpdateNotificationsDto } from "./dto/update-notifications.dto.js";
 import { UpdateTeamMemberDto } from "./dto/update-team-member.dto.js";
 import { SettingsService } from "./settings.service.js";
 
-@UseGuards(WorkspaceAuthGuard)
+@UseGuards(WorkspaceAuthGuard, RolesGuard)
 @Controller("settings")
 export class SettingsController {
   constructor(
     @Inject(SettingsService) private readonly settingsService: SettingsService,
-    @Inject(AuthService) private readonly authService: AuthService
+    @Inject(AuthService) private readonly authService: AuthService,
   ) {}
 
   @Get("account")
@@ -27,8 +39,20 @@ export class SettingsController {
   }
 
   @Patch("account")
-  async updateAccount(@CurrentContext() context: RequestContext, @Body() dto: UpdateAccountSettingsDto) {
+  @Roles("OWNER", "ADMIN", "MANAGER")
+  async updateAccount(
+    @CurrentContext() context: RequestContext,
+    @Body() dto: UpdateAccountSettingsDto,
+  ) {
     return { data: await this.settingsService.updateAccount(context, dto) };
+  }
+
+  @Patch("preferences/locale")
+  async updateLocalePreference(
+    @CurrentContext() context: RequestContext,
+    @Body() dto: UpdateLocalePreferenceDto,
+  ) {
+    return { data: await this.settingsService.updateLocalePreference(context, dto.locale) };
   }
 
   @Get("team")
@@ -37,27 +61,31 @@ export class SettingsController {
   }
 
   @Post("team")
-  async inviteTeamMember(@CurrentContext() context: RequestContext, @Body() dto: InviteTeamMemberDto) {
+  @Roles("OWNER", "ADMIN")
+  async inviteTeamMember(
+    @CurrentContext() context: RequestContext,
+    @Body() dto: InviteTeamMemberDto,
+  ) {
     return { data: await this.settingsService.inviteTeamMember(context, dto) };
   }
 
   @Patch("team/:membershipId")
+  @Roles("OWNER", "ADMIN")
   async updateTeamMember(
     @CurrentContext() context: RequestContext,
     @Param("membershipId") membershipId: string,
-    @Body() dto: UpdateTeamMemberDto
+    @Body() dto: UpdateTeamMemberDto,
   ) {
     return { data: await this.settingsService.updateTeamMember(context, membershipId, dto) };
   }
 
   @Delete("team/:membershipId")
-  async removeTeamMember(@CurrentContext() context: RequestContext, @Param("membershipId") membershipId: string) {
+  @Roles("OWNER", "ADMIN")
+  async removeTeamMember(
+    @CurrentContext() context: RequestContext,
+    @Param("membershipId") membershipId: string,
+  ) {
     return { data: await this.settingsService.removeTeamMember(context, membershipId) };
-  }
-
-  @Post("team/:membershipId/reset-password")
-  async resetTeamMemberPassword(@CurrentContext() context: RequestContext, @Param("membershipId") membershipId: string) {
-    return { data: await this.settingsService.resetTeamMemberPassword(context, membershipId) };
   }
 
   @Get("notifications")
@@ -66,7 +94,10 @@ export class SettingsController {
   }
 
   @Patch("notifications")
-  async updateNotifications(@CurrentContext() context: RequestContext, @Body() dto: UpdateNotificationsDto) {
+  async updateNotifications(
+    @CurrentContext() context: RequestContext,
+    @Body() dto: UpdateNotificationsDto,
+  ) {
     return { data: await this.settingsService.updateNotifications(context, dto) };
   }
 
@@ -91,17 +122,28 @@ export class SettingsController {
   }
 
   @Post("security/2fa/disable")
-  async disableTwoFactor(@CurrentContext() context: RequestContext, @Body() dto: TwoFactorPasswordDto) {
+  async disableTwoFactor(
+    @CurrentContext() context: RequestContext,
+    @Body() dto: TwoFactorPasswordDto,
+  ) {
     return { data: await this.authService.disableTwoFactor(context, dto.currentPassword) };
   }
 
   @Post("security/2fa/recovery-codes")
-  async regenerateTwoFactorRecoveryCodes(@CurrentContext() context: RequestContext, @Body() dto: TwoFactorPasswordDto) {
-    return { data: await this.authService.regenerateTwoFactorRecoveryCodes(context, dto.currentPassword) };
+  async regenerateTwoFactorRecoveryCodes(
+    @CurrentContext() context: RequestContext,
+    @Body() dto: TwoFactorPasswordDto,
+  ) {
+    return {
+      data: await this.authService.regenerateTwoFactorRecoveryCodes(context, dto.currentPassword),
+    };
   }
 
   @Delete("security/sessions/:sessionId")
-  async revokeSession(@CurrentContext() context: RequestContext, @Param("sessionId") sessionId: string) {
+  async revokeSession(
+    @CurrentContext() context: RequestContext,
+    @Param("sessionId") sessionId: string,
+  ) {
     return { data: await this.authService.revokeSession(context, sessionId) };
   }
 
@@ -111,18 +153,25 @@ export class SettingsController {
   }
 
   @Get("billing")
-  async billing(@CurrentContext() context: RequestContext) {
-    return { data: await this.settingsService.billing(context) };
+  billing() {
+    return { data: this.settingsService.billing() };
+  }
+
+  @Get("api-keys")
+  @Roles("OWNER", "ADMIN")
+  async apiKeys(@CurrentContext() context: RequestContext) {
+    return { data: await this.settingsService.apiKeys(context) };
   }
 
   @Post("api-keys")
-  async createApiKey(@CurrentContext() context: RequestContext, @Body() dto: CreateApiKeyDto) {
-    return { data: await this.settingsService.createApiKey(context, dto) };
+  @Roles("OWNER", "ADMIN")
+  createApiKey() {
+    return { data: this.settingsService.createApiKey() };
   }
 
   @Delete("api-keys/:id")
+  @Roles("OWNER", "ADMIN")
   async revokeApiKey(@CurrentContext() context: RequestContext, @Param("id") id: string) {
     return { data: await this.settingsService.revokeApiKey(context, id) };
   }
 }
-

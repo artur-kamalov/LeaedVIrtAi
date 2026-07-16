@@ -1,0 +1,22 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "typeRoots": ["../apps/worker/node_modules/@types"],
+    "paths": {
+      "@leadvirt/types": ["packages/types/src/index.ts"],
+      "@leadvirt/ui": ["packages/ui/src/index.ts"],
+      "@leadvirt/config": ["packages/config/src/index.ts"],
+      "@leadvirt/db": ["packages/db/src/index.ts"],
+      "@leadvirt/knowledge": ["packages/knowledge/src/index.ts"],
+      "@leadvirt/runtime-queue": ["packages/runtime-queue/src/index.ts"],
+      "@leadvirt/ai": ["packages/ai/src/index.ts"],
+      "@leadvirt/observability": ["packages/observability/src/index.ts"],
+      "@leadvirt/integrations": ["packages/integrations/src/index.ts"],
+      "bullmq": ["apps/worker/node_modules/bullmq"]
+    }
+  },
+  "include": ["scripts/ai-clean-telegram-acceptance.ts"]
+}
