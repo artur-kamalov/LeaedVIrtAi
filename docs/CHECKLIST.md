@@ -1,9 +1,16 @@
 # LeadVirt Checklist
 
-Last updated: 2026-07-16
+Last updated: 2026-07-18
 
 ## Next
 
+- [x] Restored self-serve acquisition: every public CTA enters signup before onboarding, pricing intent survives auth and onboarding, anchor navigation is stable on desktop/mobile, and malformed return/plan values fail closed.
+- [x] Added the production billing catalog and a truthful manual plan-request flow; no subscription is no longer presented as unlimited or silently activated without checkout/payment.
+- [x] Added one client-facing readiness journey from structured Business Profile through review, test, publication, channel, automatic replies, and verified inbound evidence, with one primary deep-linked action.
+- [x] Reconciled Business Profile truth in the UI: free-text service/hour notes cannot satisfy structured readiness and produce deterministic repair actions when structured services or working days are absent.
+- [x] Removed engineering and unavailable surfaces from primary client UX: AI audit and inactive API keys are hidden, raw readiness keys/IPs/internal IDs are suppressed, and future integrations are collapsed behind explicit disclosure.
+- [x] Closed the final UX review regressions: manual plan requests reach an operator by email before they are recorded, inactive workspaces can request reactivation, unsupported payment history is empty, password capability is independent of the OTP session method, CRM connections do not satisfy messaging readiness, and invalid 24-hour schedule values fail inline.
+- [ ] Complete the remaining 2026-07-17 production UX audit follow-ups in `docs/UX_AUDIT_PRODUCTION_RU_2026-07-17.md`: add verified legal operator details, monitored support contact, Privacy/Terms/data-processing pages, and decide the global currency strategy before claiming a fully international release.
 - [ ] Before broad Business Profile rollout, run a one-time tenant reconciliation that materializes and projects profiles still stored only in `Tenant`/`Tenant.settings`; keep GET read-only and reuse the canonical profile transaction without advancing the revision for semantic no-ops.
 - [ ] Pin the remaining stateful production images by verified OCI digest and pre-pull every deployment dependency during VPS provisioning so removed tags or registry outages fail before a release attempt.
 - [ ] Pre-pull and verify the digest-pinned deployment-validator image during VPS provisioning so a registry outage cannot block a release before the otherwise local staging-env gate.
@@ -32,6 +39,7 @@ Last updated: 2026-07-16
 
 ## Done
 
+- [x] Completed the 2026-07-17 client-facing UX repair pass across public acquisition, onboarding, readiness, Business Profile, integrations, automations, settings/security, and truthful manual billing. Verified Web/API/Types typechecks, production builds, Web/API lint, release readiness, billing/SMTP/UniSender/security/lifecycle smokes, formatting, and affected Playwright coverage `64/64`; local Web/API run on `localhost:3001`/`localhost:4001`.
 - [x] Repaired the production Telegram relay deployment probe after strict inbound validation made its update-only body return `400` before channel lookup. The probe now sends a valid minimal Telegram message update to a non-creatable channel key and still requires `404`, preserving end-to-end relay verification without weakening payload validation or risking a real-channel collision. Verified the live external relay, Telegram contract `41/41`, release readiness, formatting, and diff checks.
 - [x] Fixed the Business Profile deployment gates after publication-backed AI identity and the new read-only demo Knowledge route invalidated old fixture expectations. Structured V2 reliability now expects neutral identity when the active publication has no identity facts, and the workspace test verifies the visible `/demo/knowledge` link instead of requiring Knowledge to stay hidden. Verified the full `qa:ai:quality` gate, Knowledge workspace Playwright suite, Worker typecheck/lint, formatting, and diff checks.
 - [x] Closed the Business Profile backend review gaps. Canonical reads are snapshot-consistent; sparse schedules and workflow-only onboarding writes retain their meaning; semantic no-ops materialize fallback state and repair Tenant drift without advancing the profile revision; full profiles are capped below the idempotency response limit; committed writes rely on the durable outbox instead of returning a false failure when immediate dispatch fails. Structured V2 AI identity now comes only from active publication facts, with a neutral fallback, while Legacy V1 keeps its existing identity behavior. Verified Business Profile contract `34/34`, API `38/38`, Settings `27/27`, onboarding `28` assertions, AI identity governance, affected typechecks/lint, and diff checks.
@@ -505,7 +513,7 @@ Last updated: 2026-07-16
 - [x] Added create-on-save behavior for copied Automation scenario tabs that do not yet have a backend workflow.
 - [x] Let the database generate workflow step ids for newly created Automation scenarios to avoid collisions with copied static block ids.
 - [x] Extended Automation Playwright smoke to verify workflow creation, publish, and generated-step-id payload behavior.
-- [x] Added API-backed Automation `Дублировать` action that creates and publishes a copy of the current workflow without reusing copied step ids.
+- [x] Added API-backed Automation `Дублировать` action that creates a paused copy for review without reusing copied step ids or publishing it automatically.
 - [x] Added API-backed Automation `Архив` action that marks the current workflow `ARCHIVED` and returns the slot to a copied template.
 - [x] Hid archived workflows from the default `/workflows` builder list.
 - [x] Extended Automation Playwright smoke to verify duplicate and archive behavior.

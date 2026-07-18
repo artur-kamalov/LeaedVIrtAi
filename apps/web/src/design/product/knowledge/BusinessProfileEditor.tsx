@@ -34,6 +34,7 @@ interface SaveFailure {
 }
 
 const DAYS: readonly Day[] = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+const CLOCK_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/u;
 const BUSINESS_TYPES: ReadonlyArray<{ value: string; labelKey: TranslationKey }> = [
   { value: "services", labelKey: "onboarding.business.services" },
   { value: "beauty", labelKey: "onboarding.business.beauty" },
@@ -368,8 +369,8 @@ export function BusinessProfileEditor({
 
     profile.weeklySchedule.forEach((entry, index) => {
       if (!entry.enabled) return;
-      if (!/^\d{2}:\d{2}$/u.test(entry.opensAt) || !/^\d{2}:\d{2}$/u.test(entry.closesAt)) {
-        const message = t("businessProfile.validation.timeRequired");
+      if (!CLOCK_TIME.test(entry.opensAt) || !CLOCK_TIME.test(entry.closesAt)) {
+        const message = t("businessProfile.validation.timeFormat");
         errors[`weeklySchedule.${index}.opensAt`] = message;
         errors[`weeklySchedule.${index}.closesAt`] = message;
       } else if (entry.closesAt === entry.opensAt) {
@@ -488,6 +489,28 @@ export function BusinessProfileEditor({
   }
 
   const disabled = !canEdit || saving || conflict;
+  const hasStructuredServices = draft.services.some((service) => service.name.trim().length > 0);
+  const hasWorkingDays = draft.weeklySchedule.some((entry) => entry.enabled);
+  const serviceNotesConflict = !hasStructuredServices && draft.servicesCatalog.trim().length > 0;
+  const scheduleNotesConflict = !hasWorkingDays && draft.hours.trim().length > 0;
+  const needsProfileAttention = !hasStructuredServices || !hasWorkingDays;
+
+  function focusServices() {
+    if (draft.services.length === 0) addService();
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLInputElement>('[data-testid^="business-profile-service-"][data-testid$="-name"]')
+          ?.focus();
+      });
+    });
+  }
+
+  function focusSchedule() {
+    document
+      .querySelector<HTMLElement>('[data-testid="business-profile-schedule"]')
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
   return (
     <section
@@ -511,6 +534,8 @@ export function BusinessProfileEditor({
             <StatusBadge status="info">{t("businessProfile.status.saving")}</StatusBadge>
           ) : dirty ? (
             <StatusBadge status="warning">{t("businessProfile.status.unsaved")}</StatusBadge>
+          ) : needsProfileAttention ? (
+            <StatusBadge status="warning">{t("businessProfile.status.attention")}</StatusBadge>
           ) : (
             <StatusBadge status="success">{t("businessProfile.status.saved")}</StatusBadge>
           )}
@@ -527,6 +552,47 @@ export function BusinessProfileEditor({
             <p className="mt-0.5 text-xs text-sky-200/65">
               {t("businessProfile.readOnly.description")}
             </p>
+          </div>
+        </div>
+      ) : null}
+
+      {needsProfileAttention ? (
+        <div
+          className="mx-4 mb-5 rounded-md border border-amber-500/25 bg-amber-500/[0.08] px-4 py-4 sm:mx-5"
+          data-testid="business-profile-attention"
+        >
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-amber-200">
+                {t("businessProfile.attention.title")}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-amber-100/70">
+                {t("businessProfile.attention.description")}
+              </p>
+              <ul className="mt-2 space-y-1 text-xs text-amber-100/75">
+                {!hasStructuredServices ? (
+                  <li>{t("businessProfile.attention.services")}</li>
+                ) : null}
+                {!hasWorkingDays ? <li>{t("businessProfile.attention.schedule")}</li> : null}
+              </ul>
+              {canEdit ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {!hasStructuredServices ? (
+                    <Button type="button" size="sm" variant="outline" onClick={focusServices}>
+                      <Plus className="h-4 w-4" />
+                      {t("businessProfile.services.add")}
+                    </Button>
+                  ) : null}
+                  {!hasWorkingDays ? (
+                    <Button type="button" size="sm" variant="outline" onClick={focusSchedule}>
+                      <Clock3 className="h-4 w-4" />
+                      {t("businessProfile.attention.openSchedule")}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}
@@ -697,6 +763,14 @@ export function BusinessProfileEditor({
             }
           >
             <div className="min-w-0" data-testid="business-profile-services">
+              {serviceNotesConflict ? (
+                <div
+                  className="mb-4 rounded-md border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs leading-5 text-amber-200"
+                  data-testid="business-profile-services-conflict"
+                >
+                  {t("businessProfile.attention.serviceNotesConflict")}
+                </div>
+              ) : null}
               {draft.services.length === 0 ? (
                 <div className="rounded-md border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-600">
                   {t("businessProfile.services.empty")}
@@ -815,6 +889,18 @@ export function BusinessProfileEditor({
             title={t("businessProfile.schedule.title")}
             description={t("businessProfile.schedule.description")}
           >
+            {!hasWorkingDays ? (
+              <div
+                className="mb-4 rounded-md border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs leading-5 text-amber-200"
+                data-testid="business-profile-schedule-warning"
+              >
+                {t(
+                  scheduleNotesConflict
+                    ? "businessProfile.attention.scheduleNotesConflict"
+                    : "businessProfile.attention.scheduleMissing",
+                )}
+              </div>
+            ) : null}
             <div
               className="min-w-0 divide-y divide-white/10 border-y border-white/10"
               data-testid="business-profile-schedule"
@@ -858,7 +944,11 @@ export function BusinessProfileEditor({
                     >
                       <input
                         id={`business-profile-day-${entry.day}-opens`}
-                        type="time"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="(?:[01]\\d|2[0-3]):[0-5]\\d"
+                        maxLength={5}
+                        placeholder="09:00"
                         value={entry.opensAt}
                         disabled={!entry.enabled || disabled}
                         aria-invalid={Boolean(openError)}
@@ -874,7 +964,11 @@ export function BusinessProfileEditor({
                     >
                       <input
                         id={`business-profile-day-${entry.day}-closes`}
-                        type="time"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="(?:[01]\\d|2[0-3]):[0-5]\\d"
+                        maxLength={5}
+                        placeholder="18:00"
                         value={entry.closesAt}
                         disabled={!entry.enabled || disabled}
                         aria-invalid={Boolean(closeError)}
@@ -903,6 +997,7 @@ export function BusinessProfileEditor({
                 value={draft.servicesCatalog}
                 maxLength={20_000}
                 placeholder={t("onboarding.company.catalogPlaceholder")}
+                hint={t("businessProfile.catalogNotesHint")}
                 onChange={(value) => updateField("servicesCatalog", value)}
               />
               <TextAreaField
@@ -912,6 +1007,7 @@ export function BusinessProfileEditor({
                 value={draft.hours}
                 maxLength={4_000}
                 placeholder={t("onboarding.company.hoursPlaceholder")}
+                hint={t("businessProfile.hoursNotesHint")}
                 onChange={(value) => updateField("hours", value)}
               />
               <TextAreaField
@@ -1067,6 +1163,7 @@ function TextAreaField({
   value,
   maxLength,
   placeholder,
+  hint,
   onChange,
 }: {
   id: string;
@@ -1075,6 +1172,7 @@ function TextAreaField({
   value: string;
   maxLength: number;
   placeholder: string;
+  hint?: string;
   onChange: (value: string) => void;
 }) {
   return (
@@ -1088,6 +1186,7 @@ function TextAreaField({
         className={textAreaClassName}
         onChange={(event) => onChange(event.target.value)}
       />
+      {hint ? <p className="mt-1.5 text-xs leading-5 text-zinc-600">{hint}</p> : null}
     </FormField>
   );
 }

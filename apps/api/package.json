@@ -14,6 +14,7 @@
     "qa:auth:smtp-contract": "tsx ../../artifacts/scripts/smtp-email-otp-contract-smoke.ts",
     "qa:auth:unisender-contract": "tsx ../../artifacts/scripts/unisender-email-otp-contract-smoke.ts",
     "qa:automation:truthfulness": "tsx ../../artifacts/scripts/workflow-runtime-truthfulness-smoke.ts",
+    "qa:billing:service": "tsx ../../artifacts/scripts/billing-service-smoke.ts",
     "qa:ai:provider": "tsx ../../artifacts/scripts/ai-provider-smoke.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

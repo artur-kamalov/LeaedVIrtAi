@@ -10,7 +10,7 @@ import { WorkspaceAuthGuard } from "./workspace-auth.guard.js";
 @Module({
   controllers: [AuthController],
   providers: [AuthService, AuthRateLimitService, EmailOtpChallengeService, EmailOtpDeliveryService, WorkspaceAuthGuard],
-  exports: [AuthService, AuthRateLimitService, WorkspaceAuthGuard]
+  exports: [AuthService, AuthRateLimitService, EmailOtpDeliveryService, WorkspaceAuthGuard]
 })
 export class AuthModule {}
 

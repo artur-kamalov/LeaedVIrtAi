@@ -140,6 +140,7 @@ function assertRoutePolicy() {
     ["POST", "/api/settings/security/sessions/revoke-others"],
     ["GET", "/api/settings/billing"],
     ["GET", "/api/billing/plans/"],
+    ["POST", "/api/billing/plan-selection"],
     ["POST", "/api/billing/payment-method/change-request"],
     ["PATCH", "/api/billing/current-subscription"],
   ] as const;
@@ -214,6 +215,19 @@ async function assertInactiveBoundary(input: {
     "Locale recovery route failed.",
   );
   successData(await request("/billing/plans", { headers: { cookie: input.cookie } }));
+  const planSelection = responseData(
+    await request("/billing/plan-selection", {
+      method: "POST",
+      headers: { cookie: input.cookie },
+      body: JSON.stringify({
+        planCode: input.status === "SUSPENDED" ? "START" : "PROFESSIONAL",
+      }),
+    }),
+  );
+  assert(
+    planSelection.status === "CONTACT_REQUIRED",
+    "Inactive tenant plan selection was not recorded for manual follow-up.",
+  );
   responseData(
     await request("/billing/payment-method/change-request", {
       method: "POST",
@@ -255,7 +269,16 @@ async function assertInactiveBoundary(input: {
   expectInactive(
     await request(`/public/channels/telegram/${input.keys.telegram}/webhook`, {
       method: "POST",
-      body: JSON.stringify({ update_id: 1 }),
+      body: JSON.stringify({
+        update_id: 1,
+        message: {
+          message_id: 2,
+          date: Math.floor(Date.now() / 1_000),
+          chat: { id: 3, type: "private" },
+          from: { id: 3, is_bot: false, first_name: "Lifecycle" },
+          text: "This message must not enter an inactive workspace.",
+        },
+      }),
     }),
     input.status,
   );

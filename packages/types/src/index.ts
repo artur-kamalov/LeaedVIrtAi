@@ -819,6 +819,17 @@ export interface Subscription {
   plan: PricingPlan;
 }
 
+export interface BillingPlanSelection {
+  reference: string;
+  plan: PricingPlan;
+  selectedAt: string;
+  status: "CONTACT_REQUIRED";
+  checkout: {
+    available: false;
+    mode: "manual_invoice";
+  };
+}
+
 export type BillingInvoiceStatus = "PAID" | "DUE" | "CANCELED";
 
 export interface BillingInvoice {
@@ -939,6 +950,32 @@ export interface SettingsAccount {
   businessProfileVersion: number;
   businessProfileEtag: string;
   businessProfileUpdatedAt: string;
+}
+
+export interface SecuritySession {
+  id: string;
+  current: boolean;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+}
+
+export interface SecuritySettings {
+  authMode: "credentials" | "email" | "telegram";
+  hasPassword: boolean;
+  productionAuthReadyFor: string[];
+  tenantScoped: boolean;
+  currentRole: UserRole;
+  passwordChangeRequired: boolean;
+  twoFactor: {
+    enabled: boolean;
+    setupPending: boolean;
+    confirmedAt: string | null;
+    recoveryCodesRemaining: number;
+  };
+  sessions: SecuritySession[];
 }
 
 export interface OnboardingState {

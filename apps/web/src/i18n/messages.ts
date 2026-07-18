@@ -28,6 +28,10 @@ import {
   businessProfileMessages,
   type BusinessProfileTranslationKey,
 } from "./business-profile-messages";
+import {
+  dashboardReadinessMessages,
+  type DashboardReadinessTranslationKey,
+} from "./dashboard-readiness-messages";
 
 const ru = {
   "language.label": "Язык",
@@ -46,6 +50,7 @@ const ru = {
   "landing.nav.login": "Войти",
   "landing.nav.trial": "Попробовать бесплатно",
   "landing.nav.openMenu": "Открыть меню",
+  "landing.nav.closeMenu": "Закрыть меню",
   "landing.badge": "Новый стандарт обработки лидов",
   "landing.hero.before": "AI-администратор для",
   "landing.hero.highlight": "заявок",
@@ -80,18 +85,21 @@ const ru = {
     "Напомнит о записи или предложит повторить заказ через месяц.",
   "landing.features.crm.title": "Передача в CRM и Аналитика",
   "landing.features.crm.description":
-    "Вся история переписки, теги, контакты и записи автоматически попадают в вашу CRM-систему (AmoCRM, Bitrix24, Yclients и др.)",
+    "Сегодня лиды можно передавать через подключаемый Webhook. Прямые коннекторы к CRM будут появляться по мере готовности.",
   "landing.metrics.response.value": "18 сек",
   "landing.metrics.response.label": "Среднее время ответа",
   "landing.metrics.conversion.label": "Конверсия в запись",
   "landing.metrics.leads.label": "Обработанных лидов",
-  "landing.metrics.integrations.label": "Готовых интеграций",
+  "landing.metrics.inbox.label": "Единые входящие",
+  "landing.metrics.integrations.label": "Интеграции без разработчика",
+  "landing.metrics.languages.label": "Языков интерфейса",
+  "landing.metrics.auth.label": "Вход без пароля",
   "landing.cta.title.before": "Не теряйте клиентов,",
   "landing.cta.title.after": "пока команда занята",
   "landing.cta.description":
     "Подключите AI Администратора сегодня и начните конвертировать каждое сообщение в выручку.",
-  "landing.cta.action": "Подключить AI Администратора",
-  "landing.cta.note": "Бесплатный тестовый период 7 дней. Привязка карты не требуется.",
+  "landing.cta.action": "Попробовать бесплатно",
+  "landing.cta.note": "Создание рабочего пространства бесплатно. Карта не требуется.",
   "landing.footer.rights": "© 2026 LeadVirt.ai. Все права защищены.",
   "hero.message.booking": "Хочу записаться на завтра",
   "hero.message.price": "Сколько стоит услуга?",
@@ -105,17 +113,17 @@ const ru = {
     "Начните с малого и масштабируйтесь по мере роста. Без скрытых платежей и долгих контрактов.",
   "pricing.popular": "Популярный",
   "pricing.note":
-    "Все тарифы включают бесплатный пробный период 7 дней. Привязка карты не требуется.",
+    "Карта не требуется для создания рабочего пространства. Платный тариф подключается после подтверждения и выставления счёта.",
   "pricing.perMonth": "в месяц",
   "pricing.start.tagline": "Для малого бизнеса и теста одного AI-сценария",
-  "pricing.start.cta": "Начать со Start",
+  "pricing.start.cta": "Выбрать Start",
   "pricing.pro.tagline": "Оптимальный выбор для большинства команд",
   "pricing.pro.cta": "Выбрать Professional",
   "pricing.business.tagline": "Для активных отделов продаж и нескольких направлений",
   "pricing.business.cta": "Выбрать Business",
   "pricing.corporate.price": "от 120 000 ₽",
   "pricing.corporate.tagline": "Для сетей, клиник, e-commerce и холдингов",
-  "pricing.corporate.cta": "Связаться с нами",
+  "pricing.corporate.cta": "Запросить корпоративный тариф",
   "pricing.feature.ai500": "500 AI-диалогов",
   "pricing.feature.ai2500": "2 500 AI-диалогов",
   "pricing.feature.ai10000": "10 000 AI-диалогов",
@@ -220,7 +228,7 @@ const ru = {
     "Вход без пароля: подтвердите email одноразовым кодом или используйте Telegram.",
   "auth.highlight.passwordless": "Без пароля",
   "auth.highlight.telegram": "Email или Telegram",
-  "auth.highlight.database": "Workspace из БД",
+  "auth.highlight.database": "Всё для бизнеса в одном кабинете",
   "auth.telegram.invalid": "Telegram вернул некорректный ответ",
   "auth.telegram.preparing": "Готовим Telegram Login...",
   "auth.telegram.missing": "Telegram bot username не задан на API.",
@@ -278,7 +286,7 @@ const ru = {
   "product.billing.manage": "Управлять тарифом",
   "product.billing.plan": "Тариф «{name}»",
   "product.billing.active": "активен",
-  "product.billing.trial": "пробный",
+  "product.billing.trial": "без оплаты",
   "product.billing.cancelled": "отменён",
   "product.billing.pastDue": "требует оплаты",
   "product.billing.daysLeft": "{count} дн. до конца периода",
@@ -426,7 +434,8 @@ export type TranslationKey =
   | SettingsTranslationKey
   | IntegrationTranslationKey
   | ResourceTranslationKey
-  | BusinessProfileTranslationKey;
+  | BusinessProfileTranslationKey
+  | DashboardReadinessTranslationKey;
 export type TranslationValues = Record<string, string | number>;
 
 const en: Record<BaseTranslationKey, string> = {
@@ -446,6 +455,7 @@ const en: Record<BaseTranslationKey, string> = {
   "landing.nav.login": "Log in",
   "landing.nav.trial": "Start free",
   "landing.nav.openMenu": "Open menu",
+  "landing.nav.closeMenu": "Close menu",
   "landing.badge": "A new standard for lead management",
   "landing.hero.before": "An AI administrator for",
   "landing.hero.highlight": "leads",
@@ -481,18 +491,21 @@ const en: Record<BaseTranslationKey, string> = {
     "Sends booking reminders or offers a repeat order next month.",
   "landing.features.crm.title": "CRM handoff and analytics",
   "landing.features.crm.description":
-    "Conversation history, tags, contacts, and bookings automatically flow into your CRM (AmoCRM, Bitrix24, Yclients, and more).",
+    "Send leads through the self-service Webhook today. Direct CRM connectors will appear as they become available.",
   "landing.metrics.response.value": "18 sec",
   "landing.metrics.response.label": "Average response time",
   "landing.metrics.conversion.label": "Booking conversion",
   "landing.metrics.leads.label": "Leads processed",
-  "landing.metrics.integrations.label": "Ready integrations",
+  "landing.metrics.inbox.label": "Unified inbox",
+  "landing.metrics.integrations.label": "Self-service integrations",
+  "landing.metrics.languages.label": "Interface languages",
+  "landing.metrics.auth.label": "Passwordless sign-in",
   "landing.cta.title.before": "Stop losing customers",
   "landing.cta.title.after": "while your team is busy",
   "landing.cta.description":
     "Connect the AI Administrator today and start converting every message into revenue.",
-  "landing.cta.action": "Connect AI Administrator",
-  "landing.cta.note": "Free 7-day trial. No payment card required.",
+  "landing.cta.action": "Start free",
+  "landing.cta.note": "Creating a workspace is free. No payment card required.",
   "landing.footer.rights": "© 2026 LeadVirt.ai. All rights reserved.",
   "hero.message.booking": "I'd like to book for tomorrow",
   "hero.message.price": "How much does the service cost?",
@@ -504,17 +517,17 @@ const en: Record<BaseTranslationKey, string> = {
   "pricing.title": "Choose your plan",
   "pricing.description": "Start small and scale as you grow. No hidden fees or long contracts.",
   "pricing.popular": "Popular",
-  "pricing.note": "Every plan includes a free 7-day trial. No payment card required.",
+  "pricing.note": "No card is required to create a workspace. A paid plan starts after confirmation and invoicing.",
   "pricing.perMonth": "per month",
   "pricing.start.tagline": "For small businesses testing one AI workflow",
-  "pricing.start.cta": "Start with Start",
+  "pricing.start.cta": "Choose Start",
   "pricing.pro.tagline": "The best fit for most teams",
   "pricing.pro.cta": "Choose Professional",
   "pricing.business.tagline": "For active sales teams and multiple business lines",
   "pricing.business.cta": "Choose Business",
-  "pricing.corporate.price": "from ₽120,000",
+  "pricing.corporate.price": "from 120,000 ₽",
   "pricing.corporate.tagline": "For chains, clinics, e-commerce, and enterprise groups",
-  "pricing.corporate.cta": "Contact us",
+  "pricing.corporate.cta": "Request Corporate",
   "pricing.feature.ai500": "500 AI conversations",
   "pricing.feature.ai2500": "2,500 AI conversations",
   "pricing.feature.ai10000": "10,000 AI conversations",
@@ -618,7 +631,7 @@ const en: Record<BaseTranslationKey, string> = {
   "auth.hero.description": "Sign in without a password using a one-time email code or Telegram.",
   "auth.highlight.passwordless": "Passwordless",
   "auth.highlight.telegram": "Email or Telegram",
-  "auth.highlight.database": "Database-backed workspace",
+  "auth.highlight.database": "One workspace for your business",
   "auth.telegram.invalid": "Telegram returned an invalid response",
   "auth.telegram.preparing": "Preparing Telegram Login...",
   "auth.telegram.missing": "Telegram bot username is not configured on the API.",
@@ -675,7 +688,7 @@ const en: Record<BaseTranslationKey, string> = {
   "product.billing.manage": "Manage plan",
   "product.billing.plan": "{name} plan",
   "product.billing.active": "active",
-  "product.billing.trial": "trial",
+  "product.billing.trial": "free workspace",
   "product.billing.cancelled": "cancelled",
   "product.billing.pastDue": "payment required",
   "product.billing.daysLeft": "{count} days left in period",
@@ -824,6 +837,7 @@ export const messages = {
     ...testKnowledgeMessages.en,
     ...settingsMessages.en,
     ...businessProfileMessages.en,
+    ...dashboardReadinessMessages.en,
   },
   es: {
     ...es,
@@ -838,6 +852,7 @@ export const messages = {
     ...testKnowledgeMessages.es,
     ...settingsMessages.es,
     ...businessProfileMessages.es,
+    ...dashboardReadinessMessages.es,
   },
   fr: {
     ...fr,
@@ -852,6 +867,7 @@ export const messages = {
     ...testKnowledgeMessages.fr,
     ...settingsMessages.fr,
     ...businessProfileMessages.fr,
+    ...dashboardReadinessMessages.fr,
   },
   de: {
     ...de,
@@ -866,6 +882,7 @@ export const messages = {
     ...testKnowledgeMessages.de,
     ...settingsMessages.de,
     ...businessProfileMessages.de,
+    ...dashboardReadinessMessages.de,
   },
   pt: {
     ...pt,
@@ -880,6 +897,7 @@ export const messages = {
     ...testKnowledgeMessages.pt,
     ...settingsMessages.pt,
     ...businessProfileMessages.pt,
+    ...dashboardReadinessMessages.pt,
   },
   ru: {
     ...ru,
@@ -894,5 +912,6 @@ export const messages = {
     ...testKnowledgeMessages.ru,
     ...settingsMessages.ru,
     ...businessProfileMessages.ru,
+    ...dashboardReadinessMessages.ru,
   },
 } as const;

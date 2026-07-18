@@ -13,8 +13,8 @@ export class BillingController {
   constructor(@Inject(BillingService) private readonly billingService: BillingService) {}
 
   @Get("plans")
-  async plans() {
-    return { data: await this.billingService.plans() };
+  plans() {
+    return { data: this.billingService.plans() };
   }
 
   @Get("payment-method")
@@ -29,13 +29,24 @@ export class BillingController {
   }
 
   @Get("invoices")
-  async invoices(@CurrentContext() context: RequestContext) {
-    return { data: await this.billingService.invoices(context) };
+  invoices() {
+    return { data: this.billingService.invoices() };
   }
 
   @Get("current-subscription")
   async currentSubscription(@CurrentContext() context: RequestContext) {
     return { data: await this.billingService.currentSubscription(context) };
+  }
+
+  @Get("plan-selection")
+  async planSelection(@CurrentContext() context: RequestContext) {
+    return { data: await this.billingService.planSelection(context) };
+  }
+
+  @Roles("OWNER", "ADMIN")
+  @Post("plan-selection")
+  async selectPlan(@CurrentContext() context: RequestContext, @Body() dto: ChangeSubscriptionPlanDto) {
+    return { data: await this.billingService.selectPlan(context, dto) };
   }
 
   @Roles("OWNER", "ADMIN")

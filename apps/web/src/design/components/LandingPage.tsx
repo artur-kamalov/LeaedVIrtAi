@@ -18,6 +18,7 @@ import { PricingSection } from "./PricingSection";
 import { BrandMark } from "./BrandMark";
 import { BrandWordmark } from "./BrandWordmark";
 import { useI18n } from "@/i18n/I18nProvider";
+import { signupHref } from "@/lib/acquisition";
 
 export function LandingPage() {
   const { t } = useI18n();
@@ -65,7 +66,7 @@ export function LandingPage() {
               </p>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
                 <Button size="lg" className="h-10 w-full sm:w-auto group" asChild>
-                  <Link href="/onboarding" prefetch={false} className="leading-none">
+                  <Link href={signupHref()} prefetch={false} className="leading-none">
                     {t("landing.nav.trial")}
                     <ChevronRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
                   </Link>
@@ -85,7 +86,7 @@ export function LandingPage() {
         </section>
 
         {/* HOW IT WORKS */}
-        <section id="how-it-works" className="leadvirt-deferred-paint py-24 relative overflow-hidden">
+        <section id="how-it-works" className="scroll-mt-20 py-24 relative overflow-hidden">
           <div className="absolute inset-0 bg-zinc-900/20 border-y border-white/5" />
           <div className="container mx-auto px-6 relative">
             <div className="leadvirt-reveal-up text-center max-w-2xl mx-auto mb-20">
@@ -139,7 +140,7 @@ export function LandingPage() {
         <DeferredNichesSection />
 
         {/* FEATURES (BENTO GRID) */}
-        <section id="features" className="leadvirt-deferred-paint py-24 container mx-auto px-6">
+        <section id="features" className="scroll-mt-20 py-24 container mx-auto px-6">
           <div className="text-center max-w-2xl mx-auto mb-16">
             <h2 className="text-3xl md:text-5xl font-bold mb-4">{t("landing.features.title")}</h2>
             <p className="text-zinc-400 text-lg">{t("landing.features.description")}</p>
@@ -223,14 +224,14 @@ export function LandingPage() {
         </section>
 
         {/* METRICS */}
-        <section className="leadvirt-deferred-paint py-20 border-y border-white/5 bg-zinc-900/30">
+        <section className="py-20 border-y border-white/5 bg-zinc-900/30">
           <div className="container mx-auto px-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8 divide-x divide-white/5">
               {[
-                { val: t("landing.metrics.response.value"), label: t("landing.metrics.response.label") },
-                { val: "+28%", label: t("landing.metrics.conversion.label") },
-                { val: "1 248", label: t("landing.metrics.leads.label") },
-                { val: "20+", label: t("landing.metrics.integrations.label") }
+                { val: "1", label: t("landing.metrics.inbox.label") },
+                { val: "2", label: t("landing.metrics.integrations.label") },
+                { val: "6", label: t("landing.metrics.languages.label") },
+                { val: "OTP", label: t("landing.metrics.auth.label") }
               ].map((metric, i) => (
                 <div key={i} className={`flex flex-col items-center justify-center text-center ${i === 0 || i === 2 ? 'pl-0' : 'pl-8'} ${i === 1 || i === 3 ? 'pr-0' : 'pr-8'} border-l-0 md:border-l first:border-l-0 border-white/5`}>
                   <div className="text-4xl md:text-5xl font-bold text-white mb-2">{metric.val}</div>
@@ -245,7 +246,7 @@ export function LandingPage() {
         <PricingSection />
 
         {/* CTA SECTION */}
-        <section className="leadvirt-deferred-paint py-32 container mx-auto px-6 relative">
+        <section className="py-32 container mx-auto px-6 relative">
           <div className="leadvirt-cta-section-glow absolute inset-0 -z-10" />
           <div className="max-w-4xl mx-auto text-center bg-zinc-900 border border-zinc-800 rounded-[3rem] p-12 md:p-20 relative overflow-hidden group">
             <div className="absolute inset-0 opacity-20 mix-blend-screen pointer-events-none group-hover:scale-105 transition-transform duration-1000">
@@ -265,7 +266,7 @@ export function LandingPage() {
                 {t("landing.cta.description")}
               </p>
               <Button size="lg" className="h-16 px-10 text-lg w-full sm:w-auto shadow-[0_0_40px_rgba(52,211,153,0.3)]" asChild>
-                <Link href="/onboarding" prefetch={false}>{t("landing.cta.action")}</Link>
+                <Link href={signupHref()} prefetch={false}>{t("landing.cta.action")}</Link>
               </Button>
               <p className="text-sm text-zinc-500 mt-6">{t("landing.cta.note")}</p>
             </div>

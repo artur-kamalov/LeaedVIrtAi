@@ -13,6 +13,9 @@ const en = {
   "integrations.category.developers": "Developers",
   "integrations.availability.request": "Connect by request",
   "integrations.availability.soon": "Coming soon",
+  "integrations.planned.title": "Planned integrations",
+  "integrations.planned.description":
+    "Open only when you want to check upcoming channels or request a connection.",
   "integrations.card.amocrm": "Send deals and contacts",
   "integrations.card.bitrix24": "Synchronize leads and tasks",
   "integrations.card.retailcrm": "Online store orders",
@@ -227,6 +230,9 @@ const ru = locale({
   "integrations.category.developers": "Разработчикам",
   "integrations.availability.request": "Подключение по запросу",
   "integrations.availability.soon": "Скоро будет",
+  "integrations.planned.title": "Планируемые интеграции",
+  "integrations.planned.description":
+    "Откройте, только если хотите посмотреть будущие каналы или запросить подключение.",
   "integrations.card.amocrm": "Передача сделок и контактов",
   "integrations.card.bitrix24": "Синхронизация лидов и задач",
   "integrations.card.retailcrm": "Заказы для интернет-магазина",
@@ -373,6 +379,9 @@ const es = locale({
   "integrations.category.developers": "Desarrolladores",
   "integrations.availability.request": "Conexión bajo solicitud",
   "integrations.availability.soon": "Próximamente",
+  "integrations.planned.title": "Integraciones previstas",
+  "integrations.planned.description":
+    "Ábrelo solo para consultar próximos canales o solicitar una conexión.",
   "integrations.card.amocrm": "Envía negocios y contactos",
   "integrations.card.bitrix24": "Sincroniza leads y tareas",
   "integrations.card.retailcrm": "Pedidos de la tienda online",
@@ -598,6 +607,9 @@ const fr = locale({
   "integrations.category.developers": "Développeurs",
   "integrations.availability.request": "Connexion sur demande",
   "integrations.availability.soon": "Bientôt disponible",
+  "integrations.planned.title": "Intégrations prévues",
+  "integrations.planned.description":
+    "Ouvrez uniquement pour consulter les prochains canaux ou demander une connexion.",
   "integrations.card.amocrm": "Envoyer les opportunités et les contacts",
   "integrations.card.bitrix24": "Synchroniser les prospects et les tâches",
   "integrations.card.retailcrm": "Commandes de la boutique en ligne",
@@ -826,6 +838,9 @@ const de = locale({
   "integrations.category.developers": "Entwickler",
   "integrations.availability.request": "Verbindung auf Anfrage",
   "integrations.availability.soon": "Demnächst",
+  "integrations.planned.title": "Geplante Integrationen",
+  "integrations.planned.description":
+    "Nur öffnen, um kommende Kanäle anzusehen oder eine Verbindung anzufragen.",
   "integrations.card.amocrm": "Deals und Kontakte übertragen",
   "integrations.card.bitrix24": "Leads und Aufgaben synchronisieren",
   "integrations.card.retailcrm": "Bestellungen aus dem Onlineshop",
@@ -1052,6 +1067,9 @@ const pt = locale({
   "integrations.category.developers": "Desenvolvedores",
   "integrations.availability.request": "Conexão sob solicitação",
   "integrations.availability.soon": "Em breve",
+  "integrations.planned.title": "Integrações planejadas",
+  "integrations.planned.description":
+    "Abra apenas para consultar os próximos canais ou solicitar uma conexão.",
   "integrations.card.amocrm": "Enviar negócios e contatos",
   "integrations.card.bitrix24": "Sincronizar leads e tarefas",
   "integrations.card.retailcrm": "Pedidos da loja virtual",

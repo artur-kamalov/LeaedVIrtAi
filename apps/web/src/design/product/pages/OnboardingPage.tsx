@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Bot,
@@ -38,6 +39,7 @@ import {
   updateOnboardingState,
 } from "@/lib/api/onboarding";
 import { ApiClientError } from "@/lib/api/client";
+import { resolveAcquisitionIntent } from "@/lib/acquisition";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/messages";
 
@@ -711,6 +713,7 @@ function StepLaunch({
 export function OnboardingPage() {
   const { t } = useI18n();
   const { go, mode } = useNav();
+  const router = useRouter();
 
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1); // slide direction
@@ -906,6 +909,13 @@ export function OnboardingPage() {
     if (!persisted) return;
     if (mode === "demo") {
       go("dashboard");
+      return;
+    }
+    const selectedPlan = resolveAcquisitionIntent({
+      plan: new URLSearchParams(window.location.search).get("plan"),
+    }).plan;
+    if (selectedPlan) {
+      router.push(`/app/billing?plan=${encodeURIComponent(selectedPlan)}`);
       return;
     }
     go("knowledge", { welcome: 1 });

@@ -196,6 +196,35 @@ async function main() {
   );
   assert(closed, "SMTP transport was not closed after reset delivery.");
 
+  capturedMessage = undefined;
+  closed = false;
+  process.env.EMAIL_PROVIDER = "mock";
+  const operationalResult = await service.sendOperationalEmail({
+    subject: "LeadVirt.ai plan request: Professional",
+    text: "Tenant ID: tenant-contract\nRequested plan: PROFESSIONAL",
+    referenceKey: "billing-plan-contract-1",
+    purpose: "billing_plan_selection",
+  });
+  assert(
+    operationalResult.providerMessageId === "smtp-message-1",
+    "SMTP operational message id was not returned.",
+  );
+  assert(
+    capturedMessage?.to === "noreply@leadvirt.com",
+    "Operational email did not fall back to the configured sender address.",
+  );
+  assert(
+    String(capturedMessage?.html).includes("tenant-contract"),
+    "Operational HTML body is missing request context.",
+  );
+  assert(
+    JSON.stringify(capturedMessage?.headers) ===
+      JSON.stringify({ "X-LeadVirt-Purpose": "billing_plan_selection" }),
+    "SMTP operational purpose header is incorrect.",
+  );
+  assert(closed, "SMTP transport was not closed after operational delivery.");
+  process.env.EMAIL_PROVIDER = "smtp";
+
   let failureClosed = false;
   const failureFactory: SmtpTransportFactory = () => ({
     sendMail: async () => {
@@ -268,6 +297,16 @@ async function main() {
   assert(
     mockResult.providerMessageId === "mock:reset-contract-mock",
     "Development mock reset result is incorrect.",
+  );
+  const operationalMockResult = await mockService.sendOperationalEmail({
+    subject: "LeadVirt.ai plan request: Start",
+    text: "Tenant ID: tenant-mock",
+    referenceKey: "billing-plan-mock",
+    purpose: "billing_plan_selection",
+  });
+  assert(
+    operationalMockResult.providerMessageId === "mock:billing-plan-mock",
+    "Development operational mock result is incorrect.",
   );
   console.log(JSON.stringify({ ok: true, checks: 45 }));
 }

@@ -18,7 +18,15 @@ type AuthEmailMessage = {
   html: string;
   locale: EmailOtpLocale;
   referenceKey: string;
-  purpose: "email_otp" | "password_reset";
+  purpose: "email_otp" | "password_reset" | "billing_plan_selection";
+};
+
+type OperationalEmailInput = {
+  email?: string;
+  subject: string;
+  text: string;
+  referenceKey: string;
+  purpose: "billing_plan_selection";
 };
 
 const emailCopy: Record<EmailOtpLocale, EmailCopy> = {
@@ -134,6 +142,21 @@ function passwordResetProvider() {
   return (process.env.EMAIL_PROVIDER ?? "mock").trim().toLowerCase();
 }
 
+function operationalEmailProvider() {
+  const configured = [process.env.EMAIL_PROVIDER, process.env.EMAIL_OTP_PROVIDER]
+    .map((value) => value?.trim().toLowerCase())
+    .filter((value): value is string => Boolean(value));
+  const readyProvider = configured.find((mode) => mode !== "mock" && providerReady(mode));
+  if (readyProvider) return readyProvider;
+  if (
+    process.env.NODE_ENV !== "production" &&
+    (configured.length === 0 || configured.includes("mock"))
+  ) {
+    return "mock";
+  }
+  return configured[0] ?? "mock";
+}
+
 function emailFromEnvironment() {
   const emailFrom = process.env.EMAIL_FROM?.trim() ?? "";
   const angleMatch = emailFrom.match(/^\s*(.*?)\s*<([^<>]+)>\s*$/);
@@ -149,6 +172,10 @@ function senderFromEnvironment(email: string | undefined, name: string | undefin
     email: email?.trim() || fallback.email,
     name: name?.trim() || fallback.name,
   };
+}
+
+function validEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function uniSenderConfiguration() {
@@ -234,6 +261,18 @@ function escapeHtml(value: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function operationalHtmlBody(subject: string, text: string) {
+  const safeSubject = escapeHtml(subject);
+  const safeText = escapeHtml(text).replace(/\n/g, "<br>");
+  return `
+<div style="margin:0;padding:32px 16px;background:#09090b;color:#f4f4f5;font-family:Arial,sans-serif">
+  <div style="max-width:640px;margin:0 auto;border:1px solid #27272a;border-radius:8px;background:#18181b;padding:28px 32px">
+    <div style="font-size:22px;line-height:1.3;font-weight:700;color:#fafafa">${safeSubject}</div>
+    <p style="margin:18px 0 0;font-size:14px;line-height:1.7;color:#d4d4d8">${safeText}</p>
+  </div>
+</div>`.trim();
 }
 
 function passwordResetHtmlBody(resetUrl: string) {
@@ -345,6 +384,41 @@ export class EmailOtpDeliveryService {
       locale: "en",
       referenceKey: input.resetId,
       purpose: "password_reset",
+    });
+  }
+
+  async sendOperationalEmail(input: OperationalEmailInput) {
+    const mode = operationalEmailProvider();
+    if (!providerReady(mode)) {
+      throw new ServiceUnavailableException("Operational email is not configured.");
+    }
+    if (mode === "mock") {
+      return { providerMessageId: `mock:${input.referenceKey}` };
+    }
+
+    const explicitRecipient = input.email?.trim() ?? "";
+    if (explicitRecipient && !validEmail(explicitRecipient)) {
+      throw new ServiceUnavailableException("Operational email is not configured.");
+    }
+    const smtp = smtpConfiguration();
+    const unisender = uniSenderConfiguration();
+    const recipient =
+      explicitRecipient ||
+      [smtp.sender.email, unisender.sender.email, emailFromEnvironment().email, smtp.user].find(
+        validEmail,
+      );
+    if (!recipient) {
+      throw new ServiceUnavailableException("Operational email is not configured.");
+    }
+
+    return this.deliver(mode, {
+      email: recipient,
+      subject: input.subject,
+      text: input.text,
+      html: operationalHtmlBody(input.subject, input.text),
+      locale: "en",
+      referenceKey: input.referenceKey,
+      purpose: input.purpose,
     });
   }
 

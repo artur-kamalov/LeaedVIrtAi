@@ -1,6 +1,7 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type {
   BillingInvoice,
+  BillingPlanSelection,
   BillingPaymentMethod,
   BillingPaymentMethodUpdateRequest,
   PricingPlan,
@@ -9,7 +10,9 @@ import type {
   UsageSummary
 } from "@leadvirt/types";
 import type { RequestContext } from "../../common/request-context.js";
+import { EmailOtpDeliveryService } from "../auth/email-otp-delivery.service.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { billingPlanByCode, billingPlanCatalog, isPricingPlanCode } from "./billing-plan-catalog.js";
 import type { ChangeSubscriptionPlanDto } from "./dto/change-subscription-plan.dto.js";
 
 type BillingPlanRecord = {
@@ -57,33 +60,19 @@ function localizeLegacyPlanText(value: string) {
   return legacyPlanTranslations[value] ?? value;
 }
 
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setUTCDate(next.getUTCDate() + days);
-  return next;
-}
-
-function addMonths(date: Date, months: number) {
-  const next = new Date(date);
-  next.setUTCMonth(next.getUTCMonth() + months);
-  return next;
-}
-
 function jsonRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-function invoiceMonth(value: Date) {
-  return value.toISOString().slice(0, 7);
-}
-
 @Injectable()
 export class BillingService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EmailOtpDeliveryService) private readonly emailDelivery: EmailOtpDeliveryService,
+  ) {}
 
-  async plans(): Promise<PricingPlan[]> {
-    const plans = await this.prisma.billingPlan.findMany({ orderBy: { priceMonthlyRub: "asc" } });
-    return plans.map((plan) => this.mapPlan(plan));
+  plans(): PricingPlan[] {
+    return billingPlanCatalog();
   }
 
   async paymentMethod(context: RequestContext): Promise<BillingPaymentMethod> {
@@ -124,32 +113,9 @@ export class BillingService {
     };
   }
 
-  async invoices(context: RequestContext): Promise<BillingInvoice[]> {
-    const subscription = await this.prisma.subscription.findFirst({
-      where: { tenantId: context.tenantId },
-      include: { plan: true },
-      orderBy: { periodStart: "desc" }
-    });
-    if (!subscription) {
-      return [];
-    }
-
-    const plan = this.mapPlan(subscription.plan);
-    return [0, -1, -2].map((offset) => {
-      const periodStart = addMonths(subscription.periodStart, offset);
-      const periodEnd = addMonths(subscription.periodEnd, offset);
-      const month = invoiceMonth(periodStart);
-      return {
-        id: `${subscription.id}-${month}`,
-        issuedAt: periodStart.toISOString(),
-        periodStart: periodStart.toISOString(),
-        periodEnd: periodEnd.toISOString(),
-        amountRub: subscription.plan.priceMonthlyRub,
-        status: "PAID",
-        plan,
-        downloadName: `leadvirt-invoice-${month}.txt`
-      };
-    });
+  invoices(): BillingInvoice[] {
+    // Subscription periods are not evidence that an invoice was issued or paid.
+    return [];
   }
 
   async currentSubscription(context: RequestContext): Promise<Subscription | null> {
@@ -164,70 +130,85 @@ export class BillingService {
     return this.mapSubscription(subscription);
   }
 
-  async changePlan(context: RequestContext, dto: ChangeSubscriptionPlanDto): Promise<Subscription> {
-    const plan = await this.prisma.billingPlan.findUnique({ where: { code: dto.planCode } });
-    if (!plan) {
-      throw new NotFoundException("Тариф не найден.");
-    }
-
-    const current = await this.prisma.subscription.findFirst({
-      where: { tenantId: context.tenantId, status: "ACTIVE" },
-      include: { plan: true },
-      orderBy: { createdAt: "desc" }
+  async planSelection(context: RequestContext): Promise<BillingPlanSelection | null> {
+    const selection = await this.prisma.auditLog.findFirst({
+      where: { tenantId: context.tenantId, action: "billing.plan_selection_requested" },
+      orderBy: { createdAt: "desc" },
     });
+    if (!selection || !isPricingPlanCode(selection.entityId)) return null;
 
+    const activated = await this.prisma.subscription.findFirst({
+      where: {
+        tenantId: context.tenantId,
+        status: { in: ["ACTIVE", "TRIALING"] },
+        plan: { code: selection.entityId },
+        updatedAt: { gte: selection.createdAt },
+      },
+      select: { id: true },
+    });
+    if (activated) return null;
+
+    return this.mapPlanSelection(selection.id, selection.entityId, selection.createdAt);
+  }
+
+  async selectPlan(context: RequestContext, dto: ChangeSubscriptionPlanDto): Promise<BillingPlanSelection> {
+    const current = await this.prisma.subscription.findFirst({
+      where: { tenantId: context.tenantId, status: { in: ["ACTIVE", "TRIALING"] } },
+      include: { plan: true },
+      orderBy: { createdAt: "desc" },
+    });
     if (current?.plan.code === dto.planCode) {
-      return this.mapSubscription({ ...current, plan });
+      throw new ConflictException("This plan is already active.");
     }
 
-    const changedAt = new Date().toISOString();
-    const subscription = current
-      ? await this.prisma.subscription.update({
-          where: { id: current.id },
-          data: {
-            planId: plan.id,
-            status: "ACTIVE",
-            metadata: {
-              ...jsonRecord(current.metadata),
-              billingMode: "manual",
-              changedAt,
-              previousPlanCode: current.plan.code
-            }
-          },
-          include: { plan: true }
-        })
-      : await this.prisma.subscription.create({
-          data: {
-            tenantId: context.tenantId,
-            planId: plan.id,
-            status: "ACTIVE",
-            periodStart: new Date(),
-            periodEnd: addDays(new Date(), 30),
-            metadata: {
-              billingMode: "manual",
-              createdBy: "manual_plan_change",
-              changedAt
-            }
-          },
-          include: { plan: true }
-        });
-
-    await this.prisma.auditLog.create({
+    const selectedAt = new Date();
+    const plan = billingPlanByCode(dto.planCode);
+    const billingRequestEmail = process.env.BILLING_REQUEST_EMAIL?.trim();
+    const requestLines = [
+      "A workspace requested manual plan activation.",
+      `Workspace: ${context.tenant.name} (${context.tenant.slug})`,
+      `Tenant ID: ${context.tenantId}`,
+      `Actor user ID: ${context.userId}`,
+    ];
+    if (context.user.name?.trim()) requestLines.push(`Requester: ${context.user.name.trim()}`);
+    if (context.user.email?.trim()) requestLines.push(`Requester email: ${context.user.email.trim()}`);
+    if (context.user.phone?.trim()) requestLines.push(`Requester phone: ${context.user.phone.trim()}`);
+    requestLines.push(
+      `Requested plan: ${plan.name} (${plan.code})`,
+      `Current plan: ${current?.plan.code ?? "none"}`,
+      `Requested at: ${selectedAt.toISOString()}`,
+    );
+    const delivery = await this.emailDelivery.sendOperationalEmail({
+      ...(billingRequestEmail ? { email: billingRequestEmail } : {}),
+      subject: `LeadVirt.ai plan request: ${plan.name}`,
+      text: requestLines.join("\n"),
+      referenceKey: `billing-plan:${context.tenantId}:${dto.planCode}:${selectedAt.toISOString()}`,
+      purpose: "billing_plan_selection",
+    });
+    const selection = await this.prisma.auditLog.create({
       data: {
         tenantId: context.tenantId,
         actorUserId: context.userId,
-        action: "billing.plan_changed",
-        entityType: "subscription",
-        entityId: subscription.id,
+        action: "billing.plan_selection_requested",
+        entityType: "billing_plan",
+        entityId: dto.planCode,
         payload: {
-          fromPlanCode: current?.plan.code ?? null,
-          toPlanCode: plan.code,
-          billingMode: "manual"
-        }
-      }
+          activePlanCode: current?.plan.code ?? null,
+          selectedPlanCode: dto.planCode,
+          checkoutAvailable: false,
+          billingMode: "manual_invoice",
+          operatorDeliveryMessageId: delivery.providerMessageId,
+          selectedAt: selectedAt.toISOString(),
+        },
+        createdAt: selectedAt,
+      },
     });
 
-    return this.mapSubscription(subscription);
+    return this.mapPlanSelection(selection.id, dto.planCode, selection.createdAt);
+  }
+
+  async changePlan(context: RequestContext, dto: ChangeSubscriptionPlanDto): Promise<BillingPlanSelection> {
+    return this.selectPlan(context, dto);
   }
 
   async cancelSubscription(context: RequestContext): Promise<Subscription> {
@@ -328,6 +309,19 @@ export class BillingService {
       periodStart: subscription.periodStart.toISOString(),
       periodEnd: subscription.periodEnd.toISOString(),
       plan: this.mapPlan(subscription.plan)
+    };
+  }
+
+  private mapPlanSelection(reference: string, code: PricingPlanCode, selectedAt: Date): BillingPlanSelection {
+    return {
+      reference,
+      plan: billingPlanByCode(code),
+      selectedAt: selectedAt.toISOString(),
+      status: "CONTACT_REQUIRED",
+      checkout: {
+        available: false,
+        mode: "manual_invoice",
+      },
     };
   }
 }

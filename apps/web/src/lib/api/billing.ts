@@ -1,5 +1,6 @@
 import type {
   BillingInvoice,
+  BillingPlanSelection,
   BillingPaymentMethod,
   BillingPaymentMethodUpdateRequest,
   PricingPlan,
@@ -31,9 +32,13 @@ export function getCurrentSubscription() {
   return apiData<Subscription | null>("/billing/current-subscription");
 }
 
-export function changeSubscriptionPlan(planCode: PricingPlanCode) {
-  return apiData<Subscription>("/billing/current-subscription", {
-    method: "PATCH",
+export function getBillingPlanSelection() {
+  return apiData<BillingPlanSelection | null>("/billing/plan-selection");
+}
+
+export function selectBillingPlan(planCode: PricingPlanCode) {
+  return apiData<BillingPlanSelection>("/billing/plan-selection", {
+    method: "POST",
     ...jsonBody({ planCode })
   });
 }

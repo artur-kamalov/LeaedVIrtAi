@@ -16,7 +16,6 @@ import {
   CalendarCheck,
   Repeat,
   Database,
-  GripVertical,
   Plus,
   Trash2,
   Play,
@@ -27,7 +26,6 @@ import {
   ToggleLeft,
   ToggleRight,
   X,
-  Info,
   AlertTriangle,
   Square,
   UserRoundCheck,
@@ -91,12 +89,6 @@ type Translate = (key: TranslationKey, values?: TranslationValues) => string;
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
-const scenarioKeys: TranslationKey[] = [
-  "suite.automation.scenarioBooking",
-  "suite.automation.scenarioOrder",
-  "suite.automation.scenarioReturn",
-];
-
 function translated(t: Translate | undefined, key: TranslationKey, fallback: string) {
   return t ? t(key) : fallback;
 }
@@ -105,7 +97,7 @@ function defaultConfigForType(type: BlockType, t?: Translate): WorkflowBlockConf
   switch (type) {
     case "trigger":
       return {
-        channels: { telegram: true, whatsapp: true, instagram: false, web: true },
+        channels: { telegram: true, whatsapp: false, instagram: false, web: true },
         keywordFilter: "",
       };
     case "ai":
@@ -547,7 +539,7 @@ function DarkInput({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       className={cn(
-        "w-full bg-white/5 border border-white/8 rounded-xl px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition-all",
+        "min-h-11 w-full rounded-xl border border-white/8 bg-white/5 px-3 py-2 text-sm text-zinc-100 outline-none transition-all placeholder-zinc-500 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30",
         className
       )}
     />
@@ -571,7 +563,7 @@ function DarkTextarea({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       rows={rows}
-      className="w-full bg-white/5 border border-white/8 rounded-xl px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition-all resize-none"
+      className="w-full resize-none rounded-xl border border-white/8 bg-white/5 px-3 py-2 text-sm text-zinc-100 outline-none transition-all placeholder-zinc-500 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30"
     />
   );
 }
@@ -590,53 +582,50 @@ function DarkSelect({
       value={value}
       onValueChange={onChange}
       options={options.map((o) => ({ value: o.value, label: o.label }))}
-      className="h-10"
+      className="h-11"
     />
   );
 }
 
-function MiniToggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+function MiniToggle({
+  checked,
+  label,
+  onChange,
+  stopPropagation = false,
+}: {
+  checked: boolean;
+  label: string;
+  onChange: () => void;
+  stopPropagation?: boolean;
+}) {
   return (
     <button
-      onClick={onChange}
-      className={cn(
-        "relative w-8 h-4.5 rounded-full transition-colors duration-200 flex-shrink-0",
-        checked ? "bg-emerald-500" : "bg-white/10"
-      )}
-      style={{ height: "18px" }}
+      type="button"
+      aria-label={label}
+      aria-pressed={checked}
+      onClick={(event) => {
+        if (stopPropagation) event.stopPropagation();
+        onChange();
+      }}
+      className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg outline-none transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-emerald-400/60"
     >
-      <span
-        className={cn(
-          "absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-all duration-200 shadow-sm",
-          checked ? "left-[calc(100%-14px-2px)]" : "left-0.5"
-        )}
-      />
+      <span className={cn("relative h-[18px] w-8 rounded-full transition-colors duration-200", checked ? "bg-emerald-500" : "bg-white/10")}>
+        <span
+          className={cn(
+            "absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-all duration-200",
+            checked ? "left-[calc(100%-14px-2px)]" : "left-0.5"
+          )}
+        />
+      </span>
     </button>
   );
 }
 
 // Animated connector between blocks
-function Connector({ index }: { index: number }) {
+function Connector() {
   return (
     <div className="flex flex-col items-center relative" style={{ height: 48 }}>
-      {/* Static gradient line */}
-      <div className="w-px flex-1 bg-gradient-to-b from-emerald-500/30 to-emerald-500/10 relative overflow-hidden">
-        {/* Traveling pulse */}
-        <motion.div
-          className="absolute w-full"
-          style={{
-            height: 24,
-            background: "linear-gradient(to bottom, transparent, #10b981, transparent)",
-          }}
-          animate={{ top: ["-24px", "calc(100% + 24px)"] }}
-          transition={{
-            duration: 1.8,
-            repeat: Infinity,
-            ease: "linear",
-            delay: index * 0.28,
-          }}
-        />
-      </div>
+      <div className="relative w-px flex-1 bg-gradient-to-b from-emerald-500/30 to-emerald-500/10" />
     </div>
   );
 }
@@ -842,7 +831,11 @@ function BookingSettings({ config, onChange }: { config: WorkflowBlockConfig; on
       </div>
       <div className="flex items-center justify-between py-1">
         <span className="text-xs text-zinc-400">{t("suite.automation.requestConfirmation")}</span>
-        <MiniToggle checked={confirm} onChange={() => onChange({ bookingRequiresConfirmation: !confirm })} />
+        <MiniToggle
+          checked={confirm}
+          label={t("suite.automation.requestConfirmation")}
+          onChange={() => onChange({ bookingRequiresConfirmation: !confirm })}
+        />
       </div>
     </div>
   );
@@ -912,6 +905,7 @@ function CrmSettings({ config, onChange }: { config: WorkflowBlockConfig; onChan
             <span className="text-xs text-zinc-300">{field.label}</span>
             <MiniToggle
               checked={Boolean(crmFields[field.id])}
+              label={field.label}
               onChange={() => onChange({ crmFields: { ...crmFields, [field.id]: !crmFields[field.id] } })}
             />
           </div>
@@ -929,10 +923,14 @@ function TriggerSettings({ config, onChange }: { config: WorkflowBlockConfig; on
   return (
     <div className="space-y-4">
       <label className="text-xs font-medium text-zinc-400">{t("suite.automation.activeChannels")}</label>
-      {(Object.entries(channels) as [keyof typeof channels, boolean][]).map(([ch, val]) => (
+      {(["telegram", "web"] as const).map((ch) => (
         <div key={ch} className="flex items-center justify-between">
           <span className="text-sm text-zinc-200 capitalize">{ch === "web" ? t("suite.automation.webChat") : ch.charAt(0).toUpperCase() + ch.slice(1)}</span>
-          <MiniToggle checked={val} onChange={() => onChange({ channels: { ...channels, [ch]: !channels[ch] } })} />
+          <MiniToggle
+            checked={channels[ch]}
+            label={ch === "web" ? t("suite.automation.webChat") : "Telegram"}
+            onChange={() => onChange({ channels: { ...channels, [ch]: !channels[ch] } })}
+          />
         </div>
       ))}
       <div className="space-y-1.5 mt-2">
@@ -986,19 +984,14 @@ function BlockSettings({
           </p>
         </div>
       )}
-      {settingsMap[block.type]}
-
-      {/* Variables hint */}
-      <div className="flex items-start gap-2 p-3 rounded-xl bg-white/3 border border-white/5">
-        <Info className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0 mt-0.5" />
-        <p className="text-xs text-zinc-500 leading-relaxed">{t("suite.automation.variableHint")}</p>
-      </div>
+      {isExecutableBlock(block) ? settingsMap[block.type] : null}
 
       {/* Delete */}
       {block.type !== "trigger" && (
         <button
+          type="button"
           onClick={onDelete}
-          className="flex items-center gap-2 text-xs text-rose-500 hover:text-rose-400 transition-colors group"
+          className="group flex min-h-11 items-center gap-2 rounded-lg px-2 text-xs text-rose-500 transition-colors hover:bg-rose-500/5 hover:text-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60"
         >
           <Trash2 className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
           {t("suite.automation.deleteBlock")}
@@ -1012,12 +1005,14 @@ function BlockSettings({
 
 function BlockNode({
   block,
+  index,
   selected,
   onClick,
   onToggle,
   editable,
 }: {
   block: WorkflowBlock;
+  index: number;
   selected: boolean;
   onClick: () => void;
   onToggle: () => void;
@@ -1029,7 +1024,6 @@ function BlockNode({
 
   return (
     <motion.div
-      layout
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
@@ -1037,8 +1031,18 @@ function BlockNode({
     >
       <div
         onClick={onClick}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onClick();
+          }
+        }}
+        role="group"
+        aria-label={block.title}
+        tabIndex={0}
+        aria-current={selected ? "step" : undefined}
         className={cn(
-          "relative cursor-pointer rounded-2xl border p-4 transition-all duration-300 group",
+          "group relative cursor-pointer rounded-2xl border p-4 outline-none transition-all duration-300 focus-visible:ring-2 focus-visible:ring-emerald-400/60",
           "bg-zinc-900/70",
           selected
             ? "border-emerald-500/50 shadow-[0_0_24px_rgba(16,185,129,0.18)]"
@@ -1057,12 +1061,12 @@ function BlockNode({
         )}
 
         <div className="flex items-center gap-3 relative z-10">
-          {/* Drag handle */}
-          <Tip content={t("suite.automation.dragBlock")}>
-            <span className="cursor-grab active:cursor-grabbing">
-              <GripVertical className="w-4 h-4 text-zinc-600 group-hover:text-zinc-500 flex-shrink-0 transition-colors" />
-            </span>
-          </Tip>
+          <span
+            aria-hidden="true"
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-white/8 bg-white/4 text-xs font-semibold text-zinc-500"
+          >
+            {index + 1}
+          </span>
 
           {/* Icon */}
           <div
@@ -1093,9 +1097,12 @@ function BlockNode({
           {/* Toggle */}
           {editable ? (
             <Tip content={block.enabled ? t("suite.automation.disableBlock") : t("suite.automation.enableBlock")}>
-              <div className="flex-shrink-0" onClick={(e) => { e.stopPropagation(); onToggle(); }}>
-                <MiniToggle checked={block.enabled} onChange={onToggle} />
-              </div>
+              <MiniToggle
+                checked={block.enabled}
+                label={block.enabled ? t("suite.automation.disableBlock") : t("suite.automation.enableBlock")}
+                onChange={onToggle}
+                stopPropagation
+              />
             </Tip>
           ) : null}
         </div>
@@ -1123,7 +1130,9 @@ function BlockNode({
 export function AutomationPage() {
   const { formatNumber, t } = useI18n();
   const permissions = useProductPermissions();
-  const scenarioDefaults = scenarioKeys.map((key) => t(key));
+  const scenarioDefaults = Array.from({ length: 3 }, (_, index) =>
+    t("suite.automation.scenarioNumber", { count: formatNumber(index + 1) }),
+  );
   const [workflows, setWorkflows] = useState<Array<Workflow | null>>([]);
   const [workflowsLoaded, setWorkflowsLoaded] = useState(false);
   const [workflowLoadStatus, setWorkflowLoadStatus] = useState<"loading" | "success" | "error">("loading");
@@ -1186,6 +1195,8 @@ export function AutomationPage() {
   const testRequiresConversation = blocks.some(
     (block) => block.type === "handoff" && block.enabled,
   );
+  const canAddCondition = !blocks.some((block) => block.type === "condition");
+  const canAddHandoff = !blocks.some((block) => block.type === "handoff");
 
   function setWorkflowSlot(index: number, workflow: Workflow) {
     setWorkflows((prev) => {
@@ -1308,18 +1319,13 @@ export function AutomationPage() {
     toast.success(t("suite.automation.blockDeleted"));
   };
 
-  const addBlock = () => {
+  const addBlock = (type: "condition" | "handoff") => {
     if (!permissions.canManageWorkflows) return;
+    const template = blockTemplateForType(type, t);
     const newBlock: WorkflowBlock = {
+      ...template,
       id: `block-${Date.now()}`,
-      type: "handoff",
-      title: t("suite.automation.blockHandoff"),
-      subtitle: t("suite.automation.blockHandoffSub"),
-      icon: UserRoundCheck,
-      accent: "from-cyan-500 to-emerald-500",
-      glowColor: "rgba(16,185,129,0.35)",
-      enabled: true,
-      config: cloneConfig(defaultConfigForType("handoff", t)),
+      config: cloneConfig(defaultConfigForType(type, t)),
     };
     setBlocks((prev) => {
       const endIndex = prev.findIndex((block) => block.type === "end");
@@ -1352,8 +1358,8 @@ export function AutomationPage() {
       setWorkflowSlot(activeScenario, finalWorkflow);
       hydrateWorkflow(finalWorkflow, activeScenario);
       toast.success(scenarioActive ? t("suite.automation.published") : t("suite.automation.saved"));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("suite.automation.saveFailed"));
+    } catch {
+      toast.error(t("suite.automation.saveFailed"));
     } finally {
       setPendingAction(null);
     }
@@ -1361,27 +1367,21 @@ export function AutomationPage() {
 
   async function duplicateScenario() {
     if (!permissions.canManageWorkflows) return;
-    if (scenarioActive && runtimeBlocked) {
-      toast.error(t("suite.automation.runtimeBlocked"));
-      return;
-    }
     setPendingAction("duplicate");
     try {
-      const status = statusFromActive(scenarioActive);
       const copyName = `${scenarioName.trim() || scenarioDefaults[activeScenario] || t("suite.automation.newScenario")} (${t("suite.automation.copySuffix")})`;
       const created = await createWorkflow({
         name: copyName,
         description: t("suite.automation.copyDescription"),
-        status,
+        status: "PAUSED",
         steps: stepsFromBlocks(blocks, { includeIds: false }),
       });
-      const finalWorkflow = scenarioActive ? await publishWorkflow(created.id) : created;
       const nextSlot = nextEmptyWorkflowSlot();
-      setWorkflowSlot(nextSlot, finalWorkflow);
-      hydrateWorkflow(finalWorkflow, nextSlot);
+      setWorkflowSlot(nextSlot, created);
+      hydrateWorkflow(created, nextSlot);
       toast.success(t("suite.automation.duplicated"));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("suite.automation.duplicateFailed"));
+    } catch {
+      toast.error(t("suite.automation.duplicateFailed"));
     } finally {
       setPendingAction(null);
     }
@@ -1405,8 +1405,8 @@ export function AutomationPage() {
       clearWorkflowSlot(activeScenario);
       hydrateDraftScenario(activeScenario, scenarioDefaults[activeScenario] ?? t("suite.automation.scenarioNumber", { count: formatNumber(activeScenario + 1) }));
       toast.success(t("suite.automation.archived"));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("suite.automation.archiveFailed"));
+    } catch {
+      toast.error(t("suite.automation.archiveFailed"));
     } finally {
       setPendingAction(null);
     }
@@ -1419,9 +1419,9 @@ export function AutomationPage() {
       setArchivedWorkflows(items.filter((workflow) => workflow.status === "ARCHIVED"));
       setArchiveLoaded(true);
       setArchiveLoadStatus("success");
-    } catch (error) {
+    } catch {
       setArchiveLoadStatus("error");
-      toast.error(error instanceof Error ? error.message : t("suite.automation.archiveLoadFailed"));
+      toast.error(t("suite.automation.archiveLoadFailed"));
     }
   }
 
@@ -1446,8 +1446,8 @@ export function AutomationPage() {
       hydrateWorkflow(restored, slot);
       setArchiveModalOpen(false);
       toast.success(t("suite.automation.restored"));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("suite.automation.restoreFailed"));
+    } catch {
+      toast.error(t("suite.automation.restoreFailed"));
     } finally {
       setRestoreWorkflowId(null);
     }
@@ -1464,7 +1464,7 @@ export function AutomationPage() {
       return;
     }
     if (!activeWorkflow) {
-      toast(t("suite.automation.testStarting"), { description: t("suite.automation.testDescription") });
+      toast(t("suite.automation.saveFirst"));
       return;
     }
 
@@ -1472,12 +1472,12 @@ export function AutomationPage() {
     try {
       const result = await testWorkflow(activeWorkflow.id);
       if (result.status === "COMPLETED") {
-        toast.success(result.message, { description: result.runId ?? undefined });
+        toast.success(t("suite.automation.testCompleted"));
       } else {
-        toast.error(result.message, { description: result.runId ?? undefined });
+        toast.error(t("suite.automation.testFailed"));
       }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("suite.automation.testFailed"));
+    } catch {
+      toast.error(t("suite.automation.testFailed"));
     } finally {
       setPendingAction(null);
     }
@@ -1524,7 +1524,10 @@ export function AutomationPage() {
         {/* ── Toolbar ── */}
         <div className="flex flex-col gap-3 mb-5 flex-shrink-0">
           {/* Scenario tabs */}
-          <div className="flex gap-2 flex-wrap">
+          <div
+            className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1 scrollbar-none overscroll-x-contain"
+            aria-label={t("suite.automation.title")}
+          >
             {scenarioTabs.map((s, i) => {
               const workflow = workflows[i] ?? null;
               const restored = Boolean(workflow && restoredWorkflowIds.has(workflow.id));
@@ -1539,7 +1542,7 @@ export function AutomationPage() {
                     hydrateDraftScenario(i, s);
                   }}
                   className={cn(
-                    "flex max-w-full items-center gap-2 rounded-xl border px-3.5 py-1.5 text-xs font-medium transition-all duration-200",
+                    "flex min-h-11 max-w-full shrink-0 snap-start items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-medium outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-emerald-400/60",
                     i === activeScenario
                       ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
                       : "bg-white/3 border-white/6 text-zinc-400 hover:text-zinc-200 hover:border-white/12"
@@ -1579,6 +1582,9 @@ export function AutomationPage() {
               }
             >
               <button
+                type="button"
+                aria-pressed={scenarioActive}
+                aria-label={scenarioActive ? t("suite.automation.disableScenario") : t("suite.automation.enableScenario")}
                 onClick={() => {
                   if (!scenarioActive && runtimeBlocked) {
                     toast.error(t("suite.automation.runtimeBlocked"));
@@ -1586,10 +1592,9 @@ export function AutomationPage() {
                   }
                   const next = !scenarioActive;
                   setScenarioActive(next);
-                  toast(next ? t("suite.automation.scenarioEnabled") : t("suite.automation.scenarioDisabled"));
                 }}
                 className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all duration-200",
+                  "flex min-h-11 items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-emerald-400/60",
                   scenarioActive && runtimeBlocked
                     ? "bg-rose-500/10 border-rose-500/25 text-rose-300"
                     : scenarioActive
@@ -1615,9 +1620,9 @@ export function AutomationPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="gap-1.5 text-xs"
-                  disabled={pendingAction !== null || runtimeBlocked || testRequiresConversation}
-                  title={testRequiresConversation ? t("suite.automation.testNeedsConversation") : undefined}
+                  className="min-h-11 gap-1.5 text-xs"
+                  disabled={pendingAction !== null || runtimeBlocked || testRequiresConversation || !activeWorkflow}
+                  title={testRequiresConversation ? t("suite.automation.testNeedsConversation") : !activeWorkflow ? t("suite.automation.saveFirst") : undefined}
                   onClick={() => void runScenarioTest()}
                 >
                   <Play className="w-3.5 h-3.5" />
@@ -1626,7 +1631,7 @@ export function AutomationPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="gap-1.5 text-xs"
+                  className="min-h-11 gap-1.5 text-xs"
                   disabled={pendingAction !== null || (scenarioActive && runtimeBlocked)}
                   onClick={() => void duplicateScenario()}
                 >
@@ -1636,7 +1641,7 @@ export function AutomationPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="gap-1.5 text-xs"
+                  className="min-h-11 gap-1.5 text-xs"
                   disabled={pendingAction !== null || !activeWorkflow}
                   onClick={() => void archiveScenario()}
                 >
@@ -1648,7 +1653,7 @@ export function AutomationPage() {
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5 text-xs"
+              className="min-h-11 gap-1.5 text-xs"
               disabled={pendingAction !== null}
               onClick={() => void openArchiveModal()}
               data-testid="automation-open-archive"
@@ -1659,7 +1664,7 @@ export function AutomationPage() {
             {permissions.canManageWorkflows ? (
               <Button
                 size="sm"
-                className="gap-1.5 text-xs"
+                className="min-h-11 gap-1.5 text-xs"
                 disabled={pendingAction !== null || (scenarioActive && runtimeBlocked)}
                 onClick={() => void saveScenario()}
               >
@@ -1668,6 +1673,11 @@ export function AutomationPage() {
               </Button>
             ) : null}
           </div>
+          {testRequiresConversation ? (
+            <p className="text-xs leading-relaxed text-zinc-500" data-testid="automation-test-note">
+              {t("suite.automation.testNeedsConversation")}
+            </p>
+          ) : null}
         </div>
 
         {runtimeBlocked && (
@@ -1684,53 +1694,68 @@ export function AutomationPage() {
               <p className="mt-0.5 text-xs leading-relaxed text-amber-200/75">
                 {t("suite.automation.runtimeBlockedDescription")}
               </p>
-              <p className="mt-1 truncate text-xs text-amber-100/60">
-                {unsupportedBlocks.map((block) => block.title).join(", ")}
-              </p>
+              {unsupportedBlocks.length > 0 ? (
+                <p className="mt-1 truncate text-xs text-amber-100/60">
+                  {unsupportedBlocks.map((block) => block.title).join(", ")}
+                </p>
+              ) : null}
             </div>
           </div>
         )}
 
         {/* ── Main layout ── */}
-        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5 overflow-hidden">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 lg:grid-cols-[1fr_340px] lg:overflow-hidden">
           {/* ── LEFT: Canvas ── */}
-          <div className="overflow-y-auto pr-1 scrollbar-thin">
+          <div className="pr-1 lg:overflow-y-auto scrollbar-thin">
             <div className="max-w-lg mx-auto pb-8">
               <AnimatePresence mode="popLayout">
                 {blocks.map((block, index) => (
                   <div key={block.id}>
                     <BlockNode
                       block={block}
+                      index={index}
                       selected={selectedId === block.id}
                       onClick={() => setSelectedId(block.id)}
                       onToggle={() => toggleBlock(block.id)}
                       editable={permissions.canManageWorkflows}
                     />
-                    {index < blocks.length - 1 && <Connector index={index} />}
+                    {index < blocks.length - 1 && <Connector />}
                   </div>
                 ))}
               </AnimatePresence>
 
-              {/* Add block button */}
-              {permissions.canManageWorkflows ? <motion.div
-                className="mt-4 flex justify-center"
+              {permissions.canManageWorkflows && (canAddCondition || canAddHandoff) ? <motion.div
+                className="mt-4 flex flex-wrap justify-center gap-2"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.4 }}
               >
-                <button
-                  onClick={addBlock}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-2xl border border-dashed border-white/12 text-sm text-zinc-500 hover:text-zinc-300 hover:border-emerald-500/30 hover:bg-emerald-500/5 transition-all duration-200 group"
-                >
-                  <Plus className="w-4 h-4 group-hover:text-emerald-400 transition-colors" />
-                  {t("suite.automation.addBlock")}
-                </button>
+                {canAddCondition ? (
+                  <button
+                    type="button"
+                    onClick={() => addBlock("condition")}
+                    className="group flex min-h-11 items-center gap-2 rounded-xl border border-dashed border-white/12 px-4 py-2 text-sm text-zinc-500 outline-none transition-all hover:border-emerald-500/30 hover:bg-emerald-500/5 hover:text-zinc-300 focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                  >
+                    <GitBranch className="h-4 w-4 transition-colors group-hover:text-emerald-400" />
+                    {t("suite.automation.addCondition")}
+                  </button>
+                ) : null}
+                {canAddHandoff ? (
+                  <button
+                    type="button"
+                    onClick={() => addBlock("handoff")}
+                    className="group flex min-h-11 items-center gap-2 rounded-xl border border-dashed border-white/12 px-4 py-2 text-sm text-zinc-500 outline-none transition-all hover:border-emerald-500/30 hover:bg-emerald-500/5 hover:text-zinc-300 focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                  >
+                    <UserRoundCheck className="h-4 w-4 transition-colors group-hover:text-emerald-400" />
+                    {t("suite.automation.blockHandoff")}
+                  </button>
+                ) : null}
               </motion.div> : null}
             </div>
           </div>
 
           {/* ── RIGHT: Settings panel ── */}
-          <div className="overflow-y-auto">
+          <div className="lg:overflow-y-auto">
             <AnimatePresence mode="wait">
               <motion.div
                 key={selectedId}
@@ -1803,17 +1828,16 @@ export function AutomationPage() {
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-zinc-100 truncate">{localizeWorkflowName(workflow.name, t)}</p>
-                      <p className="mt-1 text-xs text-zinc-500">
-                        {t("suite.automation.archiveMeta", {
-                          blocks: formatNumber(workflow.steps?.length ?? 0),
-                          version: formatNumber(workflow.version),
-                        })}
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {t("suite.automation.archiveMeta", {
+                        blocks: formatNumber(workflow.steps?.length ?? 0),
+                      })}
                       </p>
                     </div>
                     {permissions.canManageWorkflows ? <Button
                       size="sm"
                       variant="outline"
-                      className="gap-1.5 text-xs sm:self-center"
+                      className="min-h-11 gap-1.5 text-xs sm:self-center"
                       disabled={restoreWorkflowId === workflow.id}
                       onClick={() => void restoreArchivedWorkflow(workflow)}
                     >

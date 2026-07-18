@@ -139,7 +139,7 @@ export const NichesSection = () => {
   const active = niches.find(n => n.id === activeNicheId) || niches[0];
 
   return (
-    <section id="niches" className="leadvirt-deferred-paint py-32 container mx-auto px-6">
+    <section id="niches" className="scroll-mt-20 py-32 container mx-auto px-6">
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}

@@ -8,6 +8,9 @@ import { plans } from "../product/plans";
 import { cn } from "../lib/utils";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/messages";
+import { signupHref, type AcquisitionPlanId } from "@/lib/acquisition";
+
+const corporateContactHref = process.env.NEXT_PUBLIC_CORPORATE_CONTACT_URL?.trim();
 
 const planCopy: Record<string, { tagline: TranslationKey; cta: TranslationKey; features: TranslationKey[] }> = {
   start: {
@@ -36,7 +39,7 @@ export function PricingSection() {
   const { t } = useI18n();
 
   return (
-    <section id="pricing" className="leadvirt-deferred-paint py-24 container mx-auto px-6 relative">
+    <section id="pricing" className="scroll-mt-20 py-24 container mx-auto px-6 relative">
       <div className="text-center max-w-2xl mx-auto mb-16">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/50 border border-zinc-800 text-sm font-medium text-emerald-400 mb-6 backdrop-blur-sm">
           <Sparkles className="w-3.5 h-3.5" />
@@ -87,7 +90,19 @@ export function PricingSection() {
               className="w-full mb-8"
               asChild
             >
-              <Link href="/onboarding" prefetch={false}>{t(planCopy[plan.id].cta)}</Link>
+              {plan.id === "corporate" && corporateContactHref ? (
+                <a href={corporateContactHref} data-testid="pricing-cta-corporate">
+                  {t(planCopy[plan.id].cta)}
+                </a>
+              ) : (
+                <Link
+                  href={signupHref(plan.id as AcquisitionPlanId)}
+                  prefetch={false}
+                  data-testid={`pricing-cta-${plan.id}`}
+                >
+                  {t(planCopy[plan.id].cta)}
+                </Link>
+              )}
             </Button>
 
             <ul className="space-y-3 mt-auto">

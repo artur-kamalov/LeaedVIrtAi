@@ -18,6 +18,7 @@ import {
   Settings,
   RefreshCw,
   LogOut,
+  ChevronDown,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { toast } from "sonner";
@@ -243,6 +244,16 @@ function availabilityLabel(integration: Integration, t: Translate) {
   if (integration.availability === "soon") return t("integrations.availability.soon");
   return null;
 }
+
+const AVAILABLE_INTEGRATIONS = INTEGRATIONS.filter(isSelfServeIntegration);
+const PLANNED_INTEGRATIONS = INTEGRATIONS.filter(
+  (integration) => !isSelfServeIntegration(integration),
+);
+const AVAILABLE_CATEGORIES = CATEGORIES.filter(
+  (category) =>
+    category.id === "all" ||
+    AVAILABLE_INTEGRATIONS.some((integration) => integration.category === category.id),
+);
 
 type SetupFieldKind = "text" | "password" | "url";
 
@@ -559,10 +570,6 @@ function inboundEndpointUrl(endpointPath: string) {
   return `${publicApiOrigin()}${endpointPath.startsWith("/") ? endpointPath : `/${endpointPath}`}`;
 }
 
-function publicEndpointUrl(endpointPath: string) {
-  return `${publicApiOrigin()}${endpointPath.startsWith("/") ? endpointPath : `/${endpointPath}`}`;
-}
-
 function formatDateTime(
   value: string | null | undefined,
   formatDate: (value: Date | string | number, options?: Intl.DateTimeFormatOptions) => string,
@@ -594,8 +601,6 @@ function accountReadiness(
 
   return {
     ready,
-    publicKey: endpoint?.publicKey ?? t("integrations.readiness.noPublicKey"),
-    url: endpoint ? inboundEndpointUrl(endpoint.endpointPath) : "",
     signal: latestEvent
       ? t("integrations.readiness.lastInbound", {
           date: formatDateTime(latestEvent.receivedAt, formatDate, t),
@@ -616,14 +621,8 @@ function widgetReadiness(
   t: Translate,
 ) {
   const ready = channel?.status === "ACTIVE" && Boolean(channel.publicKey);
-  const publicKey = channel?.publicKey ?? t("integrations.readiness.noPublicKey");
-
   return {
     ready,
-    publicKey,
-    url: channel?.publicKey
-      ? publicEndpointUrl(`/api/public/widget/${channel.publicKey}/config`)
-      : "",
     signal: channel?.lastHealthAt
       ? t("integrations.readiness.lastCheck", {
           date: formatDateTime(channel.lastHealthAt, formatDate, t),
@@ -681,8 +680,6 @@ function ReadinessTile({
   title,
   ready,
   signal,
-  publicKey,
-  url,
   testId,
   actionLabel,
   actionBusyLabel,
@@ -695,8 +692,6 @@ function ReadinessTile({
   title: string;
   ready: boolean;
   signal: string;
-  publicKey: string;
-  url: string;
   testId: string;
   actionLabel?: string;
   actionBusyLabel?: string;
@@ -734,20 +729,6 @@ function ReadinessTile({
         >
           {ready ? t("integrations.ready") : t("integrations.needsSetup")}
         </Pill>
-      </div>
-      <div className="mt-3 flex items-center gap-2 rounded-xl border border-white/5 bg-zinc-950/45 px-3 py-2">
-        <code className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-300">{publicKey}</code>
-        {url ? (
-          <a
-            aria-label={t("integrations.readiness.endpointLabel", { title })}
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/5 hover:text-emerald-300"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        ) : null}
       </div>
       {actionLabel ? (
         <div className="mt-3">
@@ -843,8 +824,6 @@ function PilotReadinessPanel({
           title="Telegram"
           ready={telegram.ready}
           signal={telegram.signal}
-          publicKey={telegram.publicKey}
-          url={telegram.url}
           testId="pilot-readiness-telegram"
           actionLabel={canTest ? t("integrations.testConnection") : undefined}
           actionBusyLabel={t("integrations.syncing")}
@@ -856,8 +835,6 @@ function PilotReadinessPanel({
           title="Webhook"
           ready={webhook.ready}
           signal={webhook.signal}
-          publicKey={webhook.publicKey}
-          url={webhook.url}
           testId="pilot-readiness-webhook"
           actionLabel={canTest ? t("integrations.internalSample") : undefined}
           actionBusyLabel={t("integrations.sending")}
@@ -869,8 +846,6 @@ function PilotReadinessPanel({
           title={t("integrations.readiness.websiteWidget")}
           ready={widget.ready}
           signal={widget.signal}
-          publicKey={widget.publicKey}
-          url={widget.url}
           testId="pilot-readiness-widget"
           actionLabel={t("integrations.openWidget")}
           actionHref="/widget/demo"
@@ -1822,15 +1797,15 @@ export function IntegrationsPage() {
   const totalConnected = INTEGRATIONS.filter(
     (integration) => isSelfServeIntegration(integration) && connectedMap[integration.id],
   ).length;
-  const totalAvailable = INTEGRATIONS.length;
+  const totalAvailable = AVAILABLE_INTEGRATIONS.length;
   const channelsActive = INTEGRATIONS.filter(
     (i) => i.category === "channels" && isSelfServeIntegration(i) && connectedMap[i.id],
   ).length;
 
   const filtered =
     activeCategory === "all"
-      ? INTEGRATIONS
-      : INTEGRATIONS.filter((i) => i.category === activeCategory);
+      ? AVAILABLE_INTEGRATIONS
+      : AVAILABLE_INTEGRATIONS.filter((i) => i.category === activeCategory);
   const settingsIntegration =
     INTEGRATIONS.find((item) => item.id === settingsIntegrationId) ?? null;
   const settingsAccount = settingsIntegration
@@ -1853,16 +1828,12 @@ export function IntegrationsPage() {
             }}
           />
         ) : null}
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, ease: "easeOut" }}
         >
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-50 mb-1">
-            {t("integrations.title")}
-          </h1>
-          <p className="text-sm text-zinc-400 max-w-xl">{t("integrations.subtitle")}</p>
+          <p className="max-w-xl text-sm text-zinc-400">{t("integrations.subtitle")}</p>
         </motion.div>
 
         {/* Stat chips */}
@@ -1922,7 +1893,7 @@ export function IntegrationsPage() {
           transition={{ duration: 0.4, delay: 0.15 }}
           className="flex flex-wrap gap-2"
         >
-          {CATEGORIES.map((category) => (
+          {AVAILABLE_CATEGORIES.map((category) => (
             <button
               key={category.id}
               onClick={() => setActiveCategory(category.id)}
@@ -1959,19 +1930,59 @@ export function IntegrationsPage() {
           ))}
         </div>
 
-        {/* Webhook section */}
-        <div>
-          <SectionTitle
-            title={t("integrations.webhook.title")}
-            sub={t("integrations.webhook.subtitle")}
-          />
-          <ApiCard
-            accounts={accounts}
-            pendingId={pendingId}
-            canTest={permissions.canTestIntegrations}
-            onSendSample={(id) => void sendSample(id)}
-          />
-        </div>
+        <details
+          className="group/planned rounded-lg border border-white/10 bg-white/[0.02]"
+          data-testid="integrations-planned"
+        >
+          <summary
+            className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+            data-testid="integrations-planned-toggle"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-zinc-200">
+                {t("integrations.planned.title")}
+              </span>
+              <span className="mt-0.5 block text-xs text-zinc-500">
+                {t("integrations.planned.description")}
+              </span>
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-zinc-500 transition-transform group-open/planned:rotate-180" />
+          </summary>
+          <div className="grid grid-cols-1 gap-4 border-t border-white/10 p-4 md:grid-cols-2 lg:grid-cols-3">
+            {PLANNED_INTEGRATIONS.map((integration, index) => (
+              <IntegrationCard
+                key={integration.id}
+                integration={integration}
+                account={accounts.find((account) => account.provider === integration.provider)}
+                connected={false}
+                pending={false}
+                onToggle={() => undefined}
+                onDisconnect={() => undefined}
+                onConfigure={() => void configure(integration.id)}
+                onTest={() => undefined}
+                onSample={() => undefined}
+                canManage={permissions.canManageIntegrations}
+                canTest={false}
+                index={index}
+              />
+            ))}
+          </div>
+        </details>
+
+        {activeCategory === "developers" || connectedMap.webhook ? (
+          <div>
+            <SectionTitle
+              title={t("integrations.webhook.title")}
+              sub={t("integrations.webhook.subtitle")}
+            />
+            <ApiCard
+              accounts={accounts}
+              pendingId={pendingId}
+              canTest={permissions.canTestIntegrations}
+              onSendSample={(id) => void sendSample(id)}
+            />
+          </div>
+        ) : null}
 
         <IntegrationSettingsModal
           integration={settingsIntegration}

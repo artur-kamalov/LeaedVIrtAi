@@ -171,7 +171,7 @@ test("automation page blocks unsupported legacy actions instead of presenting th
   await expect(page.getByRole("button", { name: /^Тест$/ })).toBeDisabled();
   await expect(page.getByRole("button", { name: /^Сохранить$/ })).toBeDisabled();
 
-  await page.getByRole("button", { name: "Заблокирован", exact: true }).click();
+  await page.getByRole("button", { name: "Выключить сценарий", exact: true }).click();
   await expect(page.getByRole("button", { name: /^Сохранить/ })).toBeEnabled();
 });
 
@@ -230,9 +230,10 @@ test("automation page saves, publishes, and tests API workflows", async ({ page 
 
   await page.getByRole("button", { name: /^Тест$/ }).click();
   await expect.poll(() => tested).toBe(true);
-  await expect(page.getByText("Playwright workflow test completed")).toBeVisible();
+  await expect(page.getByText("Проверка сценария завершена")).toBeVisible();
+  await expect(page.getByText("run-playwright")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Добавить блок" }).click();
+  await page.getByRole("button", { name: "Передать менеджеру", exact: true }).click();
   await expect(page.getByText("Передать менеджеру").first()).toBeVisible();
 
   await page.getByLabel("Название сценария").fill("API Workflow Updated");
@@ -248,7 +249,7 @@ test("automation page saves, publishes, and tests API workflows", async ({ page 
 
   await page.getByRole("button", { name: /^Архив$/ }).click();
   await expect.poll(() => patchedStatus).toBe("ARCHIVED");
-  await expect(page.getByLabel("Название сценария")).toHaveValue("Запись на услугу");
+  await expect(page.getByLabel("Название сценария")).toHaveValue("Сценарий 1");
 });
 
 test("automation page creates an API workflow from a copied scenario tab", async ({ page }) => {
@@ -274,18 +275,18 @@ test("automation page creates an API workflow from a copied scenario tab", async
   await page.goto(`${webBase}/app/automations`, { waitUntil: "networkidle" });
 
   await expect(page.getByRole("button", { name: "API Workflow" })).toBeVisible();
-  await page.getByRole("button", { name: "Оформление заказа" }).click();
-  await expect(page.getByLabel("Название сценария")).toHaveValue("Оформление заказа");
+  await page.getByRole("button", { name: "Сценарий 2" }).click();
+  await expect(page.getByLabel("Название сценария")).toHaveValue("Сценарий 2");
 
   await page.getByRole("button", { name: /^Сохранить$/ }).click();
 
-  await expect.poll(() => createdBody?.name).toBe("Оформление заказа");
+  await expect.poll(() => createdBody?.name).toBe("Сценарий 2");
   await expect.poll(() => createdBody?.steps?.length ?? 0).toBeGreaterThan(0);
   expect(createdBody?.steps?.some((step) => typeof step.id === "string")).toBe(false);
   expect(createdBody?.steps?.[0]?.type).toBe("TRIGGER");
   expect(createdBody?.steps?.[0]?.config?.blockType).toBe("trigger");
   expect(publishedCreated).toBe(false);
-  await expect(page.getByLabel("Название сценария")).toHaveValue("Оформление заказа");
+  await expect(page.getByLabel("Название сценария")).toHaveValue("Сценарий 2");
 });
 
 test("automation page duplicates the current API workflow through create API", async ({ page }) => {
@@ -314,10 +315,44 @@ test("automation page duplicates the current API workflow through create API", a
   await page.getByRole("button", { name: /^Дублировать$/ }).click();
 
   await expect.poll(() => duplicatedBody?.name).toBe("Workflow For Duplicate (копия)");
+  await expect.poll(() => duplicatedBody?.status).toBe("PAUSED");
   await expect.poll(() => duplicatedBody?.steps?.length ?? 0).toBeGreaterThan(0);
   expect(duplicatedBody?.steps?.some((step) => typeof step.id === "string")).toBe(false);
-  await expect.poll(() => publishedDuplicate).toBe(true);
+  expect(publishedDuplicate).toBe(false);
   await expect(page.getByLabel("Название сценария")).toHaveValue("Workflow For Duplicate (копия)");
+  await expect(page.getByText("Пауза").first()).toBeVisible();
+});
+
+test("automation editor stays usable and honest on mobile", async ({ page }) => {
+  await page.route("**/api/workflows", async (route) => {
+    await route.fulfill({ json: { data: [workflow("Mobile Workflow")] } });
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${webBase}/app/automations`, { waitUntil: "networkidle" });
+
+  const blockToggle = page.getByRole("button", { name: "Выключить блок" }).first();
+  await expect(blockToggle).toHaveAttribute("aria-pressed", "true");
+  await blockToggle.click();
+  await expect(page.getByRole("button", { name: "Включить блок" }).first()).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByText("Несохранено")).toBeVisible();
+
+  const warningBox = await page.getByTestId("automation-runtime-blocked").boundingBox();
+  const firstBlockBox = await page.getByRole("group", { name: "API trigger" }).boundingBox();
+  expect(firstBlockBox?.y ?? 0).toBeGreaterThanOrEqual((warningBox?.y ?? 0) + (warningBox?.height ?? 0));
+
+  const testButton = page.getByRole("button", { name: /^Тест$/ });
+  const testButtonBox = await testButton.boundingBox();
+  expect(testButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+  await expect(page.getByText("Перетащить блок")).toHaveCount(0);
+  await expect(page.getByText(/\{\{variable\}\}/)).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+
+  await page.screenshot({
+    path: "artifacts/playwright/automation-mobile.png",
+    fullPage: true,
+    animations: "disabled",
+  });
 });
 
 test("automation page restores an archived workflow into the builder", async ({ page }) => {
@@ -353,6 +388,7 @@ test("automation page restores an archived workflow into the builder", async ({ 
   await page.getByRole("button", { name: /^Архивные$/ }).click();
   await expect.poll(() => requestedArchivedList).toBe(true);
   await expect(page.getByText("Archived Workflow")).toBeVisible();
+  await expect(page.getByText(/версия/i)).toHaveCount(0);
   await page.getByRole("button", { name: /^Восстановить$/ }).click();
 
   await expect.poll(() => restoreStatus).toBe("PAUSED");
@@ -411,13 +447,14 @@ test("archived workflow failures are not presented as an empty archive", async (
   await page.goto(`${webBase}/app/automations`, { waitUntil: "networkidle" });
   await page.getByTestId("automation-open-archive").click();
 
-  await expect(page.getByTestId("automation-archive-load-error")).toBeVisible();
-  await expect(page.getByText("Archived Workflow")).toHaveCount(0);
+  const archiveDialog = page.getByRole("dialog", { name: "Архивные сценарии" });
+  await expect(archiveDialog.getByTestId("automation-archive-load-error")).toBeVisible();
+  await expect(archiveDialog.getByText("Archived Workflow", { exact: true })).toHaveCount(0);
 
   failArchive = false;
-  await page.getByTestId("automation-archive-load-error").getByRole("button").click();
+  await archiveDialog.getByTestId("automation-archive-load-error").getByRole("button").click();
 
-  await expect(page.getByText("Archived Workflow")).toBeVisible();
-  await expect(page.getByTestId("automation-archive-load-error")).toHaveCount(0);
+  await expect(archiveDialog.getByText("Archived Workflow", { exact: true })).toBeVisible();
+  await expect(archiveDialog.getByTestId("automation-archive-load-error")).toHaveCount(0);
 });
 

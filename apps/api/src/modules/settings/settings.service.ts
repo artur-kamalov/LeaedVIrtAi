@@ -10,6 +10,7 @@ import {
 import type {
   ApiKeyAvailabilityErrorCode,
   LegacyApiKeyCleanupSummary,
+  SecuritySettings,
   SettingsAccount,
 } from "@leadvirt/types";
 import type { MembershipRole, Prisma } from "@leadvirt/db";
@@ -232,15 +233,25 @@ export class SettingsService {
     });
   }
 
-  async security(context: RequestContext) {
+  async security(context: RequestContext): Promise<SecuritySettings> {
+    const [user, twoFactor, sessions] = await Promise.all([
+      this.prisma.user.findFirst({
+        where: { id: context.userId, deletedAt: null },
+        select: { passwordHash: true },
+      }),
+      this.authService.twoFactorStatus(context),
+      this.authService.listSessions(context),
+    ]);
+
     return {
       authMode: context.authMode,
+      hasPassword: Boolean(user?.passwordHash),
       productionAuthReadyFor: ["Local credentials", "HTTP-only sessions"],
       tenantScoped: true,
       currentRole: context.role,
       passwordChangeRequired: context.user.passwordChangeRequired,
-      twoFactor: await this.authService.twoFactorStatus(context),
-      sessions: await this.authService.listSessions(context),
+      twoFactor,
+      sessions,
     };
   }
 

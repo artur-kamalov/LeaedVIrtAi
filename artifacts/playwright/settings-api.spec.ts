@@ -83,6 +83,7 @@ async function installSettingsProfileDependencies(page: Page) {
       json: {
         data: {
           authMode: "credentials",
+          hasPassword: true,
           tenantScoped: true,
           currentRole: "OWNER",
           passwordChangeRequired: false,
@@ -115,7 +116,7 @@ async function installSettingsProfileDependencies(page: Page) {
   });
 }
 
-test("settings page renders account controls and owner-only inert API-key cleanup", async ({
+test("settings page renders account controls without exposing technical-only settings", async ({
   page,
 }) => {
   let patchedBusinessName = "";
@@ -135,7 +136,6 @@ test("settings page renders account controls and owner-only inert API-key cleanu
   let notificationPatch: Record<string, boolean> = {};
   let apiKeyListRequests = 0;
   let apiKeyCreateRequests = 0;
-  let revokedKeyId = "";
   let passwordPatch: { currentPassword?: string; newPassword?: string } = {};
   let revokedSessionId = "";
   let twoFactorSetupRequested = false;
@@ -462,11 +462,6 @@ test("settings page renders account controls and owner-only inert API-key cleanu
     });
   });
 
-  await page.route("**/api/settings/api-keys/api-key-1", async (route) => {
-    revokedKeyId = "api-key-1";
-    await route.fulfill({ json: { data: { id: "api-key-1", revoked: true } } });
-  });
-
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app/settings`, { waitUntil: "networkidle" });
 
@@ -544,8 +539,8 @@ test("settings page renders account controls and owner-only inert API-key cleanu
     .getByRole("button", { name: /Безопасность/ })
     .click();
   await expect(page.getByText("Текущая роль")).toBeVisible();
-  await expect(page.getByText("credentials")).toBeVisible();
-  await expect(page.getByText(/IP 10\.0\.0\.2/)).toBeVisible();
+  await expect(page.getByText("Пароль", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/IP 10\.0\.0\.2/)).toHaveCount(0);
   await page.getByLabel("Текущий пароль").fill("demo-demo");
   await page.getByLabel("Новый пароль").fill("new-demo-pass");
   await page.getByLabel("Повторите пароль").fill("new-demo-pass");
@@ -573,41 +568,19 @@ test("settings page renders account controls and owner-only inert API-key cleanu
   await expect.poll(() => twoFactorDisablePassword).toBe("demo-demo");
   await expect(twoFactorCard).toContainText("Выключено");
 
-  await page
-    .getByRole("main")
-    .getByRole("button", { name: /API ключи/ })
-    .click();
-  const unavailableState = page.getByTestId("settings-api-unavailable");
-  const cleanupList = page.getByTestId("settings-api-cleanup-list");
-  await expect(unavailableState).toBeVisible();
-  await expect(unavailableState).toContainText("API-ключи не активны");
-  await expect(cleanupList).toBeVisible();
-  await expect.poll(() => apiKeyListRequests).toBeGreaterThan(0);
-  await expect(cleanupList.getByText("Production API")).toBeVisible();
-  await expect(cleanupList.getByText(/lv_live_/)).toBeVisible();
-  await expect(page.getByRole("button", { name: /Создать ключ/ })).toHaveCount(0);
+  await expect(page.getByRole("main").getByRole("button", { name: /API ключи/ })).toHaveCount(0);
+  expect(apiKeyListRequests).toBe(0);
   expect(apiKeyCreateRequests).toBe(0);
-  await page.screenshot({
-    path: "artifacts/playwright/settings-api-keys-inert-cleanup.png",
-    fullPage: true,
-  });
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(cleanupList).toBeVisible();
   const mobileViewport = await page.evaluate(() => ({
     innerWidth: window.innerWidth,
     scrollWidth: document.documentElement.scrollWidth,
   }));
   expect(mobileViewport.scrollWidth).toBeLessThanOrEqual(mobileViewport.innerWidth);
   await page.screenshot({
-    path: "artifacts/playwright/settings-api-keys-inert-cleanup-mobile.png",
+    path: "artifacts/playwright/settings-security-mobile.png",
     fullPage: true,
   });
-  await cleanupList.getByRole("button", { name: "Удалить" }).click();
-  await page.getByTestId("confirm-dialog-submit").click();
-  await expect.poll(() => revokedKeyId).toBe("api-key-1");
-  await expect(page.getByText("Production API")).toBeHidden();
-  await expect(page.getByText("lv_created_secret_once")).toHaveCount(0);
-  await expect(page.getByText("Производство")).toBeHidden();
 });
 
 test("settings logo update preserves the form draft and its loaded profile ETag", async ({
@@ -762,9 +735,10 @@ test("settings preserves a stale draft until the user reloads the current profil
   await expect(businessName).toHaveValue("Resolved after reload");
 });
 
-test("settings API keys tab explains unavailability without legacy rows or creation controls", async ({
+test("owner API-key deep link falls back to profile without loading legacy keys", async ({
   page,
 }) => {
+  let apiKeyListRequests = 0;
   await page.route("**/api/auth/me", async (route) => {
     await route.fulfill({ json: authMe(false) });
   });
@@ -806,6 +780,7 @@ test("settings API keys tab explains unavailability without legacy rows or creat
   });
 
   await page.route("**/api/settings/api-keys", async (route) => {
+    apiKeyListRequests += 1;
     await route.fulfill({ json: { data: [] } });
   });
 
@@ -825,11 +800,142 @@ test("settings API keys tab explains unavailability without legacy rows or creat
 
   await page.goto(`${webBase}/app/settings?tab=api`, { waitUntil: "networkidle" });
 
-  await expect(page.getByTestId("settings-api-unavailable")).toContainText("API-ключи не активны");
-  await expect(page.getByTestId("settings-api-cleanup-list")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Создать ключ/ })).toHaveCount(0);
-  await expect(page.getByText("Производство")).toBeHidden();
-  await expect(page.getByText(/sk-live/)).toBeHidden();
+  await expect(page.getByTestId("settings-profile-editor")).toBeVisible();
+  await expect(page.getByRole("main").getByRole("button", { name: /API ключи/ })).toHaveCount(0);
+  expect(apiKeyListRequests).toBe(0);
+});
+
+test("email-code account gets passwordless security guidance without infrastructure details", async ({
+  page,
+}) => {
+  let apiKeyListRequests = 0;
+
+  await page.route("**/api/auth/me", async (route) => {
+    const response = authMe(false);
+    await route.fulfill({
+      json: { data: { ...response.data, authMode: "email" } },
+    });
+  });
+  await page.route("**/api/current-tenant", async (route) => {
+    await route.fulfill({ json: currentTenant() });
+  });
+  await page.route("**/api/settings/account", async (route) => {
+    await route.fulfill({ json: accountSettings() });
+  });
+  await page.route("**/api/settings/team**", async (route) => {
+    await route.fulfill({ json: { data: [] } });
+  });
+  await page.route("**/api/settings/notifications", async (route) => {
+    await route.fulfill({
+      json: {
+        data: { new_lead: true, no_reply: true, booking: true, daily: false, tg_summary: true },
+      },
+    });
+  });
+  await page.route("**/api/settings/security", async (route) => {
+    await route.fulfill({
+      json: {
+        data: {
+          authMode: "email",
+          hasPassword: false,
+          tenantScoped: true,
+          currentRole: "OWNER",
+          passwordChangeRequired: false,
+          twoFactor: {
+            enabled: false,
+            setupPending: false,
+            confirmedAt: null,
+            recoveryCodesRemaining: 0,
+          },
+          sessions: [
+            {
+              id: "email-session",
+              current: true,
+              ipAddress: "203.0.113.10",
+              userAgent: "Mozilla/5.0 Chrome/140 Windows",
+              createdAt: "2026-07-17T08:00:00.000Z",
+              lastUsedAt: "2026-07-17T08:05:00.000Z",
+              expiresAt: "2026-08-17T08:00:00.000Z",
+            },
+          ],
+        },
+      },
+    });
+  });
+  await page.route("**/api/settings/api-keys", async (route) => {
+    apiKeyListRequests += 1;
+    await route.fulfill({ json: { data: [] } });
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${webBase}/app/settings?tab=security`, { waitUntil: "networkidle" });
+
+  await expect(page.getByText("Код из email", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("settings-passwordless-note")).toContainText(
+    "одноразовый код на вашу почту",
+  );
+  await expect(page.getByLabel("Текущий пароль")).toHaveCount(0);
+  await expect(page.getByText("Tenant isolation")).toHaveCount(0);
+  await expect(page.getByText(/203\.0\.113\.10/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Настроить 2FA/ })).toHaveCount(0);
+  await expect(page.getByTestId("settings-two-factor-card")).toContainText(
+    "только для входа по паролю",
+  );
+  await expect(page.getByRole("main").getByRole("button", { name: /API ключи/ })).toHaveCount(0);
+  expect(apiKeyListRequests).toBe(0);
+
+  const settingsTabs = page.locator('nav[aria-label="Настройки"] button');
+  await expect(settingsTabs.first()).toBeVisible();
+  const smallestTarget = await settingsTabs.evaluateAll((buttons) =>
+    Math.min(...buttons.map((button) => button.getBoundingClientRect().height)),
+  );
+  expect(smallestTarget).toBeGreaterThanOrEqual(44);
+});
+
+test("email-code session keeps password and authenticator controls for a password account", async ({
+  page,
+}) => {
+  await installSettingsProfileDependencies(page);
+  await page.unroute("**/api/auth/me");
+  await page.unroute("**/api/settings/security");
+
+  await page.route("**/api/auth/me", async (route) => {
+    const response = authMe(false);
+    await route.fulfill({ json: { data: { ...response.data, authMode: "email" } } });
+  });
+  await page.route("**/api/settings/account", async (route) => {
+    await route.fulfill({ json: accountSettings() });
+  });
+  await page.route("**/api/settings/security", async (route) => {
+    await route.fulfill({
+      json: {
+        data: {
+          authMode: "email",
+          hasPassword: true,
+          productionAuthReadyFor: ["Local credentials", "HTTP-only sessions"],
+          tenantScoped: true,
+          currentRole: "OWNER",
+          passwordChangeRequired: false,
+          twoFactor: {
+            enabled: false,
+            setupPending: false,
+            confirmedAt: null,
+            recoveryCodesRemaining: 0,
+          },
+          sessions: [],
+        },
+      },
+    });
+  });
+
+  await page.goto(`${webBase}/app/settings?tab=security`, { waitUntil: "networkidle" });
+
+  await expect(page.getByTestId("settings-passwordless-note")).toHaveCount(0);
+  await expect(page.getByTestId("settings-password-controls")).toBeVisible();
+  await expect(
+    page.getByTestId("settings-password-controls").locator('input[type="password"]'),
+  ).toHaveCount(3);
+  await expect(page.getByTestId("settings-two-factor-setup")).toBeVisible();
 });
 
 test("non-admin member cannot see or deep-link into API-key cleanup", async ({ page }) => {

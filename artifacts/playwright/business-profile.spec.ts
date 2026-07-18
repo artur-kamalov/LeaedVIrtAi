@@ -375,6 +375,59 @@ test("an absent weekly schedule is omitted when another profile field is saved",
   expect(state.patches[0].body.profile).not.toHaveProperty("weeklySchedule");
 });
 
+test("legacy notes cannot look complete while structured services and schedule are missing", async ({
+  page,
+}) => {
+  await authenticate(page);
+  const profile = completedProfile();
+  profile.services = [];
+  profile.weeklySchedule = [];
+  profile.servicesCatalog = "Consultations from EUR 45 and signature sessions from EUR 120.";
+  profile.hours = "Open every day from 10:00 to 21:00.";
+  await installMocks(page, { profile });
+  await openBusinessProfile(page);
+
+  await expect(page.getByText("Needs details", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("business-profile-attention")).toBeVisible();
+  await expect(page.getByTestId("business-profile-services-conflict")).toBeVisible();
+  await expect(page.getByTestId("business-profile-schedule-warning")).toContainText(
+    "no working days are enabled",
+  );
+
+  await page
+    .getByTestId("business-profile-attention")
+    .getByRole("button", { name: "Add service" })
+    .click();
+  const serviceName = page.getByTestId("business-profile-service-0-name");
+  await expect(serviceName).toBeFocused();
+  await serviceName.fill("Initial consultation");
+  await expect(page.getByTestId("business-profile-services-conflict")).toHaveCount(0);
+
+  await page.getByTestId("business-profile-day-MON-enabled").check();
+  await expect(page.getByTestId("business-profile-day-MON-opens")).toHaveAttribute(
+    "inputmode",
+    "numeric",
+  );
+  await expect(page.getByTestId("business-profile-schedule-warning")).toHaveCount(0);
+  await expect(page.getByTestId("business-profile-attention")).toHaveCount(0);
+});
+
+test("invalid 24-hour schedule values are rejected inline before save", async ({ page }) => {
+  await authenticate(page);
+  const state = await installMocks(page);
+  await openBusinessProfile(page);
+
+  const opensAt = page.getByTestId("business-profile-day-MON-opens");
+  await opensAt.fill("99:99");
+  await page.getByTestId("business-profile-save").click();
+
+  await expect(opensAt).toHaveAttribute("aria-invalid", "true");
+  await expect(
+    page.getByText("Use 24-hour HH:MM for opening and closing, for example 09:00.").first(),
+  ).toBeVisible();
+  expect(state.patches).toHaveLength(0);
+});
+
 test("a partial weekly schedule is omitted when another profile field is saved", async ({
   page,
 }) => {

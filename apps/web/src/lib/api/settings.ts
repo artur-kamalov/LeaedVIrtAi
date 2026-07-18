@@ -1,4 +1,9 @@
-import type { LegacyApiKeyCleanupSummary, SettingsAccount } from "@leadvirt/types";
+import type {
+  LegacyApiKeyCleanupSummary,
+  SecuritySettings,
+  SettingsAccount,
+} from "@leadvirt/types";
+export type { SecuritySession, SecuritySettings } from "@leadvirt/types";
 import { apiData, jsonBody } from "./client";
 
 export type TeamRole = "OWNER" | "ADMIN" | "MANAGER" | "AGENT" | "VIEWER";
@@ -13,28 +18,6 @@ export type NotificationsSettings = {
   booking: boolean;
   daily: boolean;
   tg_summary: boolean;
-};
-export type SecuritySession = {
-  id: string;
-  current: boolean;
-  ipAddress?: string | null;
-  userAgent?: string | null;
-  createdAt: string;
-  lastUsedAt: string;
-  expiresAt: string;
-};
-export type SecuritySettings = {
-  authMode: string;
-  tenantScoped: boolean;
-  currentRole: string;
-  passwordChangeRequired?: boolean;
-  twoFactor: {
-    enabled: boolean;
-    setupPending: boolean;
-    confirmedAt: string | null;
-    recoveryCodesRemaining: number;
-  };
-  sessions: SecuritySession[];
 };
 export type TwoFactorSetup = { secret: string; otpauthUri: string };
 export type TwoFactorEnableResult = {

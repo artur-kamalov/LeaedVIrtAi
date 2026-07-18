@@ -31,6 +31,7 @@ const inactiveTenantExactRoutes = new Set([
   "POST /api/settings/security/2fa/recovery-codes",
   "POST /api/settings/security/sessions/revoke-others",
   "GET /api/settings/billing",
+  "POST /api/billing/plan-selection",
   "POST /api/billing/payment-method/change-request",
   "PATCH /api/billing/current-subscription",
 ]);

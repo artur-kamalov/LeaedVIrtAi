@@ -186,6 +186,31 @@ test("product shell renders tenant and user identity from API", async ({ page })
   await expect.poll(() => calls.currentTenant).toBeGreaterThan(0);
   await expect(page.getByText("LeadVirt Clinic").first()).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("owner@clinic.test")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("link", { name: "AI audit" })).toHaveCount(0);
+  await expect(page.locator('[data-testid="language-switcher"]:visible')).toHaveCount(1);
+});
+
+test("mobile product navigation exposes accessible touch targets", async ({ page }) => {
+  await useRussianOperationalUi(page);
+  await mockProductIdentity(page);
+  await mockDashboardSummary(page);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${webBase}/app`, { waitUntil: "domcontentloaded" });
+
+  const trigger = page.getByTestId("product-mobile-menu-trigger");
+  await expect(trigger).toBeVisible();
+  const triggerBox = await trigger.boundingBox();
+  expect(triggerBox?.width).toBeGreaterThanOrEqual(44);
+  expect(triggerBox?.height).toBeGreaterThanOrEqual(44);
+
+  await trigger.click();
+  const close = page.getByTestId("product-mobile-menu-close");
+  await expect(close).toBeVisible();
+  await expect(close).toHaveAccessibleName("Закрыть меню");
+  const closeBox = await close.boundingBox();
+  expect(closeBox?.width).toBeGreaterThanOrEqual(44);
+  expect(closeBox?.height).toBeGreaterThanOrEqual(44);
 });
 
 test("product shell distinguishes failed reads from empty workspace state", async ({

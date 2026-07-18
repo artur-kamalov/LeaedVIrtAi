@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import type {
   Channel,
   ChannelAutomaticReplyReadiness,
@@ -81,13 +82,14 @@ import {
 } from "@/lib/api/settings";
 import {
   cancelCurrentSubscription,
-  changeSubscriptionPlan,
+  getBillingPlanSelection,
   getBillingPaymentMethod,
   getBillingUsage,
   getCurrentSubscription,
   listBillingInvoices,
   listBillingPlans,
   requestBillingPaymentMethodChange,
+  selectBillingPlan,
 } from "@/lib/api/billing";
 import {
   activateChannelAutomaticReplies,
@@ -102,6 +104,7 @@ import {
   type WebhookOutboundSettingsPatch,
 } from "@/lib/api/channels";
 import { useI18n } from "@/i18n/I18nProvider";
+import type { TranslationKey } from "@/i18n/messages";
 import { ApiClientError } from "@/lib/api/client";
 import { useCurrentUser, useProductPermissions } from "../CurrentUser";
 import { useProductMode } from "../ProductMode";
@@ -249,13 +252,13 @@ const tabs = [
   { id: "notifications", labelKey: "settings.tab.notifications", icon: Bell },
   { id: "billing", labelKey: "settings.tab.billing", icon: CreditCard },
   { id: "security", labelKey: "settings.tab.security", icon: Shield },
-  { id: "api", labelKey: "settings.tab.api", icon: Key },
 ] as const;
 
 type TeamSettings = Awaited<ReturnType<typeof getTeamSettings>>;
 type SecuritySettings = Awaited<ReturnType<typeof getSecuritySettings>>;
 type BillingPlan = Awaited<ReturnType<typeof listBillingPlans>>[number];
 type BillingSubscription = Awaited<ReturnType<typeof getCurrentSubscription>>;
+type BillingPlanSelection = Awaited<ReturnType<typeof getBillingPlanSelection>>;
 type BillingUsage = Awaited<ReturnType<typeof getBillingUsage>>;
 type BillingPaymentMethod = Awaited<ReturnType<typeof getBillingPaymentMethod>>;
 type BillingInvoice = Awaited<ReturnType<typeof listBillingInvoices>>[number];
@@ -341,10 +344,6 @@ function formatRub(value: number | null | undefined, i18n: SettingsI18n) {
   return i18n.formatCurrency(value, "RUB");
 }
 
-function formatLimit(value: number | null | undefined, i18n: SettingsI18n) {
-  return typeof value === "number" ? i18n.formatNumber(value) : i18n.t("settings.common.unlimited");
-}
-
 function planName(plan: Pick<BillingPlan, "code" | "name"> | null | undefined, i18n: SettingsI18n) {
   const labels: Record<string, string> = {
     START: i18n.t("settings.billing.plan.start"),
@@ -365,12 +364,74 @@ function planName(plan: Pick<BillingPlan, "code" | "name"> | null | undefined, i
   );
 }
 
+function planCodeFromQuery(value: string | null): PricingPlanCode | null {
+  const normalized = value?.trim().toUpperCase();
+  if (normalized === "START") return "START";
+  if (normalized === "PRO" || normalized === "PROFESSIONAL") return "PROFESSIONAL";
+  if (normalized === "BUSINESS") return "BUSINESS";
+  if (normalized === "CORPORATE") return "CORPORATE";
+  return null;
+}
+
+const billingPlanCopy: Record<
+  PricingPlanCode,
+  { tagline: TranslationKey; features: TranslationKey[] }
+> = {
+  START: {
+    tagline: "pricing.start.tagline",
+    features: [
+      "pricing.feature.ai500",
+      "pricing.feature.channels2",
+      "pricing.feature.users3",
+      "pricing.feature.scenarios3",
+      "pricing.feature.basicAnalytics",
+      "pricing.feature.crm",
+    ],
+  },
+  PROFESSIONAL: {
+    tagline: "pricing.pro.tagline",
+    features: [
+      "pricing.feature.ai2500",
+      "pricing.feature.channels5",
+      "pricing.feature.users10",
+      "pricing.feature.scenarios15",
+      "pricing.feature.advancedAnalytics",
+      "pricing.feature.automation",
+      "pricing.feature.prioritySupport",
+    ],
+  },
+  BUSINESS: {
+    tagline: "pricing.business.tagline",
+    features: [
+      "pricing.feature.ai10000",
+      "pricing.feature.channels10",
+      "pricing.feature.users25",
+      "pricing.feature.scenarios50",
+      "pricing.feature.aiInsights",
+      "pricing.feature.abTests",
+      "pricing.feature.accountManager",
+    ],
+  },
+  CORPORATE: {
+    tagline: "pricing.corporate.tagline",
+    features: [
+      "pricing.feature.customLimits",
+      "pricing.feature.sla",
+      "pricing.feature.customIntegrations",
+      "pricing.feature.dedicatedInfra",
+      "pricing.feature.teamTraining",
+      "pricing.feature.personalManager",
+    ],
+  },
+};
+
 function apiPlanToDesignPlan(plan: BillingPlan, i18n: SettingsI18n): BillingDisplayPlan {
+  const copy = billingPlanCopy[plan.code];
   return {
     id: plan.code.toLowerCase(),
     code: plan.code,
     name: planName(plan, i18n),
-    tagline: plan.bestFor ?? i18n.t("settings.billing.planFallback"),
+    tagline: i18n.t(copy.tagline),
     price:
       plan.code === "CORPORATE"
         ? i18n.t("settings.billing.priceFrom", { price: formatRub(plan.priceMonthlyRub, i18n) })
@@ -379,18 +440,7 @@ function apiPlanToDesignPlan(plan: BillingPlan, i18n: SettingsI18n): BillingDisp
       typeof plan.priceMonthlyRub === "number"
         ? i18n.t("settings.billing.perMonth")
         : i18n.t("settings.billing.byAgreement"),
-    features: plan.features.length
-      ? plan.features
-      : [
-          i18n.t("settings.billing.feature.ai", { count: formatLimit(plan.aiConversations, i18n) }),
-          i18n.t("settings.billing.feature.channels", {
-            count: formatLimit(plan.channelsLimit, i18n),
-          }),
-          i18n.t("settings.billing.feature.users", { count: formatLimit(plan.usersLimit, i18n) }),
-          i18n.t("settings.billing.feature.automations", {
-            count: formatLimit(plan.scenariosLimit, i18n),
-          }),
-        ],
+    features: copy.features.map((key) => i18n.t(key)),
     popular: Boolean(plan.popular),
   };
 }
@@ -2687,6 +2737,7 @@ function NotificationsTab() {
 function BillingTab() {
   const i18n = useI18n();
   const { t, formatDate: formatLocalizedDate, formatNumber } = i18n;
+  const searchParams = useSearchParams();
   const permissions = useProductPermissions();
   const { account } = useSettingsApi();
   const [planModalOpen, setPlanModalOpen] = useState(false);
@@ -2698,6 +2749,7 @@ function BillingTab() {
   const [billingData, setBillingData] = useState<{
     plans: BillingPlan[];
     subscription: BillingSubscription;
+    selection: BillingPlanSelection;
     usage: BillingUsage | null;
     paymentMethod: BillingPaymentMethod | null;
     invoices: BillingInvoice[];
@@ -2705,20 +2757,22 @@ function BillingTab() {
   const [billingLoading, setBillingLoading] = useState(true);
   const [billingError, setBillingError] = useState(false);
   const billingGeneration = useRef(0);
+  const handoffOpened = useRef(false);
 
   const loadBilling = React.useCallback(async () => {
     const generation = ++billingGeneration.current;
     setBillingLoading(true);
     try {
-      const [billingPlans, subscription, usage, paymentMethod, invoices] = await Promise.all([
+      const [billingPlans, subscription, selection, usage, paymentMethod, invoices] = await Promise.all([
         listBillingPlans(),
         getCurrentSubscription(),
+        getBillingPlanSelection(),
         getBillingUsage(),
         getBillingPaymentMethod(),
         listBillingInvoices(),
       ]);
       if (billingGeneration.current !== generation) return;
-      setBillingData({ plans: billingPlans, subscription, usage, paymentMethod, invoices });
+      setBillingData({ plans: billingPlans, subscription, selection, usage, paymentMethod, invoices });
       setBillingError(false);
     } catch {
       if (billingGeneration.current === generation) setBillingError(true);
@@ -2735,6 +2789,8 @@ function BillingTab() {
   }, [loadBilling]);
 
   const activePlan = billingData?.subscription?.plan;
+  const selectedPlan = billingData?.selection?.plan;
+  const requestedPlanCode = planCodeFromQuery(searchParams.get("plan"));
   const displayPlans: BillingDisplayPlan[] =
     billingData?.plans.map((plan) => apiPlanToDesignPlan(plan, i18n)) ?? [];
   const currentPlanName = activePlan ? planName(activePlan, i18n) : "";
@@ -2749,11 +2805,27 @@ function BillingTab() {
         year: "numeric",
       })
     : null;
+
+  useEffect(() => {
+    if (
+      handoffOpened.current ||
+      billingLoading ||
+      !billingData ||
+      !requestedPlanCode ||
+      activePlan?.code === requestedPlanCode ||
+      selectedPlan?.code === requestedPlanCode
+    ) {
+      return;
+    }
+    handoffOpened.current = true;
+    setPlanModalOpen(true);
+  }, [activePlan?.code, billingData, billingLoading, requestedPlanCode, selectedPlan?.code]);
   const usage = billingData?.usage;
   const paymentMethod = billingData?.paymentMethod;
   const paymentMethodChangeRequested = Boolean(
     paymentMethodRequestedAt || paymentMethod?.status === "change_requested",
   );
+  const canRequestBillingContact = Boolean(activePlan || selectedPlan);
   const usageItems: { label: string; used: number; total: number | null }[] = usage
     ? [
         {
@@ -2779,27 +2851,21 @@ function BillingTab() {
     if (!permissions.canManageBilling) return;
     setPlanChangeCode(planCode);
     try {
-      const subscription = await changeSubscriptionPlan(planCode);
+      const selection = await selectBillingPlan(planCode);
       setBillingData((current) => {
-        const nextUsage = current?.usage
-          ? {
-              ...current.usage,
-              aiConversationsLimit: subscription.plan.aiConversations,
-              channelsLimit: subscription.plan.channelsLimit,
-              usersLimit: subscription.plan.usersLimit,
-              scenariosLimit: subscription.plan.scenariosLimit,
-            }
-          : null;
         return {
-          plans: current?.plans.length ? current.plans : [subscription.plan],
-          subscription,
-          usage: nextUsage,
+          plans: current?.plans.length ? current.plans : [selection.plan],
+          subscription: current?.subscription ?? null,
+          selection,
+          usage: current?.usage ?? null,
           paymentMethod: current?.paymentMethod ?? null,
           invoices: current?.invoices ?? [],
         };
       });
       setPlanModalOpen(false);
-      toast.success(t("settings.billing.planChanged", { plan: displayName }));
+      toast.success(t("settings.billing.planSelected", { plan: displayName }), {
+        description: t("settings.billing.noCharge"),
+      });
     } catch (error) {
       showLocalizedError(error, t("settings.billing.planChangeError"));
     } finally {
@@ -2815,6 +2881,7 @@ function BillingTab() {
       setBillingData((current) => ({
         plans: current?.plans ?? [],
         subscription,
+        selection: current?.selection ?? null,
         usage: current?.usage ?? null,
         paymentMethod: current?.paymentMethod ?? null,
         invoices: current?.invoices ?? [],
@@ -2902,6 +2969,8 @@ function BillingTab() {
     ? t("settings.billing.requesting")
     : paymentMethodChangeRequested
       ? t("settings.billing.requestSent")
+      : !canRequestBillingContact
+        ? t("settings.billing.choosePlanFirst")
       : manualInvoice
         ? t("settings.billing.requestChange")
         : paymentMethod.nextActionLabel;
@@ -2969,7 +3038,9 @@ function BillingTab() {
                   "mb-3 text-xs",
                   subscriptionCanceled
                     ? "bg-rose-500/15 text-rose-300"
-                    : "bg-emerald-500/15 text-emerald-300",
+                    : activePlan
+                      ? "bg-emerald-500/15 text-emerald-300"
+                      : "bg-zinc-500/15 text-zinc-300",
                 )}
               >
                 {subscriptionCanceled
@@ -3019,7 +3090,9 @@ function BillingTab() {
                         /{" "}
                         {item.total !== null
                           ? formatNumber(item.total)
-                          : t("settings.common.unlimited")}
+                          : activePlan
+                            ? t("settings.common.custom")
+                            : t("settings.billing.limitUnavailable")}
                       </span>
                     </span>
                   </div>
@@ -3045,8 +3118,8 @@ function BillingTab() {
 
           {permissions.canManageBilling ? (
             <div className="mt-6 flex gap-3">
-              <Button onClick={() => setPlanModalOpen(true)}>
-                {t("settings.billing.changePlan")}
+              <Button data-testid="billing-choose-plan" onClick={() => setPlanModalOpen(true)}>
+                {activePlan ? t("settings.billing.changePlan") : t("settings.billing.chooseTitle")}
               </Button>
               {billingData?.subscription ? (
                 <Button
@@ -3072,6 +3145,26 @@ function BillingTab() {
         </div>
       </div>
 
+      {billingData?.selection ? (
+        <Card className="border-amber-500/25 bg-amber-500/5 p-5" data-testid="billing-plan-selection">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="max-w-2xl">
+              <Pill className="mb-3 bg-amber-500/15 text-amber-200">
+                {t("settings.billing.activationPending")}
+              </Pill>
+              <h3 className="text-base font-semibold text-zinc-100">
+                {t("settings.billing.planSelected", {
+                  plan: planName(billingData.selection.plan, i18n),
+                })}
+              </h3>
+              <p className="mt-1 text-sm text-zinc-400">
+                {t("settings.billing.checkoutUnavailable")}
+              </p>
+            </div>
+          </div>
+        </Card>
+      ) : null}
+
       {/* Plan selection modal */}
       {permissions.canManageBilling ? (
         <Modal
@@ -3082,22 +3175,43 @@ function BillingTab() {
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
             {displayPlans.length === 0 ? (
-              <p className="md:col-span-2 py-8 text-center text-sm text-zinc-400">
-                {t("settings.billing.noPlans")}
-              </p>
+              <div className="md:col-span-2 flex flex-col items-center gap-3 py-8 text-center">
+                <p className="text-sm font-medium text-zinc-200">{t("settings.billing.noPlans")}</p>
+                <p className="max-w-md text-xs text-zinc-500">
+                  {t("settings.billing.noPlansDescription")}
+                </p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={billingLoading}
+                    onClick={() => void loadBilling()}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    {t("resource.retry")}
+                  </Button>
+                  <Button size="sm" variant="outline" asChild>
+                    <Link href="/#pricing">{t("settings.billing.viewPublicPricing")}</Link>
+                  </Button>
+                </div>
+              </div>
             ) : null}
             {displayPlans.map((plan) => {
               const planCode = plan.code;
               const active = Boolean(planCode && activePlan?.code === planCode);
+              const selected = Boolean(planCode && selectedPlan?.code === planCode);
+              const requested = Boolean(planCode && requestedPlanCode === planCode);
               const changing = Boolean(planCode && planChangeCode === planCode);
               return (
                 <div
                   key={plan.id}
+                  data-testid={`billing-plan-${plan.code ?? plan.id}`}
                   className={cn(
                     "relative rounded-2xl border p-5 flex flex-col gap-3 transition-colors",
                     plan.popular
                       ? "border-emerald-500/50 bg-emerald-500/5"
                       : "border-white/5 bg-white/[0.03]",
+                    requested && "ring-2 ring-emerald-400/70",
                   )}
                 >
                   {plan.popular && (
@@ -3130,7 +3244,7 @@ function BillingTab() {
                     size="sm"
                     variant={plan.popular ? "primary" : "outline"}
                     className="mt-auto"
-                    disabled={!planCode || active || planChangeCode !== null}
+                    disabled={!planCode || active || selected || planChangeCode !== null}
                     onClick={() => {
                       if (planCode) void handleSelectPlan(planCode, plan.name);
                     }}
@@ -3139,6 +3253,10 @@ function BillingTab() {
                       ? t("settings.billing.changing")
                       : active
                         ? t("settings.billing.current")
+                        : selected
+                          ? t("settings.billing.activationPending")
+                        : requested
+                          ? t("settings.billing.continueWithPlan")
                         : planCode
                           ? t("settings.billing.choose")
                           : t("settings.common.unavailable")}
@@ -3189,7 +3307,12 @@ function BillingTab() {
             <Button
               size="sm"
               variant="outline"
-              disabled={!paymentMethod || paymentMethodRequesting || paymentMethodChangeRequested}
+              disabled={
+                !paymentMethod ||
+                !canRequestBillingContact ||
+                paymentMethodRequesting ||
+                paymentMethodChangeRequested
+              }
               onClick={() => void handlePaymentMethodChangeRequest()}
             >
               {paymentMethodActionLabel}
@@ -3204,6 +3327,9 @@ function BillingTab() {
           {t("settings.billing.invoices")}
         </p>
         <div className="space-y-2">
+          {invoices.length === 0 ? (
+            <p className="py-4 text-sm text-zinc-500">{t("settings.billing.noPayments")}</p>
+          ) : null}
           {invoices.map((inv) => (
             <div
               key={inv.date}
@@ -3251,12 +3377,11 @@ function sessionPresentation(session: SecuritySession, i18n: SettingsI18n) {
 
   return {
     device: isPhone
-      ? `${browser} · ${i18n.t("settings.security.phone")}`
+      ? `${browser} / ${i18n.t("settings.security.phone")}`
       : isDesktop
-        ? `${browser} · ${i18n.t("settings.security.computer")}`
+        ? `${browser} / ${i18n.t("settings.security.computer")}`
         : browser,
     icon: isPhone ? Smartphone : isDesktop ? Monitor : Globe,
-    location: session.ipAddress ? `IP ${session.ipAddress}` : i18n.t("settings.security.ipMissing"),
     time: session.current
       ? i18n.t("settings.security.now")
       : i18n.formatDate(session.lastUsedAt, { day: "2-digit", month: "short", year: "numeric" }),
@@ -3266,6 +3391,8 @@ function sessionPresentation(session: SecuritySession, i18n: SettingsI18n) {
 function defaultSecuritySettings(): SecuritySettings {
   return {
     authMode: "credentials",
+    hasPassword: true,
+    productionAuthReadyFor: ["Local credentials", "HTTP-only sessions"],
     tenantScoped: true,
     currentRole: "OWNER",
     passwordChangeRequired: false,
@@ -3303,6 +3430,24 @@ function SecurityTab() {
 
   const sessions = security?.sessions ?? [];
   const twoFactor = security?.twoFactor ?? defaultSecuritySettings().twoFactor;
+  const authMode = security?.authMode ?? "credentials";
+  const usesPassword =
+    security?.hasPassword ??
+    (authMode === "credentials" || Boolean(security?.passwordChangeRequired));
+  const authModeLabel =
+    authMode === "credentials"
+      ? t("settings.security.authCredentials")
+      : authMode === "email"
+        ? t("settings.security.authEmail")
+        : authMode === "telegram"
+          ? t("settings.security.authTelegram")
+          : t("settings.security.authUnknown");
+  const passwordlessDescription =
+    authMode === "email"
+      ? t("settings.security.passwordlessEmailDesc")
+      : authMode === "telegram"
+        ? t("settings.security.passwordlessTelegramDesc")
+        : t("settings.security.passwordlessOtherDesc");
 
   useEffect(() => {
     let cancelled = false;
@@ -3485,15 +3630,9 @@ function SecurityTab() {
         description={t("settings.security.description")}
       />
 
-      <Card className="p-5 grid gap-3 sm:grid-cols-3">
+      <Card className="p-5 grid gap-3 sm:grid-cols-2">
         {[
-          { label: t("settings.security.authMode"), value: security?.authMode ?? "credentials" },
-          {
-            label: t("settings.security.tenantIsolation"),
-            value: security?.tenantScoped
-              ? t("settings.security.enabled")
-              : t("settings.security.unknown"),
-          },
+          { label: t("settings.security.authMode"), value: authModeLabel },
           {
             label: t("settings.security.currentRole"),
             value: security ? roleLabel(security.currentRole, i18n) : t("settings.team.role.admin"),
@@ -3509,13 +3648,14 @@ function SecurityTab() {
         ))}
       </Card>
 
-      {/* Change password */}
-      <Card
-        className={cn(
-          "p-6 space-y-5",
-          security?.passwordChangeRequired && "border-amber-500/30 bg-amber-500/5",
-        )}
-      >
+      {usesPassword ? (
+        <Card
+          data-testid="settings-password-controls"
+          className={cn(
+            "p-6 space-y-5",
+            security?.passwordChangeRequired && "border-amber-500/30 bg-amber-500/5",
+          )}
+        >
         {security?.passwordChangeRequired && (
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
             <p className="text-sm font-semibold text-amber-200">
@@ -3582,7 +3722,22 @@ function SecurityTab() {
             {t("settings.security.updatePassword")}
           </Button>
         </div>
-      </Card>
+        </Card>
+      ) : (
+        <Card className="p-5" data-testid="settings-passwordless-note">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-300">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-zinc-100">
+                {t("settings.security.passwordlessTitle")}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-zinc-400">{passwordlessDescription}</p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card className="p-5 space-y-5" data-testid="settings-two-factor-card">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -3615,7 +3770,7 @@ function SecurityTab() {
             </p>
           </div>
           <div className="rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-3">
-            <p className="text-xs text-zinc-500">Recovery codes</p>
+            <p className="text-xs text-zinc-500">{t("settings.security.recoveryCodes")}</p>
             <p className="mt-1 text-sm font-semibold text-zinc-100">
               {twoFactor.recoveryCodesRemaining}
             </p>
@@ -3634,9 +3789,16 @@ function SecurityTab() {
           </div>
         </div>
 
-        {!twoFactor.enabled && !twoFactorSetup && (
+        {!usesPassword && (
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-sm leading-6 text-amber-100/80">
+            {t("settings.security.twoFactorPasswordRequired")}
+          </div>
+        )}
+
+        {usesPassword && !twoFactor.enabled && !twoFactorSetup && (
           <div className="flex justify-end">
             <Button
+              data-testid="settings-two-factor-setup"
               onClick={() => void handleStartTwoFactor()}
               disabled={twoFactorAction === "setup"}
               className="gap-2"
@@ -3647,7 +3809,7 @@ function SecurityTab() {
           </div>
         )}
 
-        {!twoFactor.enabled && twoFactorSetup && (
+        {usesPassword && !twoFactor.enabled && twoFactorSetup && (
           <div className="space-y-4 rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.04] p-4">
             <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-start">
               <div className="min-w-0">
@@ -3708,7 +3870,7 @@ function SecurityTab() {
           </div>
         )}
 
-        {twoFactor.enabled && (
+        {usesPassword && twoFactor.enabled && (
           <div className="space-y-4 rounded-2xl border border-white/5 bg-white/[0.03] p-4">
             <Field
               label={t("settings.security.currentPassword")}
@@ -3797,7 +3959,7 @@ function SecurityTab() {
             return (
               <div
                 key={s.id}
-                className="flex items-center gap-3 py-2 border-b border-white/5 last:border-0"
+                className="flex items-start gap-3 border-b border-white/5 py-2 last:border-0 sm:items-center"
               >
                 <div className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center shrink-0">
                   <Icon className="w-4 h-4 text-zinc-400" />
@@ -3811,9 +3973,7 @@ function SecurityTab() {
                       </Pill>
                     )}
                   </div>
-                  <p className="text-xs text-zinc-500">
-                    {presentation.location} · {presentation.time}
-                  </p>
+                  <p className="text-xs text-zinc-500">{presentation.time}</p>
                 </div>
                 {!s.current && (
                   <Tip content={t("settings.security.endSession")}>
@@ -3821,7 +3981,7 @@ function SecurityTab() {
                       type="button"
                       onClick={() => void handleRevokeSession(s.id)}
                       disabled={sessionActionId === s.id}
-                      className="text-xs text-rose-400 hover:text-rose-300 transition-colors"
+                      className="inline-flex min-h-11 shrink-0 items-center px-2 text-xs text-rose-400 transition-colors hover:text-rose-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                     >
                       {t("settings.common.close")}
                     </button>
@@ -4051,10 +4211,8 @@ export function SettingsPage({
   title?: string;
 }) {
   const { t } = useI18n();
-  const permissions = useProductPermissions();
-  const canManageApiKeys = permissions.role === "OWNER" || permissions.role === "ADMIN";
-  const allowedInitialTab = initialTab === "api" && !canManageApiKeys ? "profile" : initialTab;
-  const visibleTabs = tabs.filter((tab) => tab.id !== "api" || canManageApiKeys);
+  const allowedInitialTab = initialTab === "api" ? "profile" : initialTab;
+  const visibleTabs = tabs;
   const [activeTab, setActiveTab] = useState<TabId>(allowedInitialTab);
   const [account, setAccount] = useState<SettingsAccount | null>(null);
   const [team, setTeam] = useState<TeamSettings | null>(null);
@@ -4077,8 +4235,8 @@ export function SettingsPage({
   const ActiveContent = tabContentMap[activeTab];
 
   useEffect(() => {
-    setActiveTab(initialTab === "api" && !canManageApiKeys ? "profile" : initialTab);
-  }, [canManageApiKeys, initialTab]);
+    setActiveTab(initialTab === "api" ? "profile" : initialTab);
+  }, [initialTab]);
 
   const loadResource = React.useCallback(async (resource: SettingsResource) => {
     const generation = ++resourceGeneration.current[resource];
@@ -4155,8 +4313,11 @@ export function SettingsPage({
           {/* ── Vertical tab nav (desktop) / Horizontal chips (mobile) ── */}
 
           {/* Mobile horizontal scrollable chips */}
-          <div className="lg:hidden w-full overflow-x-auto pb-1 -mx-1 px-1">
-            <div className="flex gap-2 min-w-max">
+          <nav
+            aria-label={t("settings.title")}
+            className="scrollbar-none -mx-1 w-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain px-1 pb-1 lg:hidden"
+          >
+            <div className="flex min-w-max gap-2">
               {visibleTabs.map((tab) => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.id;
@@ -4165,7 +4326,7 @@ export function SettingsPage({
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
                     className={cn(
-                      "flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-all border",
+                      "flex min-h-11 snap-start items-center gap-2 whitespace-nowrap rounded-2xl border px-4 py-2.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400",
                       active
                         ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.1)]"
                         : "bg-white/[0.03] border-white/5 text-zinc-400 hover:text-zinc-200 hover:bg-white/5",
@@ -4177,7 +4338,7 @@ export function SettingsPage({
                 );
               })}
             </div>
-          </div>
+          </nav>
 
           {/* Desktop vertical nav */}
           <nav className="hidden lg:flex lg:w-56 shrink-0 flex-col gap-1">

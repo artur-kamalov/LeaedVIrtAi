@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const webBase = process.env.LEADVIRT_WEB_BASE ?? "http://localhost:3001";
 
@@ -499,7 +499,7 @@ test("onboarding ignores profile ETags from workflow, completion, and navigation
   ]);
 });
 
-test("successful onboarding launch opens Knowledge review", async ({ page }) => {
+async function mockLaunchReadyOnboarding(page: Page) {
   await page
     .context()
     .addCookies([{ name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" }]);
@@ -559,14 +559,44 @@ test("successful onboarding launch opens Knowledge review", async ({ page }) => 
       },
     });
   });
+  await page.route("**/api/billing/**", async (route) => {
+    await route.fulfill({ status: 503, json: { message: "Fixture billing unavailable" } });
+  });
+
+  return {
+    stateUpdates: () => stateUpdates,
+    launchCompletions: () => launchCompletions,
+  };
+}
+
+async function launchReadyOnboarding(page: Page, path: string) {
+  const requests = await mockLaunchReadyOnboarding(page);
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`${webBase}/onboarding`, { waitUntil: "networkidle" });
+  await page.goto(`${webBase}${path}`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Launch AI Administrator" }).click();
 
-  await expect.poll(() => stateUpdates).toBe(1);
-  await expect.poll(() => launchCompletions).toBe(1);
+  await expect.poll(requests.stateUpdates).toBe(1);
+  await expect.poll(requests.launchCompletions).toBe(1);
   await expect(page.getByTestId("onboarding-persistence-error")).toBeHidden();
+}
+
+test("successful onboarding launch opens Knowledge review", async ({ page }) => {
+  await launchReadyOnboarding(page, "/onboarding");
+
+  await expect(page).toHaveURL(`${webBase}/app/knowledge?welcome=1`, { timeout: 15_000 });
+  await expect(page.getByText("Your setup answers are saved.")).toBeVisible();
+});
+
+test("successful onboarding launch hands a selected plan to billing", async ({ page }) => {
+  await launchReadyOnboarding(page, "/onboarding?plan=pro");
+
+  await expect(page).toHaveURL(`${webBase}/app/billing?plan=pro`, { timeout: 15_000 });
+});
+
+test("successful onboarding launch ignores a malformed plan", async ({ page }) => {
+  await launchReadyOnboarding(page, "/onboarding?plan=pro%2F..%2Fcorporate");
+
   await expect(page).toHaveURL(`${webBase}/app/knowledge?welcome=1`, { timeout: 15_000 });
   await expect(page.getByText("Your setup answers are saved.")).toBeVisible();
 });

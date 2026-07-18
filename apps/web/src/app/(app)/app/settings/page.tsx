@@ -1,6 +1,6 @@
 import { SettingsPage } from "@/design/product/pages/SettingsPage";
 
-const settingsTabs = ["profile", "team", "channels", "notifications", "billing", "security", "api"] as const;
+const settingsTabs = ["profile", "team", "channels", "notifications", "billing", "security"] as const;
 type SettingsTab = (typeof settingsTabs)[number];
 
 function initialTabFromQuery(value: string | null): SettingsTab {

@@ -115,6 +115,14 @@ test("dashboard localizes known activity codes before using a legacy title", asy
             leadsSentToCrm: 0,
             averageResponseTimeSeconds: 0,
             conversionRate: 0,
+            deltas: {
+              newLeadsPercent: 100,
+              aiConversationsPercent: 100,
+              bookingsOrdersPercent: 100,
+              leadsSentToCrmPercent: 100,
+              averageResponseTimePercent: 100,
+              conversionRatePoints: 100,
+            },
           },
           recentLeads: [],
           recentActivity: [
@@ -138,6 +146,8 @@ test("dashboard localizes known activity codes before using a legacy title", asy
   await expect(page.getByText("Lead sent to CRM").first()).toBeVisible();
   await expect(page.getByTestId("dashboard-trend-empty")).toBeVisible();
   await expect(page.getByText("0%", { exact: true })).toHaveCount(1);
+  await expect(page.getByText("+100%")).toHaveCount(0);
+  await expect(page.getByText("+100 pp")).toHaveCount(0);
   await expect(page.getByText("Лид отправлен в CRM")).toHaveCount(0);
 });
 

@@ -155,6 +155,11 @@ async function main() {
     {} as EmailOtpChallengeService,
     emailDelivery,
   );
+  const securitySettings = new SettingsService(
+    prisma as unknown as PrismaService,
+    auth,
+    {} as BusinessProfileService,
+  );
 
   try {
     const guard = new RolesGuard(new Reflector());
@@ -226,6 +231,23 @@ async function main() {
           data: { tenantId: victimWorkspace.id, userId: victim.id, role: "OWNER" },
         }),
       ]);
+
+    const passwordUserSecurity = await securitySettings.security({
+      ...contextFor(victimWorkspace, victim, "OWNER"),
+      authMode: "email",
+    });
+    assert(
+      passwordUserSecurity.authMode === "email" && passwordUserSecurity.hasPassword,
+      "An email-authenticated password account lost its password capability.",
+    );
+    const passwordlessUserSecurity = await securitySettings.security({
+      ...contextFor(workspace, owner, "OWNER"),
+      authMode: "email",
+    });
+    assert(
+      passwordlessUserSecurity.authMode === "email" && !passwordlessUserSecurity.hasPassword,
+      "A passwordless email account was reported as password-capable.",
+    );
 
     const forgedViewerContext = contextFor(workspace, viewer, "OWNER");
     await expectException(

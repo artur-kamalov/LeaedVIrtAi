@@ -1,5 +1,59 @@
 # Decision Log
 
+## 2026-07-18: Deliver Manual Billing Requests Before Confirming Them
+
+Decision: A manual plan selection succeeds only after LeadVirt sends an operational email containing the workspace, requested plan, and available requester contact details. The request is then stored as an audit record. Subscription state and limits remain unchanged until an operator activates the plan, and the API returns no invoice rows without actual invoice or payment evidence.
+
+Context: The first manual billing flow stored only an audit row while the UI promised follow-up, so nobody outside the customer workspace received the request. It also derived three paid invoices from a subscription period without any payment record. Suspended and cancelled workspaces could read Billing but could not submit the new reactivation request.
+
+Consequences:
+
+- `BILLING_REQUEST_EMAIL` is the preferred recipient; an already configured SMTP/UniSender sender account is the fallback.
+- Production never accepts mock operational delivery; it chooses the first ready real provider from `EMAIL_PROVIDER` and `EMAIL_OTP_PROVIDER`.
+- Delivery failures return an error and create no successful plan-selection audit record.
+- `POST /api/billing/plan-selection` remains available to inactive tenants with owner/admin authorization.
+- Billing history stays empty until the data model contains authoritative invoice or payment evidence.
+
+## 2026-07-17: Preserve Pricing Intent Through Auth And Manual Billing
+
+Decision: Public plan CTAs authenticate before onboarding, preserve only allowlisted plan and return destinations, and hand the selected plan to Billing after successful onboarding. Billing records an auditable manual activation request and never creates an active subscription without a real checkout or operator confirmation.
+
+Context: Anonymous CTAs opened a protected onboarding page, the selected plan was lost, production could return an empty catalog, and the UI described absent subscriptions as unlimited. Corporate also fell back to an email addressed to `noreply`.
+
+Consequences:
+
+- `start`, `pro`, `business`, and `corporate` are the only accepted acquisition plan aliases; malformed or external return destinations fall back safely.
+- The server-owned catalog is available independently of optional database seed rows.
+- A plan request keeps the current subscription unchanged, reports that checkout is unavailable, and requires manual confirmation.
+- Corporate uses the same request flow unless an explicit `NEXT_PUBLIC_CORPORATE_CONTACT_URL` is configured.
+
+## 2026-07-17: Derive Client Readiness From Verified Structured State
+
+Decision: Dashboard owns one seven-step launch journey derived from current API evidence. Structured services and enabled working days are required for profile readiness; legacy text notes cannot replace them. Technical and unavailable controls stay outside primary client navigation.
+
+Context: Business Profile, Knowledge, channels, automatic replies, and inbound tests exposed separate and sometimes contradictory states. Raw audit events, public keys, server IPs, inactive API keys, and planned integrations competed with the next client action.
+
+Consequences:
+
+- Unknown API evidence is labeled as needing verification instead of being treated as complete or empty.
+- The first unresolved step is the single primary action; later steps remain visible for orientation.
+- Business Profile surfaces repair actions and note/structure conflicts before customer replies are considered ready.
+- AI audit, inactive API keys, infrastructure IPs, and raw readiness identifiers are not shown in the main client workflow.
+- Planned integrations remain discoverable through a collapsed section and do not inflate the available count.
+
+## 2026-07-17: Keep Automation Builder Actions Truthful And Reviewable
+
+Decision: New Automation slots use neutral workflow names, the builder offers only executable condition and manager-handoff steps, and every duplicated workflow is created `PAUSED` for review instead of being published automatically.
+
+Context: The three named template tabs produced the same generic workflow, the add-step action silently added only a manager handoff, and copying an active workflow immediately made a second live automation. The UI also exposed a nonfunctional drag handle, workflow run IDs, and archived workflow versions.
+
+Consequences:
+
+- Managers explicitly choose each available runtime step and can still remove unsupported legacy steps.
+- A copied workflow cannot begin processing inbound messages until a manager reviews, enables, and saves it.
+- Client-facing test and archive feedback no longer exposes internal run IDs or workflow versions.
+- Mobile controls use stable touch targets and the workflow canvas no longer animates through newly displayed blocker notices.
+
 ## 2026-07-16: Keep AI Identity Behind The Active Publication
 
 Decision: Business Profile writes may update workspace metadata immediately, but Structured V2 AI generation resolves business name and type only from the active `workspace-v2` publication. If the active publication has no identity facts, AI receives a neutral identity. Legacy V1 retains its existing Tenant-based behavior. Profile synchronization commits before dispatch; a failed immediate dispatch is logged and left to the existing durable outbox drain instead of returning a false failed-save response.

@@ -4,6 +4,7 @@ import type {
   AnalyticsOverview,
   ApiEnvelope,
   BillingInvoice,
+  BillingPlanSelection,
   BillingPaymentMethod,
   BillingPaymentMethodUpdateRequest,
   BusinessProfileData,
@@ -26,6 +27,7 @@ import type {
   Message,
   PaginatedEnvelope,
   PricingPlan,
+  SecuritySettings,
   Subscription,
   UsageSummary,
   WidgetConfig,
@@ -70,27 +72,6 @@ export class DemoApiError extends Error {
   }
 }
 
-type SecuritySettings = {
-  authMode: string;
-  tenantScoped: boolean;
-  currentRole: string;
-  passwordChangeRequired?: boolean;
-  twoFactor: {
-    enabled: boolean;
-    setupPending: boolean;
-    confirmedAt: string | null;
-    recoveryCodesRemaining: number;
-  };
-  sessions: {
-    id: string;
-    current: boolean;
-    ipAddress?: string | null;
-    userAgent?: string | null;
-    createdAt: string;
-    lastUsedAt: string;
-    expiresAt: string;
-  }[];
-};
 type DemoState = {
   tenant: CurrentTenant;
   account: {
@@ -117,6 +98,7 @@ type DemoState = {
   notifications: NotificationsSettings;
   apiKeys: LegacyApiKeyCleanupSummary[];
   subscription: Subscription;
+  planSelection: BillingPlanSelection | null;
   paymentMethod: BillingPaymentMethod;
   paymentRequestedAt: string | null;
   onboarding: {
@@ -683,6 +665,8 @@ function buildInitialState(): DemoState {
     ],
     security: {
       authMode: "telegram",
+      hasPassword: false,
+      productionAuthReadyFor: ["Local credentials", "HTTP-only sessions"],
       tenantScoped: true,
       currentRole: "OWNER",
       passwordChangeRequired: false,
@@ -728,6 +712,7 @@ function buildInitialState(): DemoState {
       periodEnd: future(21),
       plan: plans[1],
     },
+    planSelection: null,
     paymentMethod: {
       mode: "manual_invoice",
       label: "Оплата по счёту",
@@ -2030,10 +2015,21 @@ export function demoApiRequest<T>(path: string, init: RequestInit = {}): T {
     return envelope(billingInvoices(s)) as T;
   if (method === "GET" && pathname === "/billing/current-subscription")
     return envelope(clone(s.subscription)) as T;
-  if (method === "PATCH" && pathname === "/billing/current-subscription") {
+  if (method === "GET" && pathname === "/billing/plan-selection")
+    return envelope(clone(s.planSelection)) as T;
+  if (
+    (method === "POST" && pathname === "/billing/plan-selection") ||
+    (method === "PATCH" && pathname === "/billing/current-subscription")
+  ) {
     const plan = plans.find((item) => item.code === body.planCode) ?? s.subscription.plan;
-    s.subscription = { ...s.subscription, status: "ACTIVE", plan };
-    return envelope(clone(s.subscription)) as T;
+    s.planSelection = {
+      reference: id("billing-selection"),
+      plan,
+      selectedAt: new Date().toISOString(),
+      status: "CONTACT_REQUIRED",
+      checkout: { available: false, mode: "manual_invoice" },
+    };
+    return envelope(clone(s.planSelection)) as T;
   }
   if (method === "POST" && pathname === "/billing/current-subscription/cancel") {
     s.subscription = { ...s.subscription, status: "CANCELLED" };

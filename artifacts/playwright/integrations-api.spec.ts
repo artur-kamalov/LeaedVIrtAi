@@ -110,8 +110,14 @@ test("integrations page starts empty when API returns no tenant integrations", a
   await page.goto(`${webBase}/app/integrations`, { waitUntil: "networkidle" });
 
   await expect(page.getByTestId("integrations-stat-connected")).toContainText(/^0/);
+  await expect(page.getByTestId("integrations-stat-available")).toContainText(/^2/);
   await expect(page.getByTestId("integrations-stat-active-channels")).toContainText(/^0/);
   await expect(page.getByTestId("pilot-readiness-panel")).toContainText("0/3");
+  await expect(page.getByTestId("integration-card-telegram")).toBeVisible();
+  await expect(page.getByTestId("integration-card-webhook")).toBeVisible();
+  await expect(page.getByTestId("integration-card-amocrm")).not.toBeVisible();
+  await expect(page.getByTestId("pilot-readiness-panel").locator("code")).toHaveCount(0);
+  await expect(page.getByTestId("integrations-planned")).not.toHaveAttribute("open", "");
 });
 
 test("integration resource failures retry instead of appearing disconnected", async ({ page }) => {
@@ -231,7 +237,9 @@ test("Telegram connects from one bot token while LeadVirt manages webhook securi
   );
   await expect(page.getByTestId("integration-card-telegram")).toContainText("Подключено");
   await expect(page.getByTestId("integrations-refresh-error")).toBeVisible();
-  await expect(page.getByTestId("pilot-readiness-widget")).toContainText("retained-widget-key");
+  await expect(page.getByTestId("pilot-readiness-widget")).not.toContainText(
+    "retained-widget-key",
+  );
 
   await page.keyboard.press("Escape");
   await expect(connectedDialog).toBeHidden();
@@ -246,7 +254,9 @@ test("Telegram connects from one bot token while LeadVirt manages webhook securi
   failChannelRefresh = false;
   await page.getByTestId("integrations-refresh-error").getByRole("button").click();
   await expect(page.getByTestId("integrations-refresh-error")).toHaveCount(0);
-  await expect(page.getByTestId("pilot-readiness-widget")).toContainText("retained-widget-key");
+  await expect(page.getByTestId("pilot-readiness-widget")).not.toContainText(
+    "retained-widget-key",
+  );
 });
 
 test("integrations expose only live self-service controls and preserve channel workflows", async ({
@@ -430,9 +440,15 @@ test("integrations expose only live self-service controls and preserve channel w
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: "auto" }));
 
   await expect(page.getByTestId("pilot-readiness-panel")).toContainText("3/3");
-  await expect(page.getByTestId("pilot-readiness-telegram")).toContainText("demo-telegram-webhook");
-  await expect(page.getByTestId("pilot-readiness-webhook")).toContainText("demo-generic-webhook");
-  await expect(page.getByTestId("pilot-readiness-widget")).toContainText("demo-website-widget");
+  await expect(page.getByTestId("pilot-readiness-telegram")).not.toContainText(
+    "demo-telegram-webhook",
+  );
+  await expect(page.getByTestId("pilot-readiness-webhook")).not.toContainText(
+    "demo-generic-webhook",
+  );
+  await expect(page.getByTestId("pilot-readiness-widget")).not.toContainText(
+    "demo-website-widget",
+  );
   await expect(page.getByTestId("pilot-readiness-widget-open")).toHaveAttribute(
     "href",
     "/widget/demo",
@@ -446,6 +462,7 @@ test("integrations expose only live self-service controls and preserve channel w
   );
   await expect(page.getByTestId("api-webhook-payload")).toContainText("leadvirt-sample-event");
   await expect(page.getByTestId("api-webhook-status")).toContainText("Webhook готов");
+  await page.getByTestId("integrations-planned-toggle").click();
   await expect(page.getByTestId("integration-card-instagram")).toContainText(
     "Подключение по запросу",
   );

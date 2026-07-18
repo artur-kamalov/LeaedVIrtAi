@@ -11,7 +11,6 @@ import {
   Workflow,
   BarChart3,
   BookOpen,
-  ShieldCheck,
   Plug,
   Settings,
   Search,
@@ -79,7 +78,6 @@ const navItems: { id: Route; labelKey: TranslationKey; icon: LucideIcon }[] = [
   { id: "automation", labelKey: "product.nav.automation", icon: Workflow },
   { id: "analytics", labelKey: "product.nav.analytics", icon: BarChart3 },
   { id: "knowledge", labelKey: "product.nav.knowledge", icon: BookOpen },
-  { id: "audit", labelKey: "product.nav.audit", icon: ShieldCheck },
   { id: "integrations", labelKey: "product.nav.integrations", icon: Plug },
   { id: "settings", labelKey: "product.nav.settings", icon: Settings },
 ];
@@ -433,7 +431,6 @@ export function ProductLayout({
 
       <nav className="min-w-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-3">
         {navItems
-          .filter((item) => item.id !== "audit" || demo || permissions.canViewAiAudit)
           .filter(
             (item) => item.id !== "knowledge" || demo || permissions.canViewKnowledgeWorkspace,
           )
@@ -495,7 +492,7 @@ export function ProductLayout({
           )}
         </div>
 
-        <LanguageSwitcher className="mt-3 w-full justify-center" />
+        <LanguageSwitcher className="mt-3 w-full justify-center lg:hidden" />
 
         <Dropdown
           align="start"
@@ -572,7 +569,7 @@ export function ProductLayout({
                 <DialogPrimitive.Close asChild>
                   <button
                     aria-label={t("product.menu.close")}
-                    className="absolute top-6 right-4 text-zinc-400 z-10"
+                    className="absolute right-2 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-xl text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                     data-testid="product-mobile-menu-close"
                   >
                     <X className="w-5 h-5" />
@@ -629,7 +626,7 @@ export function ProductLayout({
                   <DialogPrimitive.Trigger asChild>
                     <button
                       aria-label={t("product.menu.open")}
-                      className="lg:hidden text-zinc-400"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-zinc-400 transition-colors hover:bg-white/5 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 lg:hidden"
                       data-testid="product-mobile-menu-trigger"
                     >
                       <Menu className="w-6 h-6" />

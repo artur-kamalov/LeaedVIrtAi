@@ -25,20 +25,20 @@ test.beforeEach(async ({ page }) => {
 const professionalPlan = {
   code: "PROFESSIONAL",
   name: "Professional",
-  priceMonthlyRub: 7700,
-  aiConversations: 1000,
-  channelsLimit: 8,
-  usersLimit: 6,
-  scenariosLimit: 12,
+  priceMonthlyRub: 24900,
+  aiConversations: 2500,
+  channelsLimit: 5,
+  usersLimit: 10,
+  scenariosLimit: 15,
   popular: true,
   bestFor: "Для салонов с несколькими администраторами",
-  features: ["1000 AI-диалогов", "8 каналов", "6 участников", "12 сценариев"],
+  features: ["2 500 AI-диалогов", "5 каналов", "10 участников", "15 сценариев"],
 };
 
 const corporatePlan = {
   code: "CORPORATE",
   name: "Corporate",
-  priceMonthlyRub: 25000,
+  priceMonthlyRub: 120000,
   aiConversations: null,
   channelsLimit: null,
   usersLimit: null,
@@ -48,9 +48,42 @@ const corporatePlan = {
   features: ["Индивидуальные лимиты", "SLA", "Выделенный менеджер"],
 };
 
+const startPlan = {
+  code: "START",
+  name: "Start",
+  priceMonthlyRub: 9900,
+  aiConversations: 500,
+  channelsLimit: 2,
+  usersLimit: 3,
+  scenariosLimit: 3,
+  popular: false,
+  features: [],
+};
+
+const businessPlan = {
+  code: "BUSINESS",
+  name: "Business",
+  priceMonthlyRub: 59900,
+  aiConversations: 10000,
+  channelsLimit: 10,
+  usersLimit: 25,
+  scenariosLimit: 50,
+  popular: false,
+  features: [],
+};
+
+const catalogPlans = [startPlan, professionalPlan, businessPlan, corporatePlan];
+
 async function mockBillingApi(page: Page) {
   const billingRequests = {
     selectedPlanCode: null as string | null,
+    planSelection: null as null | {
+      reference: string;
+      plan: (typeof catalogPlans)[number];
+      selectedAt: string;
+      status: "CONTACT_REQUIRED";
+      checkout: { available: false; mode: "manual_invoice" };
+    },
     canceled: false,
     paymentMethodChangeRequested: false,
   };
@@ -58,9 +91,25 @@ async function mockBillingApi(page: Page) {
   await page.route("**/api/billing/plans", async (route) => {
     await route.fulfill({
       json: {
-        data: [professionalPlan, corporatePlan],
+        data: catalogPlans,
       },
     });
+  });
+
+  await page.route("**/api/billing/plan-selection", async (route) => {
+    if (route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as { planCode?: string };
+      billingRequests.selectedPlanCode = body.planCode ?? null;
+      const plan = catalogPlans.find((item) => item.code === body.planCode) ?? startPlan;
+      billingRequests.planSelection = {
+        reference: "selection-playwright",
+        plan,
+        selectedAt: "2026-06-27T12:00:00.000Z",
+        status: "CONTACT_REQUIRED",
+        checkout: { available: false, mode: "manual_invoice" },
+      };
+    }
+    await route.fulfill({ json: { data: billingRequests.planSelection } });
   });
 
   await page.route("**/api/billing/current-subscription", async (route) => {
@@ -103,7 +152,7 @@ async function mockBillingApi(page: Page) {
           status: "CANCELED",
           periodStart: "2026-06-01T00:00:00.000Z",
           periodEnd: "2026-07-01T00:00:00.000Z",
-          plan: corporatePlan,
+          plan: professionalPlan,
         },
       },
     });
@@ -146,7 +195,7 @@ async function mockBillingApi(page: Page) {
             issuedAt: "2026-06-01T00:00:00.000Z",
             periodStart: "2026-06-01T00:00:00.000Z",
             periodEnd: "2026-07-01T00:00:00.000Z",
-            amountRub: 7700,
+            amountRub: 24900,
             status: "PAID",
             plan: professionalPlan,
             downloadName: "leadvirt-invoice-2026-06.txt",
@@ -161,7 +210,7 @@ async function mockBillingApi(page: Page) {
       json: {
         data: {
           aiConversations: 321,
-          aiConversationsLimit: 1000,
+          aiConversationsLimit: 2500,
           messagesSent: 120,
           messagesReceived: 248,
           leadsCreated: 64,
@@ -170,11 +219,11 @@ async function mockBillingApi(page: Page) {
           crmSyncs: 44,
           workflowRuns: 39,
           channels: 3,
-          channelsLimit: 8,
+          channelsLimit: 5,
           users: 4,
-          usersLimit: 6,
+          usersLimit: 10,
           scenarios: 7,
-          scenariosLimit: 12,
+          scenariosLimit: 15,
         },
       },
     });
@@ -232,13 +281,13 @@ test("billing route renders API-backed plan and usage inside copied settings UI"
 
   await expect(page.getByText("Биллинг и подписка")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Тариф «Профессиональный»" })).toBeVisible();
-  await expect(page.getByText("7 700 ₽").first()).toBeVisible();
+  await expect(page.getByText("24 900 ₽").first()).toBeVisible();
   await expect(page.getByText("AI-диалоги")).toBeVisible();
   await expect(page.getByText("321")).toBeVisible();
-  await expect(page.getByText("1 000")).toBeVisible();
+  await expect(page.getByText("2 500")).toBeVisible();
   await expect(page.getByText("Безналичный расчёт по счёту")).toBeVisible();
   await expect(page.getByText("Ручное выставление счетов")).toBeVisible();
-  await expect(page.getByText("7 700 ₽").first()).toBeVisible();
+  await expect(page.getByText("24 900 ₽").first()).toBeVisible();
 
   await page.getByRole("button", { name: "Запросить изменение" }).click();
   await expect(page.getByRole("button", { name: "Запрос отправлен" })).toBeVisible();
@@ -256,12 +305,17 @@ test("billing route renders API-backed plan and usage inside copied settings UI"
   expect(invoiceText).toContain("Клиент: Billing Studio");
 
   await page.getByRole("button", { name: "Изменить тариф" }).click();
-  await expect(page.getByText("Для сети филиалов")).toBeVisible();
-  await expect(page.getByText("от 25 000 ₽")).toBeVisible();
+  await expect(page.getByText("Для сетей, клиник, e-commerce и холдингов")).toBeVisible();
+  await expect(page.getByText("от 120 000 ₽")).toBeVisible();
 
-  const corporateCard = page.locator("div").filter({ hasText: "Для сети филиалов" }).first();
-  await corporateCard.getByRole("button", { name: "Выбрать" }).click();
-  await expect(page.getByRole("heading", { name: "Тариф «Корпоративный»" })).toBeVisible();
+  await page.getByTestId("billing-plan-CORPORATE").getByRole("button", { name: "Выбрать" }).click();
+  await expect(page.getByRole("heading", { name: "Тариф «Профессиональный»" })).toBeVisible();
+  await expect(page.getByTestId("billing-plan-selection")).toContainText(
+    "Выбран тариф «Корпоративный»",
+  );
+  await expect(page.getByTestId("billing-plan-selection")).toContainText(
+    "Онлайн-оплата пока не подключена",
+  );
   expect(billingRequests.selectedPlanCode).toBe("CORPORATE");
 
   await page.getByRole("button", { name: "Отменить подписку" }).click();
@@ -346,7 +400,7 @@ test("settings and billing localize six locales without mobile overflow", async 
       style: "currency",
       currency: "RUB",
       maximumFractionDigits: 0,
-    }).format(7700);
+    }).format(24900);
     await expect(page.getByText(currency).first()).toBeVisible();
   }
 
@@ -404,9 +458,35 @@ test("billing failure is actionable in the active locale", async ({ page }) => {
 });
 
 test("billing shows a truthful no-subscription state", async ({ page }) => {
-  await mockBillingApi(page);
+  const billingRequests = await mockBillingApi(page);
   await page.route("**/api/billing/current-subscription", async (route) => {
     await route.fulfill({ json: { data: null } });
+  });
+  await page.route("**/api/billing/usage", async (route) => {
+    await route.fulfill({
+      json: {
+        data: {
+          aiConversations: 0,
+          aiConversationsLimit: null,
+          messagesSent: 0,
+          messagesReceived: 0,
+          leadsCreated: 0,
+          bookingsCreated: 0,
+          ordersCreated: 0,
+          crmSyncs: 0,
+          workflowRuns: 0,
+          channels: 1,
+          channelsLimit: null,
+          users: 1,
+          usersLimit: null,
+          scenarios: 0,
+          scenariosLimit: null,
+        },
+      },
+    });
+  });
+  await page.route("**/api/billing/invoices", async (route) => {
+    await route.fulfill({ json: { data: [] } });
   });
 
   await page.goto(`${webBase}/app/billing`, { waitUntil: "domcontentloaded" });
@@ -415,4 +495,72 @@ test("billing shows a truthful no-subscription state", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Choose a plan to get started" })).toBeVisible();
   await expect(page.getByText("Next charge:")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Plan “Professional”" })).toHaveCount(0);
+  await expect(page.getByText("unlimited", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/not set/)).toHaveCount(4);
+  await expect(page.getByText("No payments or invoices yet.")).toBeVisible();
+
+  await page.getByTestId("billing-choose-plan").click();
+  await expect(page.getByTestId("billing-plan-START")).toContainText("9,900");
+  await expect(page.getByTestId("billing-plan-PROFESSIONAL")).toContainText("24,900");
+  await expect(page.getByTestId("billing-plan-BUSINESS")).toContainText("59,900");
+  await expect(page.getByTestId("billing-plan-CORPORATE")).toContainText("120,000");
+  await page.getByTestId("billing-plan-START").getByRole("button", { name: "Choose" }).click();
+
+  await expect(page.getByText("No active subscription")).toBeVisible();
+  await expect(page.getByTestId("billing-plan-selection")).toContainText("Start selected");
+  await expect(page.getByTestId("billing-plan-selection")).toContainText(
+    "Your request is recorded",
+  );
+  await expect(page.getByText("Start is now active")).toHaveCount(0);
+  expect(billingRequests.selectedPlanCode).toBe("START");
+
+  await expect(page.getByRole("button", { name: "Request activation" })).toHaveCount(0);
+  expect(billingRequests.paymentMethodChangeRequested).toBe(false);
+});
+
+test("billing empty catalog offers recovery and restores the published plans", async ({ page }) => {
+  await mockBillingApi(page);
+  let catalogAvailable = false;
+  await page.route("**/api/billing/plans", async (route) => {
+    await route.fulfill({ json: { data: catalogAvailable ? catalogPlans : [] } });
+  });
+
+  await page.goto(`${webBase}/app/billing`, { waitUntil: "domcontentloaded" });
+  await selectLocale(page, "en");
+  await page.getByTestId("billing-choose-plan").click();
+
+  const dialog = page.getByRole("dialog", { name: "Choose a plan" });
+  await expect(dialog.getByText("No plans are currently available.")).toBeVisible();
+  await expect(dialog.getByText(/Refresh the catalog/)).toBeVisible();
+  await expect(dialog.getByRole("link", { name: "View published plans" })).toHaveAttribute(
+    "href",
+    "/#pricing",
+  );
+
+  catalogAvailable = true;
+  await dialog.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByTestId("billing-plan-START")).toBeVisible();
+  await expect(page.locator("[data-testid^='billing-plan-']")).toHaveCount(4);
+});
+
+test("billing keeps the public plan identity through the onboarding handoff", async ({ page }) => {
+  const billingRequests = await mockBillingApi(page);
+  await page.route("**/api/billing/current-subscription", async (route) => {
+    await route.fulfill({ json: { data: null } });
+  });
+
+  await page.goto(`${webBase}/app/billing?plan=pro`, { waitUntil: "domcontentloaded" });
+
+  await expect(page).toHaveURL(/\/app\/billing\?plan=pro$/);
+  const dialog = page.getByRole("dialog", { name: "Выбрать тариф" });
+  await expect(dialog).toBeVisible();
+  await page
+    .getByTestId("billing-plan-PROFESSIONAL")
+    .getByRole("button", { name: "Продолжить с этим тарифом" })
+    .click();
+
+  expect(billingRequests.selectedPlanCode).toBe("PROFESSIONAL");
+  await expect(page.getByTestId("billing-plan-selection")).toContainText(
+    "Выбран тариф «Профессиональный»",
+  );
 });

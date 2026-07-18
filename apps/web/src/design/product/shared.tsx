@@ -191,9 +191,9 @@ export function StatCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: index * 0.06, ease: "easeOut" }}
     >
-      <Card hover className="p-5 relative overflow-hidden group">
-        <div className="flex items-center justify-between mb-4">
-          <div className={cn("w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center", accent)}>
+      <Card hover className="group relative h-full overflow-hidden p-3.5 sm:p-5">
+        <div className="mb-3 flex items-center justify-between sm:mb-4">
+          <div className={cn("flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 sm:h-10 sm:w-10", accent)}>
             <Icon className="w-5 h-5" />
           </div>
           {delta && (
@@ -202,8 +202,8 @@ export function StatCard({
             </span>
           )}
         </div>
-        <div className="text-3xl font-bold text-zinc-50 tracking-tight">{value}</div>
-        <div className="text-sm text-zinc-500 mt-1">{label}</div>
+        <div className="text-2xl font-bold tracking-tight text-zinc-50 sm:text-3xl">{value}</div>
+        <div className="mt-1 text-xs leading-5 text-zinc-500 sm:text-sm">{label}</div>
       </Card>
     </motion.div>
   );

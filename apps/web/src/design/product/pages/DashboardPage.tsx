@@ -47,6 +47,8 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { dashboardActivityLabel } from "@/i18n/api-labels";
 import { intlLocale, type Locale } from "@/i18n/config";
 import type { TranslationKey, TranslationValues } from "@/i18n/messages";
+import { DashboardReadinessJourney } from "../readiness/DashboardReadinessJourney";
+import { loadDashboardReadinessSnapshot } from "../readiness/dashboardReadiness";
 
 /* ─── helpers ─── */
 type Translate = (key: TranslationKey, values?: TranslationValues) => string;
@@ -152,6 +154,10 @@ function useCurrentTenantResource() {
   return useApiResource<CurrentTenant>(getCurrentTenant);
 }
 
+function useDashboardReadinessResource() {
+  return useApiResource(loadDashboardReadinessSnapshot);
+}
+
 function summarizeChannelPerformance(summary: DashboardSummary) {
   const grouped = new Map<ChannelId, { channel: ChannelId; leads: number; convWeighted: number }>();
 
@@ -235,31 +241,38 @@ export function DashboardPage() {
   const { mode } = useNav();
   const summaryResource = useDashboardSummaryResource();
   const tenantResource = useCurrentTenantResource();
+  const readinessResource = useDashboardReadinessResource();
   const summary = summaryResource.data;
   const tenantName = tenantResource.data?.name || null;
 
   if (!summary) {
     return (
       <ProductLayout title={t("dashboard.title")}>
-        {summaryResource.isLoading ? (
-          <div className="space-y-8" data-testid="dashboard-loading">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <Skeleton key={index} className="h-32" />
-              ))}
+        <div className="space-y-8">
+          <DashboardReadinessJourney
+            snapshot={readinessResource.data}
+            isLoading={readinessResource.isLoading}
+          />
+          {summaryResource.isLoading ? (
+            <div className="space-y-8" data-testid="dashboard-loading">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <Skeleton key={index} className="h-24 sm:h-32" />
+                ))}
+              </div>
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+                <Skeleton className="h-72 lg:col-span-2" />
+                <Skeleton className="h-72" />
+              </div>
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <Skeleton className="h-72" />
+                <Skeleton className="h-72" />
+              </div>
             </div>
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              <Skeleton className="h-72 lg:col-span-2" />
-              <Skeleton className="h-72" />
-            </div>
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <Skeleton className="h-72" />
-              <Skeleton className="h-72" />
-            </div>
-          </div>
-        ) : (
-          <ResourceErrorState testId="dashboard-load-error" onRetry={summaryResource.reload} />
-        )}
+          ) : (
+            <ResourceErrorState testId="dashboard-load-error" onRetry={summaryResource.reload} />
+          )}
+        </div>
       </ProductLayout>
     );
   }
@@ -309,6 +322,14 @@ export function DashboardPage() {
     },
   ];
 
+  const currentMetricValues = [
+    summary.metrics.newLeadsCount,
+    summary.metrics.aiConversationsCount,
+    summary.metrics.bookingsOrdersCreated,
+    summary.metrics.leadsSentToCrm,
+    summary.metrics.averageResponseTimeSeconds,
+    summary.metrics.conversionRate,
+  ];
   const dashboardStats = stats.map((stat, index) => {
     const values = [
       formatNumber(summary.metrics.newLeadsCount),
@@ -318,7 +339,10 @@ export function DashboardPage() {
       t("dashboard.metric.seconds", { count: summary.metrics.averageResponseTimeSeconds }),
       `${summary.metrics.conversionRate}%`,
     ];
-    const delta = dashboardDeltaConfig(summary.metrics.deltas, t("dashboard.metric.points"))[index];
+    const delta =
+      (currentMetricValues[index] ?? 0) > 0
+        ? dashboardDeltaConfig(summary.metrics.deltas, t("dashboard.metric.points"))[index]
+        : undefined;
 
     return {
       ...stat,
@@ -382,13 +406,13 @@ export function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <Button asChild variant="primary" size="sm" data-testid="dashboard-open-inbox">
+            <Button asChild variant="secondary" size="sm" data-testid="dashboard-open-inbox">
               <Link href={hrefForRoute("inbox", {}, mode)}>
                 <Inbox className="w-4 h-4 mr-1.5" />
                 {t("dashboard.action.openInbox")}
               </Link>
             </Button>
-            <Button asChild variant="secondary" size="sm" data-testid="dashboard-scenarios">
+            <Button asChild variant="outline" size="sm" data-testid="dashboard-scenarios">
               <Link href={hrefForRoute("automation", {}, mode)}>
                 <Sparkles className="w-4 h-4 mr-1.5" />
                 {t("dashboard.action.scenarios")}
@@ -403,8 +427,13 @@ export function DashboardPage() {
           </div>
         </motion.div>
 
+        <DashboardReadinessJourney
+          snapshot={readinessResource.data}
+          isLoading={readinessResource.isLoading}
+        />
+
         {/* ── 2. Stat cards ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
           {dashboardStats.map((s, i) => (
             <StatCard
               key={s.label}
@@ -428,7 +457,7 @@ export function DashboardPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.55, delay: 0.3, ease: "easeOut" }}
           >
-            <Card className="p-6">
+            <Card className="p-4 sm:p-6">
               <SectionTitle
                 title={t("dashboard.chart.title")}
                 sub={t("dashboard.chart.description")}
@@ -503,7 +532,7 @@ export function DashboardPage() {
                 </div>
               ) : (
                 <div
-                  className="flex h-56 items-center justify-center text-sm text-zinc-500"
+                  className="flex h-32 items-center justify-center text-sm text-zinc-500 sm:h-56"
                   data-testid="dashboard-trend-empty"
                 >
                   {t("dashboard.recent.empty")}
@@ -530,7 +559,7 @@ export function DashboardPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.55, delay: 0.38, ease: "easeOut" }}
           >
-            <Card className="p-6 h-full">
+            <Card className="h-full p-4 sm:p-6">
               <SectionTitle
                 title={t("dashboard.channels.title")}
                 sub={t("dashboard.channels.description")}
@@ -585,7 +614,7 @@ export function DashboardPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.55, delay: 0.46, ease: "easeOut" }}
           >
-            <Card className="p-6">
+            <Card className="p-4 sm:p-6">
               <SectionTitle
                 title={t("dashboard.recent.title")}
                 sub={t("dashboard.recent.description")}

@@ -31,6 +31,11 @@ import { Button } from "@/design/components/ui/Button";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Locale } from "@/i18n/config";
 import type { TranslationKey } from "@/i18n/messages";
+import {
+  authHref,
+  resolveAcquisitionIntent,
+  type AcquisitionIntent,
+} from "@/lib/acquisition";
 
 type AuthMode = "login" | "signup";
 
@@ -311,7 +316,7 @@ function OtpCodeInput({
   );
 }
 
-export function AuthFlow({ mode }: { mode: AuthMode }) {
+export function AuthFlow({ mode, intent }: { mode: AuthMode; intent?: AcquisitionIntent }) {
   const { locale, t } = useI18n();
   const router = useRouter();
   const copyKeys = modeCopyKeys[mode];
@@ -319,7 +324,7 @@ export function AuthFlow({ mode }: { mode: AuthMode }) {
     title: t(copyKeys.title),
     subtitle: t(copyKeys.subtitle),
     primaryAction: t(copyKeys.primaryAction),
-    secondaryHref: copyKeys.secondaryHref,
+    secondaryHref: authHref(copyKeys.secondaryHref as "/login" | "/signup", intent),
     secondaryText: t(copyKeys.secondaryText),
     secondaryAction: t(copyKeys.secondaryAction),
   };
@@ -335,6 +340,7 @@ export function AuthFlow({ mode }: { mode: AuthMode }) {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState("");
   const emailOtpConfigRequestRef = React.useRef(0);
+  const acquisition = resolveAcquisitionIntent(intent);
 
   const loadEmailOtpConfig = React.useCallback(async () => {
     const requestId = emailOtpConfigRequestRef.current + 1;
@@ -369,9 +375,9 @@ export function AuthFlow({ mode }: { mode: AuthMode }) {
       window.localStorage.removeItem("leadvirt.demo.session");
       window.localStorage.removeItem("leadvirt.auth.session");
       toast.success(me.isNewUser ? t("auth.toast.created") : t("auth.toast.welcome"));
-      router.push(me.isNewUser ? "/onboarding" : "/app");
+      router.push(acquisition.returnTo ?? (me.isNewUser ? "/onboarding" : "/app"));
     },
-    [router, t],
+    [acquisition.returnTo, router, t],
   );
 
   const handleTelegramAuth = React.useCallback(
