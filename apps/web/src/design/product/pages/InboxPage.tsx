@@ -2,14 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import {
-  Search,
-  Bot,
-  MessageSquare,
-  Filter,
-  X,
-  ChevronRight,
-} from "lucide-react";
+import { Search, Bot, MessageSquare, Filter, X, ChevronRight } from "lucide-react";
 import { ProductLayout } from "../ProductLayout";
 import { Card, Avatar, ChannelBadge, StatusPill, TempPill, channels, stages } from "../shared";
 import type { ChannelId, StageId } from "../shared";
@@ -50,27 +43,27 @@ function HorizontalFilterGroup({
   const updateOverflow = React.useCallback(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    setCanScrollRight(
-      viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 2,
-    );
+    setCanScrollRight(viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 2);
   }, []);
 
   React.useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
 
-    updateOverflow();
+    const frame = window.requestAnimationFrame(updateOverflow);
     const observer = new ResizeObserver(updateOverflow);
     observer.observe(viewport);
+    Array.from(viewport.children).forEach((child) => observer.observe(child));
     window.addEventListener("resize", updateOverflow);
     return () => {
+      window.cancelAnimationFrame(frame);
       observer.disconnect();
       window.removeEventListener("resize", updateOverflow);
     };
   }, [children, updateOverflow]);
 
   return (
-    <div className="relative min-w-0">
+    <div className="relative min-w-0" data-testid={testId}>
       <div
         ref={viewportRef}
         role="group"
@@ -90,9 +83,11 @@ function HorizontalFilterGroup({
             if (!viewport) return;
             viewport.scrollBy({ left: Math.max(120, viewport.clientWidth * 0.7) });
           }}
-          className="absolute inset-y-0 right-0 flex w-11 items-center justify-end border-l border-white/5 bg-zinc-950 pr-1 text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          className="absolute inset-y-0 right-0 flex w-12 items-center justify-end bg-gradient-to-l from-zinc-950 via-zinc-950/95 to-transparent pr-1 text-zinc-200 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400"
         >
-          <ChevronRight aria-hidden="true" className="h-4 w-4" />
+          <span className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-zinc-900 shadow-lg shadow-black/30">
+            <ChevronRight aria-hidden="true" className="h-4 w-4" />
+          </span>
         </button>
       ) : null}
     </div>
@@ -318,7 +313,6 @@ const LeadRow = React.forwardRef<
             )}
           </div>
         </div>
-
       </button>
     </motion.div>
   );

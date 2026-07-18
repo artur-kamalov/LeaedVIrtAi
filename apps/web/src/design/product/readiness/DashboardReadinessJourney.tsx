@@ -180,10 +180,6 @@ export function DashboardReadinessJourney({
     : t("dashboard.readiness.action.ready");
   const primaryHref =
     mode === "demo" ? model.primaryHref.replace(/^\/app(?=\/|$)/, "/demo") : model.primaryHref;
-  const mobileStepId =
-    model.steps.find((step) => step.state === "current")?.id ??
-    model.steps[model.steps.length - 1]?.id;
-
   return (
     <Card
       className="min-w-0 overflow-hidden border-emerald-500/15 bg-emerald-500/[0.025]"
@@ -242,7 +238,7 @@ export function DashboardReadinessJourney({
                     : "dashboard.readiness.title.incomplete",
                 )}
               </h2>
-              <p className="mt-1 text-sm leading-5 text-zinc-400">
+              <p className="mt-1 hidden text-sm leading-5 text-zinc-400 sm:block">
                 {t(
                   model.isReady
                     ? "dashboard.readiness.description.ready"
@@ -252,7 +248,7 @@ export function DashboardReadinessJourney({
             </div>
           </div>
 
-          <div className="mt-5" data-testid="dashboard-readiness-progress">
+          <div className="mt-4 sm:mt-5" data-testid="dashboard-readiness-progress">
             <div className="mb-2 text-xs">
               <span className="font-medium text-zinc-300">
                 {t("dashboard.readiness.progress", {
@@ -275,31 +271,35 @@ export function DashboardReadinessJourney({
             </div>
           </div>
 
-          <Button
-            asChild
-            variant="primary"
-            className="mt-5 w-full justify-center sm:w-auto lg:w-full"
-            data-testid="dashboard-readiness-primary"
-          >
-            <Link href={primaryHref}>
-              {primaryLabel}
-              <Rocket className="h-4 w-4" />
-            </Link>
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="mt-2 w-full justify-center gap-2 text-zinc-400"
-            data-testid="dashboard-readiness-refresh"
-            disabled={isLoading}
-            onClick={onRetry}
-          >
-            <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
-            {t("dashboard.readiness.retry")}
-          </Button>
+          <div className="mt-4 flex items-stretch gap-2 sm:mt-5 sm:block">
+            <Button
+              asChild
+              variant="primary"
+              className="min-h-11 min-w-0 flex-1 justify-center sm:w-auto lg:w-full"
+              data-testid="dashboard-readiness-primary"
+            >
+              <Link href={primaryHref}>
+                {primaryLabel}
+                <Rocket className="h-4 w-4" />
+              </Link>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-11 w-11 shrink-0 justify-center gap-2 px-0 text-zinc-400 sm:mt-2 sm:w-full sm:px-3"
+              data-testid="dashboard-readiness-refresh"
+              disabled={isLoading}
+              onClick={onRetry}
+            >
+              <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+              <span className="sr-only sm:not-sr-only">{t("dashboard.readiness.retry")}</span>
+            </Button>
+          </div>
           {isLoading ? (
-            <p className="mt-2 text-xs text-zinc-600">{t("dashboard.readiness.loading")}</p>
+            <p className="sr-only sm:not-sr-only sm:mt-2 sm:text-xs sm:text-zinc-600">
+              {t("dashboard.readiness.loading")}
+            </p>
           ) : null}
         </div>
 
@@ -343,7 +343,7 @@ export function DashboardReadinessJourney({
                   aria-current={step.state === "current" ? "step" : undefined}
                   className={cn(
                     "grid min-w-0 grid-cols-[2.25rem_minmax(0,1fr)] gap-x-3 px-4 py-3.5 sm:grid-cols-[2.25rem_minmax(0,1fr)_auto] sm:items-center sm:px-5",
-                    !mobileStepsExpanded && step.id !== mobileStepId && "hidden lg:grid",
+                    !mobileStepsExpanded && "hidden lg:grid",
                     step.state === "current" && "bg-emerald-400/[0.055]",
                   )}
                 >

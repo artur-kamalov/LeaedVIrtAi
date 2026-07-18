@@ -49,7 +49,7 @@ export function LanguageSwitcher({
           aria-invalid={persistenceFailed || undefined}
           disabled={!hydrated}
           className={cn(
-            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2.5 text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.08] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:cursor-wait disabled:opacity-60",
+            "inline-flex h-11 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2.5 text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.08] hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:cursor-wait disabled:opacity-60",
             persistenceFailed && "border-red-400/50 text-red-200 hover:border-red-400/70",
             className,
           )}
@@ -102,7 +102,7 @@ export function LanguageSwitcher({
                 key={option.value}
                 value={option.value}
                 data-testid={`language-option-${option.value}`}
-                className="relative flex h-10 cursor-pointer select-none items-center gap-2.5 rounded-md px-2 outline-none transition-colors data-[highlighted]:bg-white/[0.07] data-[state=checked]:bg-emerald-400/10"
+                className="relative flex h-11 cursor-pointer select-none items-center gap-2.5 rounded-md px-2 outline-none transition-colors data-[highlighted]:bg-white/[0.07] data-[state=checked]:bg-emerald-400/10"
               >
                 <span className="inline-flex h-6 w-8 items-center justify-center rounded border border-white/10 bg-white/5 text-[10px] font-bold text-zinc-400">
                   {option.shortLabel}
@@ -132,7 +132,7 @@ export function LanguageSwitcher({
                   event.preventDefault();
                   retryLocalePersistence();
                 }}
-                className="flex h-9 cursor-pointer select-none items-center gap-2 rounded-md px-2.5 text-xs font-semibold text-zinc-200 outline-none transition-colors data-[highlighted]:bg-white/[0.07]"
+                className="flex h-11 cursor-pointer select-none items-center gap-2 rounded-md px-2.5 text-xs font-semibold text-zinc-200 outline-none transition-colors data-[highlighted]:bg-white/[0.07]"
               >
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                 {t("resource.retry")}

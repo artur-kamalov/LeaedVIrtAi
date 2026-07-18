@@ -260,10 +260,10 @@ test("demo readiness actions stay inside the demo", async ({ page }) => {
   await page.goto(`${webBase}/demo`, { waitUntil: "domcontentloaded" });
 
   const primary = page.getByTestId("dashboard-readiness-primary");
-  await expect(primary).toHaveAttribute("href", "/demo/knowledge?view=overview");
+  await expect(primary).toHaveAttribute("href", "/demo/inbox");
   await primary.click();
 
-  await expect(page).toHaveURL(`${webBase}/demo/knowledge?view=overview`);
+  await expect(page).toHaveURL(`${webBase}/demo/inbox`);
   await expect(page).not.toHaveURL(/\/login/u);
 });
 
@@ -429,4 +429,29 @@ test("mobile menu traps focus, restores its trigger, and keeps 44px targets", as
   await expect(menu).toHaveAttribute("aria-expanded", "false");
   await expect(menu).toBeFocused();
   expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
+});
+
+test("mobile footer keeps the main next actions reachable", async ({ context, page }) => {
+  await context.addCookies([
+    { name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" },
+  ]);
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto(webBase, { waitUntil: "domcontentloaded" });
+
+  const footer = page.locator("footer");
+  await footer.scrollIntoViewIfNeeded();
+  for (const link of [
+    footer.getByRole("link", { name: "LeadVirt.ai", exact: true }),
+    footer.getByRole("link", { name: "Features", exact: true }),
+    footer.getByRole("link", { name: "Pricing", exact: true }),
+    footer.getByRole("link", { name: "View demo", exact: true }),
+    footer.getByRole("link", { name: "Log in", exact: true }),
+  ]) {
+    const box = await link.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  }
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
 });

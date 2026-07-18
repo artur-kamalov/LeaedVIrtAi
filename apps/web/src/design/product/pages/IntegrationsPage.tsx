@@ -1558,7 +1558,11 @@ function IntegrationCard({
                 {canManage || canTest ? (
                   <Dropdown
                     trigger={
-                      <Button variant="outline" size="sm" className="min-h-11 rounded-full px-3 text-xs">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="min-h-11 scroll-mb-24 rounded-full px-3 text-xs"
+                      >
                         {canManage ? t("integrations.configure") : t("integrations.testConnection")}
                       </Button>
                     }
@@ -1592,7 +1596,7 @@ function IntegrationCard({
                 asChild
                 variant="outline"
                 size="sm"
-                className="min-h-11 w-full rounded-full px-4 text-xs"
+                className="min-h-11 w-full scroll-mb-24 rounded-full px-4 text-xs"
               >
                 <Link href="/signup">
                   <UserPlus aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
@@ -1603,7 +1607,7 @@ function IntegrationCard({
               <Button
                 variant="primary"
                 size="sm"
-                className="min-h-11 w-full rounded-full px-4 text-xs"
+                className="min-h-11 w-full scroll-mb-24 rounded-full px-4 text-xs"
                 onClick={onToggle}
                 disabled={pending || !canManage}
               >

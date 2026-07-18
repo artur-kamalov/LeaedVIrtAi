@@ -299,12 +299,47 @@ export function LandingPage() {
 
       {/* FOOTER */}
       <footer className="relative z-10 border-t border-white/5 bg-zinc-950 py-12">
-        <div className="container mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="flex items-center gap-2">
+        <div className="container mx-auto grid items-center gap-5 px-6 md:grid-cols-[auto_1fr_auto]">
+          <Link
+            href="/"
+            aria-label={t("brand.name")}
+            className="mx-auto flex min-h-11 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 md:mx-0"
+          >
             <BrandMark className="h-6 w-6 rounded-md" />
             <BrandWordmark className="text-lg" />
-          </div>
-          <p className="text-zinc-500 text-sm">{t("landing.footer.rights")}</p>
+          </Link>
+          <nav
+            aria-label={t("product.menu.navigation")}
+            className="flex flex-wrap items-center justify-center gap-x-1 sm:gap-x-2"
+          >
+            <a
+              href="#features"
+              className="inline-flex min-h-11 items-center rounded-md px-2.5 text-sm text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+            >
+              {t("landing.nav.features")}
+            </a>
+            <a
+              href="#pricing"
+              className="inline-flex min-h-11 items-center rounded-md px-2.5 text-sm text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+            >
+              {t("landing.nav.pricing")}
+            </a>
+            <Link
+              href="/demo"
+              className="inline-flex min-h-11 items-center rounded-md px-2.5 text-sm text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+            >
+              {t("landing.hero.demo")}
+            </Link>
+            <Link
+              href="/login"
+              className="inline-flex min-h-11 items-center rounded-md px-2.5 text-sm text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+            >
+              {t("landing.nav.login")}
+            </Link>
+          </nav>
+          <p className="text-center text-sm text-zinc-500 md:text-right">
+            {t("landing.footer.rights")}
+          </p>
         </div>
       </footer>
     </div>

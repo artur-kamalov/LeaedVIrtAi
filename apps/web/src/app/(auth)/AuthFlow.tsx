@@ -481,13 +481,17 @@ export function AuthFlow({ mode, intent }: { mode: AuthMode; intent?: Acquisitio
 
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-6 sm:px-6 lg:px-8">
         <header className="flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
+          <Link
+            href="/"
+            aria-label={t("brand.name")}
+            className="flex h-11 min-w-11 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+          >
             <BrandMark className="h-9 w-9 rounded-xl" />
             <BrandWordmark className="hidden text-lg sm:inline-flex" />
           </Link>
           <div className="flex items-center gap-2">
             <LanguageSwitcher compact />
-            <Button variant="ghost" size="sm" asChild>
+            <Button variant="ghost" size="sm" className="min-h-11" asChild>
               <Link href="/">{t("auth.website")}</Link>
             </Button>
           </div>
@@ -553,7 +557,7 @@ export function AuthFlow({ mode, intent }: { mode: AuthMode; intent?: Acquisitio
                   </div>
                   <Link
                     href="/#pricing"
-                    className="shrink-0 rounded-md px-2 py-2 text-xs font-semibold text-emerald-300 transition-colors hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                    className="inline-flex min-h-11 shrink-0 items-center rounded-md px-2 py-2 text-xs font-semibold text-emerald-300 transition-colors hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
                   >
                     {t("auth.plan.change")}
                   </Link>
@@ -576,7 +580,7 @@ export function AuthFlow({ mode, intent }: { mode: AuthMode; intent?: Acquisitio
                       setMethod("email");
                       setError("");
                     }}
-                    className={`flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:cursor-not-allowed disabled:opacity-40 ${
+                    className={`flex h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:cursor-not-allowed disabled:opacity-40 ${
                       method === "email"
                         ? "bg-white/10 text-zinc-50"
                         : "text-zinc-500 hover:text-zinc-200"
@@ -595,7 +599,7 @@ export function AuthFlow({ mode, intent }: { mode: AuthMode; intent?: Acquisitio
                       setMethod("telegram");
                       setError("");
                     }}
-                    className={`flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:cursor-not-allowed disabled:opacity-40 ${
+                    className={`flex h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:cursor-not-allowed disabled:opacity-40 ${
                       method === "telegram"
                         ? "bg-white/10 text-zinc-50"
                         : "text-zinc-500 hover:text-zinc-200"
@@ -627,7 +631,7 @@ export function AuthFlow({ mode, intent }: { mode: AuthMode; intent?: Acquisitio
                       type="button"
                       data-testid="email-otp-config-retry"
                       onClick={() => void loadEmailOtpConfig()}
-                      className="font-semibold text-emerald-300 transition-colors hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                      className="inline-flex min-h-11 items-center font-semibold text-emerald-300 transition-colors hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
                     >
                       {t("auth.sessionRetry")}
                     </button>
@@ -687,7 +691,7 @@ export function AuthFlow({ mode, intent }: { mode: AuthMode; intent?: Acquisitio
                   >
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                      className="inline-flex min-h-11 items-center gap-1.5 text-xs font-semibold text-zinc-500 transition-colors hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
                       onClick={() => {
                         setEmailStep("address");
                         setChallengeId("");
@@ -732,7 +736,7 @@ export function AuthFlow({ mode, intent }: { mode: AuthMode; intent?: Acquisitio
                       data-testid="email-otp-resend"
                       disabled={loading || resendSeconds > 0}
                       onClick={() => void requestCode()}
-                      className="mx-auto block text-xs font-semibold text-emerald-400 transition-colors hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:cursor-wait disabled:text-zinc-600"
+                      className="mx-auto flex min-h-11 items-center justify-center px-2 text-xs font-semibold text-emerald-400 transition-colors hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:cursor-wait disabled:text-zinc-600"
                     >
                       {resendSeconds > 0
                         ? t("auth.email.resendIn", { seconds: resendSeconds })
@@ -762,7 +766,7 @@ export function AuthFlow({ mode, intent }: { mode: AuthMode; intent?: Acquisitio
               <div className="mt-5 flex items-center justify-center gap-2 text-sm text-zinc-500">
                 <span>{copy.secondaryText}</span>
                 <Link
-                  className="font-semibold text-emerald-400 hover:text-emerald-300"
+                  className="inline-flex min-h-11 items-center px-1 font-semibold text-emerald-400 hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
                   href={copy.secondaryHref}
                 >
                   {copy.secondaryAction}

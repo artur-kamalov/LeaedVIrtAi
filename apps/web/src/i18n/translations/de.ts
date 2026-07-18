@@ -330,6 +330,7 @@ export const de: Record<BaseTranslationKey, string> = {
   "onboarding.skip": "Überspringen",
   "onboarding.back": "Zurück",
   "onboarding.next": "Weiter",
+  "onboarding.restart": "Einrichtung neu starten",
   "onboarding.launch": "Dashboard öffnen",
   "onboarding.saving": "Wird gespeichert...",
   "onboarding.continue.billing": "Ausgewählten Tarif prüfen",

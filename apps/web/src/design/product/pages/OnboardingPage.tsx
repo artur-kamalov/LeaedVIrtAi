@@ -26,6 +26,7 @@ import {
   Database,
   AlertCircle,
   Loader2,
+  RotateCcw,
 } from "lucide-react";
 import { useNav } from "../nav";
 import { Button } from "../../components/ui/Button";
@@ -755,6 +756,7 @@ function StepLaunch({
   companyName,
   nextAction,
   onLaunch,
+  onRestart,
   disabled,
   saving,
 }: {
@@ -765,6 +767,7 @@ function StepLaunch({
   companyName: string;
   nextAction: "billing" | "knowledge" | "dashboard";
   onLaunch: () => void;
+  onRestart?: () => void;
   disabled: boolean;
   saving: boolean;
 }) {
@@ -841,7 +844,20 @@ function StepLaunch({
       </Card>
 
       {/* Launch button (desktop) */}
-      <div className="hidden sm:flex justify-center">
+      <div className="hidden justify-center gap-3 sm:flex">
+        {onRestart ? (
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={onRestart}
+            disabled={disabled}
+            className="gap-2"
+            data-testid="onboarding-restart-desktop"
+          >
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            {t("onboarding.restart")}
+          </Button>
+        ) : null}
         <Button
           size="lg"
           onClick={onLaunch}
@@ -1085,6 +1101,21 @@ export function OnboardingPage({
     go("knowledge", { welcome: 1 });
   };
 
+  const handleRestart = async () => {
+    if (mode !== "demo" || saving || persistenceConflict) return;
+    setSaving(true);
+    setPersistenceError(false);
+    try {
+      await updateOnboardingState({ currentStep: "business" });
+      hasLocalChangesRef.current = false;
+      navigate(0);
+    } catch {
+      setPersistenceError(true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const renderStep = () => {
     switch (step) {
       case 0:
@@ -1107,6 +1138,7 @@ export function OnboardingPage({
             companyName={companyInfo.name}
             nextAction={mode === "demo" ? "dashboard" : selectedPlan ? "billing" : "knowledge"}
             onLaunch={() => void handleLaunch()}
+            onRestart={mode === "demo" ? () => void handleRestart() : undefined}
             disabled={saving || persistenceConflict}
             saving={saving}
           />
@@ -1273,24 +1305,39 @@ export function OnboardingPage({
 
       {/* ---- Mobile sticky bottom bar ---- */}
       {loadStatus === "success" && (
-        <div className="sm:hidden fixed bottom-0 inset-x-0 z-20 border-t border-white/5 bg-zinc-950 px-4 py-3 safe-area-inset-bottom">
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-white/5 bg-zinc-950 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:hidden">
           {isLastStep ? (
-            <Button
-              size="lg"
-              onClick={() => void handleLaunch()}
-              disabled={saving || persistenceConflict}
-              className="min-h-11 w-full gap-2 shadow-xl shadow-emerald-500/20"
-            >
-              {saving ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : null}
-              {saving
-                ? t("onboarding.saving")
-                : mode === "demo"
-                  ? t("onboarding.launch")
-                  : selectedPlan
-                    ? t("onboarding.continue.billing")
-                    : t("onboarding.continue.knowledge")}
-              {!saving ? <ChevronRight className="w-5 h-5" aria-hidden="true" /> : null}
-            </Button>
+            <div className="flex items-center gap-3">
+              {mode === "demo" ? (
+                <Button
+                  variant="outline"
+                  onClick={() => void handleRestart()}
+                  disabled={saving || persistenceConflict}
+                  aria-label={t("onboarding.restart")}
+                  title={t("onboarding.restart")}
+                  className="flex h-12 w-12 shrink-0 items-center justify-center p-0"
+                  data-testid="onboarding-restart-mobile"
+                >
+                  <RotateCcw className="h-5 w-5" aria-hidden="true" />
+                </Button>
+              ) : null}
+              <Button
+                size="lg"
+                onClick={() => void handleLaunch()}
+                disabled={saving || persistenceConflict}
+                className="min-h-11 flex-1 gap-2 shadow-xl shadow-emerald-500/20"
+              >
+                {saving ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : null}
+                {saving
+                  ? t("onboarding.saving")
+                  : mode === "demo"
+                    ? t("onboarding.launch")
+                    : selectedPlan
+                      ? t("onboarding.continue.billing")
+                      : t("onboarding.continue.knowledge")}
+                {!saving ? <ChevronRight className="w-5 h-5" aria-hidden="true" /> : null}
+              </Button>
+            </div>
           ) : (
             <div className="flex items-center gap-3">
               <Button

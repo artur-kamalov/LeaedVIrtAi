@@ -61,6 +61,7 @@ const en = {
   "knowledge.status.evaluation.failed": "Failed",
   "knowledge.status.evaluation.cancelled": "Cancelled",
   "knowledge.page.title": "Business knowledge",
+  "knowledge.page.mobileTitle": "Knowledge",
   "knowledge.page.description":
     "Control the facts and rules LeadVirt may use in customer conversations.",
   "knowledge.page.welcomeTitle": "Your setup answers are saved.",
@@ -350,6 +351,7 @@ const ru: Record<KnowledgeTranslationKey, string> = {
   "knowledge.status.evaluation.failed": "Ошибка",
   "knowledge.status.evaluation.cancelled": "Отменено",
   "knowledge.page.title": "Знания о бизнесе",
+  "knowledge.page.mobileTitle": "Знания",
   "knowledge.page.description":
     "Управляйте фактами и правилами, которые LeadVirt может использовать в разговорах с клиентами.",
   "knowledge.page.welcomeTitle": "Ответы из настройки сохранены.",
@@ -644,6 +646,7 @@ const es: Record<KnowledgeTranslationKey, string> = {
   "knowledge.status.evaluation.failed": "Fallida",
   "knowledge.status.evaluation.cancelled": "Cancelada",
   "knowledge.page.title": "Conocimiento del negocio",
+  "knowledge.page.mobileTitle": "Conocimiento",
   "knowledge.page.description":
     "Controla los datos y reglas que LeadVirt puede usar en conversaciones con clientes.",
   "knowledge.page.welcomeTitle": "Las respuestas de configuración están guardadas.",
@@ -939,6 +942,7 @@ const fr: Record<KnowledgeTranslationKey, string> = {
   "knowledge.status.evaluation.failed": "Échec",
   "knowledge.status.evaluation.cancelled": "Annulée",
   "knowledge.page.title": "Connaissance de l’entreprise",
+  "knowledge.page.mobileTitle": "Connaissances",
   "knowledge.page.description":
     "Contrôlez les faits et règles que LeadVirt peut utiliser dans les échanges avec les clients.",
   "knowledge.page.welcomeTitle": "Vos réponses de configuration sont enregistrées.",
@@ -1233,6 +1237,7 @@ const de: Record<KnowledgeTranslationKey, string> = {
   "knowledge.status.evaluation.failed": "Fehlgeschlagen",
   "knowledge.status.evaluation.cancelled": "Abgebrochen",
   "knowledge.page.title": "Unternehmenswissen",
+  "knowledge.page.mobileTitle": "Wissen",
   "knowledge.page.description":
     "Steuern Sie die Fakten und Regeln, die LeadVirt in Kundengesprächen verwenden darf.",
   "knowledge.page.welcomeTitle": "Ihre Einrichtungsantworten wurden gespeichert.",
@@ -1531,6 +1536,7 @@ const pt: Record<KnowledgeTranslationKey, string> = {
   "knowledge.status.evaluation.failed": "Falhou",
   "knowledge.status.evaluation.cancelled": "Cancelada",
   "knowledge.page.title": "Conhecimento do negócio",
+  "knowledge.page.mobileTitle": "Conhecimento",
   "knowledge.page.description":
     "Controle os fatos e regras que o LeadVirt pode usar nas conversas com clientes.",
   "knowledge.page.welcomeTitle": "Suas respostas de configuração foram salvas.",

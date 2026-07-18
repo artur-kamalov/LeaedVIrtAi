@@ -395,17 +395,18 @@ test("legacy notes do not replace structured services and schedule", async ({ pa
   await expect(page.getByTestId("dashboard-readiness")).toHaveAttribute("data-ready", "false");
 });
 
-test("mobile shows the current unresolved step before the completed journey", async ({ page }) => {
+test("mobile keeps the detailed journey collapsed until requested", async ({ page }) => {
   await mockReadiness(page, { knowledge: "review" });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
 
-  await expect(page.getByTestId("dashboard-readiness-step-knowledge")).toBeVisible();
+  await expect(page.getByTestId("dashboard-readiness-step-knowledge")).toBeHidden();
   await expect(page.getByTestId("dashboard-readiness-step-profile")).toBeHidden();
   await expect(page.getByTestId("dashboard-readiness-step-channel")).toBeHidden();
-  await expect(page.getByTestId("dashboard-readiness-steps-toggle")).toHaveAccessibleName(
-    "Show all steps",
-  );
+  const stepsToggle = page.getByTestId("dashboard-readiness-steps-toggle");
+  await expect(stepsToggle).toHaveAccessibleName("Show all steps");
+  await stepsToggle.click();
+  await expect(page.getByTestId("dashboard-readiness-step-knowledge")).toBeVisible();
 });
 
 test("mobile prioritizes the relevant launch step and can disclose the complete journey", async ({
@@ -422,8 +423,8 @@ test("mobile prioritizes the relevant launch step and can disclose the complete 
   const journey = page.getByTestId("dashboard-readiness");
   await expect(journey).toHaveAttribute("data-ready", "true");
   await expect(journey.locator('[data-state="completed"]')).toHaveCount(7);
-  await expect(journey.locator('[data-state="completed"]:visible')).toHaveCount(1);
-  await expect(page.getByTestId("dashboard-readiness-step-inbound")).toBeVisible();
+  await expect(journey.locator('[data-state="completed"]:visible')).toHaveCount(0);
+  await expect(page.getByTestId("dashboard-readiness-step-inbound")).toBeHidden();
   await expect(page.getByTestId("dashboard-readiness-step-profile")).toBeHidden();
 
   const stepsToggle = page.getByTestId("dashboard-readiness-steps-toggle");

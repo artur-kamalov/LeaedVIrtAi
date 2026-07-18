@@ -332,6 +332,7 @@ export const es: Record<BaseTranslationKey, string> = {
   "onboarding.skip": "Saltar",
   "onboarding.back": "Atrás",
   "onboarding.next": "Siguiente",
+  "onboarding.restart": "Reiniciar configuración",
   "onboarding.launch": "Abrir panel",
   "onboarding.saving": "Guardando...",
   "onboarding.continue.billing": "Revisar el plan seleccionado",

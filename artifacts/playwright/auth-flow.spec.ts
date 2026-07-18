@@ -235,6 +235,63 @@ test.describe("telegram auth flow", () => {
 });
 
 test.describe("email OTP configuration", () => {
+  test("keeps auth controls touch-friendly through the mobile code step", async ({ page }) => {
+    await page
+      .context()
+      .addCookies([{ name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" }]);
+    await page.route("**/api/auth/email-otp/config", async (route) => {
+      await route.fulfill({
+        headers: apiMockHeaders,
+        json: { data: { enabled: true, codeLength: 6, resendAfterSeconds: 60 } },
+      });
+    });
+    await page.route("**/api/auth/email-otp/request", async (route) => {
+      await route.fulfill({
+        headers: apiMockHeaders,
+        json: {
+          data: {
+            sent: true,
+            challengeId: "m".repeat(48),
+            expiresAt: "2026-07-18T20:10:00.000Z",
+            resendAfterSeconds: 60,
+            debugCode: "246810",
+          },
+        },
+      });
+    });
+
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.goto(`${webBase}/login`, { waitUntil: "networkidle" });
+
+    const initialControls = [
+      page.getByRole("link", { name: "LeadVirt.ai", exact: true }),
+      page.getByTestId("language-switcher"),
+      page.getByRole("link", { name: "Back to site", exact: true }),
+      page.getByTestId("auth-method-email"),
+      page.getByTestId("auth-method-telegram"),
+      page.getByRole("link", { name: "Sign up", exact: true }),
+    ];
+    for (const control of initialControls) {
+      const box = await control.boundingBox();
+      expect(box, await control.getAttribute("data-testid")).not.toBeNull();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+
+    await page.getByLabel("Work email").fill("mobile@example.com");
+    await page.getByTestId("email-otp-request").click();
+    for (const control of [
+      page.getByRole("button", { name: "Change email", exact: true }),
+      page.getByTestId("email-otp-resend"),
+    ]) {
+      const box = await control.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+  });
+
   test("keeps a transient configuration failure distinct and retries", async ({ page }) => {
     let configRequests = 0;
     let configAvailable = false;

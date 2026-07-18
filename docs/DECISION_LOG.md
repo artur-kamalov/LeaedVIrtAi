@@ -3894,3 +3894,16 @@ Consequences:
 - New integration setup fields require a translation key instead of a raw label.
 - Operations Suite catalogs fail typecheck when a supported locale misses a key.
 - Charts expose localized data summaries, demo read-only surfaces explain their state, and horizontally scrollable workflows and pipelines visibly signal additional content.
+
+## 2026-07-18: Prioritize Outcomes And Reachable Actions On Narrow Screens
+
+Decision: Mobile product views show business outcomes before setup detail, keep secondary journeys collapsed until requested, and reserve at least 44px for every primary navigation or recovery action.
+
+Context: At 320-390px, readiness detail displaced dashboard metrics, onboarding and integration actions could sit behind fixed navigation or safe areas, clipped Inbox filters lacked a reliable cue, and compact public/auth controls were difficult to tap.
+
+Consequences:
+
+- Dashboard metrics precede the readiness journey on mobile while desktop ordering remains unchanged.
+- Readiness steps stay collapsed behind an explicit control; the current primary action remains visible.
+- Horizontal filter rows expose a measured scroll action, and fixed mobile navigation is included in CTA scroll spacing.
+- Demo onboarding can return to its first step without creating a new session, and narrow Knowledge views expose one localized title.

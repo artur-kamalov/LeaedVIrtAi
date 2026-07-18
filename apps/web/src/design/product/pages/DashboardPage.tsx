@@ -382,9 +382,11 @@ export function DashboardPage() {
   return (
     <ProductLayout title={t("dashboard.title")}>
       {/* ── Glow orbs (decorative) ── */}
-      <div className="space-y-8">
+      <div className="flex flex-col gap-5 sm:gap-8">
         {summaryResource.isError ? (
-          <ResourceErrorState testId="dashboard-refresh-error" onRetry={summaryResource.reload} />
+          <div className="order-1">
+            <ResourceErrorState testId="dashboard-refresh-error" onRetry={summaryResource.reload} />
+          </div>
         ) : null}
 
         {/* ── 1. Greeting row ── */}
@@ -392,7 +394,7 @@ export function DashboardPage() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.55, ease: "easeOut" }}
-          className="flex flex-col sm:flex-row sm:items-end justify-between gap-4"
+          className="order-1 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"
         >
           <div>
             {tenantName ? (
@@ -438,19 +440,22 @@ export function DashboardPage() {
           </div>
         </motion.div>
 
-        <DashboardReadinessJourney
-          snapshot={readinessResource.data}
-          isLoading={readinessResource.isLoading}
-          isError={readinessResource.isError}
-          onRetry={readinessResource.reload}
-        />
+        <div className="order-3 lg:order-2">
+          <DashboardReadinessJourney
+            snapshot={readinessResource.data}
+            isLoading={readinessResource.isLoading}
+            isError={readinessResource.isError}
+            onRetry={readinessResource.reload}
+          />
+        </div>
 
         {/* ── 2. Stat cards ── */}
         <div
           className={cn(
-            "grid grid-cols-2 gap-3 sm:gap-4",
+            "order-2 grid grid-cols-2 gap-3 sm:gap-4 lg:order-3",
             isDemo ? "lg:grid-cols-4" : "lg:grid-cols-3 xl:grid-cols-6",
           )}
+          data-testid="dashboard-stat-grid"
         >
           {dashboardStats.map((s, i) => (
             <StatCard
@@ -467,7 +472,7 @@ export function DashboardPage() {
         </div>
 
         {/* ── 3. Chart + Channels ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="order-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Chart */}
           <motion.div
             className="lg:col-span-2"
@@ -634,7 +639,7 @@ export function DashboardPage() {
         </div>
 
         {/* ── 4. Recent leads + Activity ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="order-5 grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Recent Leads */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
