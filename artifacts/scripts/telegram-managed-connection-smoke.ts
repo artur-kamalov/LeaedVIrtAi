@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { loadEnvFile } from "@leadvirt/config";
 import { decryptIntegrationCredentials } from "@leadvirt/integrations";
 import { prisma, type Prisma } from "@leadvirt/db";
-import type { AiReplyEnqueueRequest, AiReplyJobData } from "@leadvirt/types";
+import type {
+  AiReplyEnqueueRequest,
+  AiReplyJobData,
+  ChannelSendMessageJobData,
+} from "@leadvirt/types";
 import type { RequestContext } from "../../apps/api/src/common/request-context.js";
 import type { AiReplyQueueService } from "../../apps/api/src/modules/ai/ai-reply-queue.service.js";
 import { ChannelsService } from "../../apps/api/src/modules/channels/channels.service.js";
@@ -77,6 +81,8 @@ async function main() {
   let reportedAllowedUpdates: string[] | null = null;
   const queuedJobs: AiReplyJobData[] = [];
   const enqueuedJobs: AiReplyJobData[] = [];
+  const channelDeliveryEvents: ChannelSendMessageJobData[] = [];
+  const dispatchedChannelDeliveryEventIds: string[] = [];
   let rejectNextQueueAdmission = false;
   let workflowRuns = 0;
   let telegramService: TelegramService;
@@ -280,12 +286,29 @@ async function main() {
       };
     },
   } as unknown as AiReplyQueueService;
-  telegramService = new TelegramService(prisma as unknown as PrismaService, aiReplyQueue, {
-    runForEvent: async () => {
-      workflowRuns += 1;
-      return { matched: 0, runs: [] };
+  const runtimeQueue = {
+    createChannelDeliveryEvent: async (
+      _tx: Prisma.TransactionClient,
+      data: ChannelSendMessageJobData,
+    ) => {
+      channelDeliveryEvents.push(data);
+      return { id: `runtime-delivery:${data.messageId}` };
     },
-  } as unknown as WorkflowsService);
+    dispatch: (eventId: string) => {
+      dispatchedChannelDeliveryEventIds.push(eventId);
+    },
+  } as unknown as RuntimeQueueService;
+  telegramService = new TelegramService(
+    prisma as unknown as PrismaService,
+    aiReplyQueue,
+    runtimeQueue,
+    {
+      runForEvent: async () => {
+        workflowRuns += 1;
+        return { matched: 0, runs: [] };
+      },
+    } as unknown as WorkflowsService,
+  );
 
   try {
     const tenant = await prisma.tenant.create({
@@ -334,6 +357,20 @@ async function main() {
       !JSON.stringify(connected).includes(webhookSecret),
       "Integration response leaked the webhook secret.",
     );
+    const activationStartParameter = (connected.settings as Record<string, unknown>)
+      .activationStartParameter;
+    const activationWelcomeRequestedAt = (connected.settings as Record<string, unknown>)
+      .activationWelcomeRequestedAt;
+    assert(
+      typeof activationStartParameter === "string" &&
+        /^lv_[A-Za-z0-9_-]{20,}$/u.test(activationStartParameter),
+      "Managed Telegram connection did not return a scoped activation start parameter.",
+    );
+    assert(
+      typeof activationWelcomeRequestedAt === "string" &&
+        Number.isFinite(Date.parse(activationWelcomeRequestedAt)),
+      "Managed Telegram connection did not return its activation boundary.",
+    );
 
     const channel = await prisma.channel.findFirst({
       where: { tenantId: tenant.id, type: "TELEGRAM", deletedAt: null },
@@ -344,6 +381,22 @@ async function main() {
     assert(
       !channel.encryptedCredentials!.includes(botToken),
       "Stored credentials contain the raw bot token.",
+    );
+    const connectedSettings = channel.settings as Record<string, unknown>;
+    const connectedTelegramSettings = connectedSettings.telegram as Record<string, unknown>;
+    assert(
+      connectedTelegramSettings.activationWelcomePending === true,
+      "Managed Telegram connection did not arm the one-time activation welcome.",
+    );
+    assert(
+      typeof connectedTelegramSettings.activationWelcomeTokenHash === "string" &&
+        connectedTelegramSettings.activationWelcomeTokenHash !== activationStartParameter &&
+        !JSON.stringify(channel.settings).includes(String(activationStartParameter)),
+      "Telegram channel settings did not keep only the activation parameter hash.",
+    );
+    assert(
+      connectedTelegramSettings.activationWelcomeRequestedAt === activationWelcomeRequestedAt,
+      "Telegram channel and authenticated integration response disagree on activation identity.",
     );
     assert(
       decryptIntegrationCredentials(channel.encryptedCredentials!).botToken === botToken,
@@ -418,6 +471,266 @@ async function main() {
     assert(
       JSON.stringify(rolledBackChannel.settings) === settingsBeforeStage,
       "Telegram webhook candidate rollback did not restore the exact prior settings.",
+    );
+
+    const activationUpdateId = 1_500_000_000 + Number(String(Date.now()).slice(-8));
+    const activationChatId = 8_173_697_470;
+    const wrongStartResult = await telegramService.handleWebhook(
+      channel.publicKey!,
+      {
+        update_id: activationUpdateId - 1,
+        message: {
+          message_id: 16,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: activationChatId - 1, type: "private", first_name: "Wrong Start" },
+          from: { id: activationChatId - 1, is_bot: false, first_name: "Wrong Start" },
+          text: "/start wrong-parameter",
+          entities: [{ type: "bot_command", offset: 0, length: 6 }],
+        },
+      },
+      { "x-telegram-bot-api-secret-token": webhookSecret },
+      "TELEGRAM_WEBHOOK",
+    );
+    const pendingAfterWrongStart = (
+      await prisma.channel.findUniqueOrThrow({
+        where: { id: channel.id },
+        select: { settings: true },
+      })
+    ).settings as Record<string, unknown>;
+    assert(
+      wrongStartResult.outboundStatus === "skipped" &&
+        queuedJobs.length === 0 &&
+        workflowRuns === 0 &&
+        channelDeliveryEvents.length === 0 &&
+        (pendingAfterWrongStart.telegram as Record<string, unknown>).activationWelcomePending ===
+          true,
+      "An unscoped /start command consumed activation or entered AI/workflows.",
+    );
+    const startCommand = `/start ${String(activationStartParameter)}`;
+    const startUpdate = {
+      update_id: activationUpdateId,
+      message: {
+        message_id: 17,
+        date: Math.floor(Date.now() / 1000),
+        chat: { id: activationChatId, type: "private", first_name: "Activation Client" },
+        from: {
+          id: activationChatId,
+          is_bot: false,
+          first_name: "Activation Client",
+          language_code: "en",
+        },
+        text: startCommand,
+        entities: [{ type: "bot_command", offset: 0, length: 6 }],
+      },
+    };
+    const startResult = await telegramService.handleWebhook(
+      channel.publicKey!,
+      startUpdate,
+      { "x-telegram-bot-api-secret-token": webhookSecret },
+      "TELEGRAM_WEBHOOK",
+    );
+    const startConversationMessages = await prisma.message.findMany({
+      where: { tenantId: tenant.id, conversationId: startResult.conversationId },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    const startInbound = startConversationMessages.find(
+      (message) => message.direction === "INBOUND",
+    );
+    const startWelcome = startConversationMessages.filter(
+      (message) => message.direction === "OUTBOUND" && message.senderType === "SYSTEM",
+    );
+    const startInboundMetadata = (startInbound?.metadata ?? {}) as Record<string, unknown>;
+    const normalizedStartCommand = startInboundMetadata.telegramCommand as
+      | Record<string, unknown>
+      | undefined;
+    assert(
+      startResult.outboundStatus === "queued" &&
+        startWelcome.length === 1 &&
+        startWelcome[0]?.status === "QUEUED" &&
+        startWelcome[0]?.text?.includes("LeadVirt") &&
+        startWelcome[0]?.text?.includes(tenant.name),
+      "The managed /start activation did not queue the deterministic SYSTEM welcome.",
+    );
+    assert(
+      normalizedStartCommand?.name === "start" &&
+        normalizedStartCommand.payload === activationStartParameter &&
+        startInboundMetadata.aiIgnoredReason === "TELEGRAM_SYSTEM_COMMAND",
+      "The managed /start activation was not persisted as an AI-ignored command.",
+    );
+    assert(
+      queuedJobs.length === 0 &&
+        enqueuedJobs.length === 0 &&
+        workflowRuns === 0 &&
+        channelDeliveryEvents.length === 1 &&
+        channelDeliveryEvents[0]?.messageId === startWelcome[0]?.id &&
+        channelDeliveryEvents[0]?.triggerMessageId === startInbound?.id &&
+        dispatchedChannelDeliveryEventIds.length === 1,
+      "The /start activation crossed into AI/workflows or did not dispatch its durable delivery.",
+    );
+    const settingsAfterStart = (
+      await prisma.channel.findUniqueOrThrow({
+        where: { id: channel.id },
+        select: { settings: true },
+      })
+    ).settings as Record<string, unknown>;
+    assert(
+      (settingsAfterStart.telegram as Record<string, unknown>).activationWelcomePending === false,
+      "The /start activation did not consume the one-time welcome.",
+    );
+    const integrationAfterStart = await prisma.integrationAccount.findUniqueOrThrow({
+      where: { tenantId_provider: { tenantId: tenant.id, provider: "TELEGRAM" } },
+      select: { settings: true },
+    });
+    assert(
+      (integrationAfterStart.settings as Record<string, unknown>).activationStartParameter ===
+        undefined,
+      "Consumed Telegram activation parameter remained exposed in integration settings.",
+    );
+    const replayedStart = await telegramService.handleWebhook(
+      channel.publicKey!,
+      startUpdate,
+      { "x-telegram-bot-api-secret-token": webhookSecret },
+      "TELEGRAM_WEBHOOK",
+    );
+    assert(
+      replayedStart.duplicate &&
+        channelDeliveryEvents.length === 1 &&
+        dispatchedChannelDeliveryEventIds.length === 1 &&
+        (await prisma.message.count({
+          where: {
+            tenantId: tenant.id,
+            conversationId: startResult.conversationId,
+            senderType: "SYSTEM",
+          },
+        })) === 1,
+      "Telegram replay duplicated the one-time activation welcome.",
+    );
+
+    const commandSideEffectsBeforeHelp = {
+      aiEvents: queuedJobs.length,
+      aiEnqueues: enqueuedJobs.length,
+      workflows: workflowRuns,
+      deliveries: channelDeliveryEvents.length,
+    };
+    const helpResult = await telegramService.handleWebhook(
+      channel.publicKey!,
+      {
+        update_id: activationUpdateId + 1,
+        message: {
+          message_id: 18,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: activationChatId, type: "private", first_name: "Activation Client" },
+          from: { id: activationChatId, is_bot: false, first_name: "Activation Client" },
+          text: "/help account",
+        },
+      },
+      { "x-telegram-bot-api-secret-token": webhookSecret },
+      "TELEGRAM_WEBHOOK",
+    );
+    const helpMessage = await prisma.message.findUniqueOrThrow({
+      where: { id: helpResult.inboundMessageId! },
+      select: { metadata: true },
+    });
+    const helpMetadata = helpMessage.metadata as Record<string, unknown>;
+    assert(
+      helpResult.outboundStatus === "skipped" &&
+        (helpMetadata.telegramCommand as Record<string, unknown> | undefined)?.name === "help" &&
+        helpMetadata.aiIgnoredReason === "TELEGRAM_SYSTEM_COMMAND" &&
+        queuedJobs.length === commandSideEffectsBeforeHelp.aiEvents &&
+        enqueuedJobs.length === commandSideEffectsBeforeHelp.aiEnqueues &&
+        workflowRuns === commandSideEffectsBeforeHelp.workflows &&
+        channelDeliveryEvents.length === commandSideEffectsBeforeHelp.deliveries,
+      "A non-activation Telegram command entered AI, workflows, or outbound delivery.",
+    );
+
+    const currentChannelSettings = (
+      await prisma.channel.findUniqueOrThrow({
+        where: { id: channel.id },
+        select: { settings: true },
+      })
+    ).settings as Record<string, unknown>;
+    await prisma.channel.update({
+      where: { id: channel.id },
+      data: {
+        settings: {
+          ...currentChannelSettings,
+          telegram: {
+            ...(currentChannelSettings.telegram as Record<string, unknown>),
+            activationWelcomePending: true,
+            activationWelcomeRequestedAt: new Date().toISOString(),
+          },
+        } as Prisma.InputJsonObject,
+      },
+    });
+    const normalWelcomeChatId = 8_173_697_471;
+    const normalWelcomeUpdate = {
+      update_id: activationUpdateId + 2,
+      message: {
+        message_id: 19,
+        date: Math.floor(Date.now() / 1000),
+        chat: { id: normalWelcomeChatId, type: "private", first_name: "Normal Client" },
+        from: {
+          id: normalWelcomeChatId,
+          is_bot: false,
+          first_name: "Normal Client",
+          language_code: "en",
+        },
+        text: "Hello, is the bot connected?",
+      },
+    };
+    const aiEventsBeforeNormalWelcome = queuedJobs.length;
+    const workflowsBeforeNormalWelcome = workflowRuns;
+    const normalWelcome = await telegramService.handleWebhook(
+      channel.publicKey!,
+      normalWelcomeUpdate,
+      { "x-telegram-bot-api-secret-token": webhookSecret },
+      "TELEGRAM_WEBHOOK",
+    );
+    const normalWelcomeMessages = await prisma.message.findMany({
+      where: { tenantId: tenant.id, conversationId: normalWelcome.conversationId },
+    });
+    const normalCustomerWelcome = normalWelcomeMessages.find(
+      (message) => message.direction === "OUTBOUND" && message.senderType === "SYSTEM",
+    );
+    assert(
+      normalWelcome.outboundStatus === "queued" &&
+        normalWelcomeMessages.filter(
+          (message) => message.direction === "OUTBOUND" && message.senderType === "SYSTEM",
+        ).length === 1 &&
+        channelDeliveryEvents.length === commandSideEffectsBeforeHelp.deliveries + 1 &&
+        queuedJobs.length === aiEventsBeforeNormalWelcome &&
+        workflowRuns === workflowsBeforeNormalWelcome + 1 &&
+        normalCustomerWelcome?.text?.includes("team member") &&
+        !normalCustomerWelcome.text.includes("Add your business details"),
+      "The first normal private message did not receive the one-time SYSTEM welcome without AI.",
+    );
+    const normalFollowup = await telegramService.handleWebhook(
+      channel.publicKey!,
+      {
+        ...normalWelcomeUpdate,
+        update_id: activationUpdateId + 3,
+        message: {
+          ...normalWelcomeUpdate.message,
+          message_id: 20,
+          text: "What services do you offer?",
+        },
+      },
+      { "x-telegram-bot-api-secret-token": webhookSecret },
+      "TELEGRAM_WEBHOOK",
+    );
+    assert(
+      normalFollowup.outboundStatus === "queued" &&
+        channelDeliveryEvents.length === commandSideEffectsBeforeHelp.deliveries + 1 &&
+        queuedJobs.length === aiEventsBeforeNormalWelcome + 1 &&
+        workflowRuns === workflowsBeforeNormalWelcome + 2 &&
+        (await prisma.message.count({
+          where: {
+            tenantId: tenant.id,
+            conversationId: normalWelcome.conversationId,
+            senderType: "SYSTEM",
+          },
+        })) === 1,
+      "A follow-up normal message duplicated the activation welcome or skipped normal processing.",
     );
 
     const privateUpdate = {

@@ -33,6 +33,7 @@ import { ChannelsService, type TelegramWebhookSecretStage } from "../channels/ch
 import { PrismaService } from "../database/prisma.service.js";
 import { TelegramBotApiService } from "../telegram/telegram-bot-api.service.js";
 import { TelegramService } from "../telegram/telegram.service.js";
+import { issueTelegramActivationStartParameter } from "../telegram/telegram-activation-welcome.js";
 import { WebhookService } from "../webhook/webhook.service.js";
 import type { ConnectIntegrationDto } from "./dto/connect-integration.dto.js";
 import type { UpdateIntegrationSettingsDto } from "./dto/update-integration-settings.dto.js";
@@ -776,6 +777,8 @@ export class IntegrationsService {
       }
 
       const encryptedCredentials = encryptIntegrationCredentials({ botToken });
+      const activationStart = issueTelegramActivationStartParameter();
+      const connectedAt = new Date();
       try {
         await this.channelsService.activateTelegramChannel(context, {
           channelId: channel.id,
@@ -785,6 +788,9 @@ export class IntegrationsService {
           expectedEncryptedCredentials: channel.encryptedCredentials,
           webhookSecret: channel.webhookSecret,
           retainPreviousBotWebhookCleanup: replacingBot,
+          activationWelcomeLocale: context.user.locale ?? null,
+          activationWelcomeTokenHash: activationStart.hash,
+          activationWelcomeRequestedAt: connectedAt.toISOString(),
         });
       } catch (error) {
         await this.compensateTelegramConnectFailure(context, {
@@ -805,7 +811,6 @@ export class IntegrationsService {
           expectedEncryptedCredentials: encryptedCredentials,
         }));
       }
-      const connectedAt = new Date();
       const updated = await this.prisma.integrationAccount.update({
         where: { id: integration.id },
         data: {
@@ -822,6 +827,8 @@ export class IntegrationsService {
             managedByLeadVirt: true,
             allowedUpdates: telegramAllowedUpdates,
             previousBotCleanupPending,
+            activationStartParameter: activationStart.parameter,
+            activationWelcomeRequestedAt: connectedAt.toISOString(),
           },
         },
       });
@@ -1442,9 +1449,7 @@ export class IntegrationsService {
         ...(["REQUESTED", "DELIVERY_UNKNOWN"].includes(String(base.requestStatus))
           ? { requestStatus: base.requestStatus }
           : {}),
-        ...(["PENDING", "SENT", "FAILED", "UNKNOWN"].includes(
-          String(base.requestDeliveryStatus),
-        )
+        ...(["PENDING", "SENT", "FAILED", "UNKNOWN"].includes(String(base.requestDeliveryStatus))
           ? { requestDeliveryStatus: base.requestDeliveryStatus }
           : {}),
         ...(typeof base.requestedAt === "string" ? { requestedAt: base.requestedAt } : {}),
@@ -1455,6 +1460,12 @@ export class IntegrationsService {
       return {
         ...(typeof base.botId === "string" ? { botId: base.botId } : {}),
         ...(typeof base.botUsername === "string" ? { botUsername: base.botUsername } : {}),
+        ...(typeof base.activationStartParameter === "string"
+          ? { activationStartParameter: base.activationStartParameter }
+          : {}),
+        ...(typeof base.activationWelcomeRequestedAt === "string"
+          ? { activationWelcomeRequestedAt: base.activationWelcomeRequestedAt }
+          : {}),
         tokenConfigured:
           base.tokenConfigured === true ||
           typeof base.apiToken === "string" ||

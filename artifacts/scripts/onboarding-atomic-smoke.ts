@@ -361,6 +361,17 @@ async function main() {
       },
     };
     const advanceInitial = await onboarding.state(advanceContext);
+    await prisma.onboardingState.update({
+      where: { tenantId: advanceTenant.id },
+      data: {
+        data: {
+          companyInfo: {
+            description: "Deferred profile description.",
+            faq: "Deferred profile FAQ.",
+          },
+        },
+      },
+    });
     const business = await onboarding.advance(
       advanceContext,
       { step: "business", data: { businessType: "services" } },
@@ -381,7 +392,6 @@ async function main() {
         data: {
           companyInfo: {
             name: "Advance Business",
-            description: "Atomic advance path coverage.",
           },
           timezone: "Europe/Paris",
         },
@@ -411,6 +421,12 @@ async function main() {
         JSON.stringify(["business", "channels", "scenario", "company", "crm", "launch"]),
       "Atomic advance did not complete all steps in order.",
     );
+    const launchedCompanyInfo = record(record(launched.data).companyInfo);
+    assert(
+      launchedCompanyInfo.description === "Deferred profile description." &&
+        launchedCompanyInfo.faq === "Deferred profile FAQ.",
+      "A name-only onboarding advance cleared deferred business information.",
+    );
     assert(
       replayed.currentStep === "launch" && replayed.completedAt === launched.completedAt,
       "An older-step replay regressed or recompleted onboarding.",
@@ -419,7 +435,7 @@ async function main() {
     console.log(
       JSON.stringify({
         ok: true,
-        assertions: 36,
+        assertions: 37,
         sources: sources.length,
         audits: auditCount,
         outboxEvents: outboxCount,

@@ -6,7 +6,9 @@ async function nextStep(page: import("@playwright/test").Page) {
   await page.locator("button:visible").last().click();
 }
 
-test("onboarding company step exposes RAG business fields", async ({ page }) => {
+test("onboarding keeps the company step minimal and defers details to Business Information", async ({
+  page,
+}) => {
   const onboardingState = {
     businessProfileVersion: 1,
     businessProfileEtag: '"business-profile-knowledge-ui-1"',
@@ -46,9 +48,32 @@ test("onboarding company step exposes RAG business fields", async ({ page }) => 
   await page.locator("main button").nth(0).click();
   await nextStep(page);
 
-  await expect(page.locator("textarea")).toHaveCount(6);
+  await expect(page.getByRole("heading", { name: "What is your business called?" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Company name", exact: true })).toBeVisible();
+  await expect(page.locator("textarea")).toHaveCount(0);
+  await expect(page.getByTestId("onboarding-timezone")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "About the company", exact: true })).toHaveCount(
+    0,
+  );
   await page.screenshot({
-    path: "artifacts/playwright/onboarding-knowledge-fields.png",
+    path: "artifacts/playwright/onboarding-minimal-company-step.png",
     fullPage: true,
   });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("heading", { name: "What is your business called?" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Company name", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({
+    path: "artifacts/playwright/onboarding-minimal-company-step-mobile.png",
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${webBase}/demo/knowledge?view=business`, { waitUntil: "networkidle" });
+  await expect(page.getByTestId("business-profile-description")).toBeVisible();
+  await expect(page.getByTestId("business-profile-services")).toBeVisible();
+  await expect(page.getByTestId("business-profile-additional-details")).toBeVisible();
 });

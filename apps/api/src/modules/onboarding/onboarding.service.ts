@@ -198,9 +198,7 @@ export class OnboardingService {
           : candidate === "scenario"
             ? nonBlank(data.scenario)
             : candidate === "company"
-              ? nonBlank(companyInfo.name) &&
-                nonBlank(companyInfo.description) &&
-                nonBlank(data.timezone)
+              ? nonBlank(companyInfo.name)
               : candidate === "crm"
                 ? nonBlank(data.crm)
                 : true;

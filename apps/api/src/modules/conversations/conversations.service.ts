@@ -54,6 +54,15 @@ type ConversationWithDetail = Prisma.ConversationGetPayload<{
   };
 }>;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function telegramActivationWelcomeAt(metadata: unknown) {
+  const value = isRecord(metadata) ? metadata.telegramActivationWelcomeAt : undefined;
+  return typeof value === "string" ? value : null;
+}
+
 function channelSendSource(
   channel: ConversationWithDetail["channel"],
 ): ChannelSendMessageJobData["source"] | null {
@@ -138,9 +147,7 @@ export class ConversationsService {
     ]);
 
     return {
-      data: rows.map((row) =>
-        this.mapConversationPreview(row, sampleConversationIds.has(row.id)),
-      ),
+      data: rows.map((row) => this.mapConversationPreview(row, sampleConversationIds.has(row.id))),
       pagination: {
         page,
         limit,
@@ -409,6 +416,7 @@ export class ConversationsService {
         conversation.status !== "CLOSED" && conversation.messages[0]?.direction === "INBOUND"
           ? 1
           : 0,
+      activationWelcomeAt: telegramActivationWelcomeAt(conversation.metadata),
       isInternalSample,
       messages: [],
       events: [],
@@ -436,6 +444,7 @@ export class ConversationsService {
         conversation.status !== "CLOSED" && conversation.messages.at(-1)?.direction === "INBOUND"
           ? 1
           : 0,
+      activationWelcomeAt: telegramActivationWelcomeAt(conversation.metadata),
       isInternalSample,
       messages: conversation.messages.map((message) => this.mapMessage(message)),
       events:

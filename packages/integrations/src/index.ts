@@ -35,6 +35,13 @@ export interface NormalizedAuthenticatedCustomerClaim {
   externalSubjectId: string;
 }
 
+export interface NormalizedTelegramCommand {
+  name: string;
+  raw: string;
+  botUsername?: string;
+  payload?: string;
+}
+
 export interface NormalizedInboundMessage {
   externalMessageId: string;
   externalConversationId: string;
@@ -42,8 +49,10 @@ export interface NormalizedInboundMessage {
   eventKind?: "MESSAGE" | "MESSAGE_EDITED";
   authenticatedCustomer?: NormalizedAuthenticatedCustomerClaim;
   customerName?: string;
+  customerLocale?: string;
   customerPhone?: string;
   customerEmail?: string;
+  telegramCommand?: NormalizedTelegramCommand;
   text?: string;
   attachments?: NormalizedAttachment[];
   timestamp: string;
@@ -146,6 +155,40 @@ export class WebsiteWidgetAdapter extends UnavailableChannelAdapter {
   type = "WEBSITE" as const;
 }
 
+function normalizeTelegramCommand(
+  text: string,
+  entities: unknown,
+): NormalizedTelegramCommand | undefined {
+  const entityList: unknown[] = Array.isArray(entities) ? entities : [];
+  const commandEntity = entityList.find(
+    (entity) =>
+      isRecord(entity) &&
+      entity.type === "bot_command" &&
+      entity.offset === 0 &&
+      typeof entity.length === "number" &&
+      Number.isSafeInteger(entity.length) &&
+      entity.length > 1,
+  );
+  const entityLength = isRecord(commandEntity) ? commandEntity.length : undefined;
+  const raw =
+    typeof entityLength === "number"
+      ? text.slice(0, entityLength)
+      : /^\/[A-Za-z0-9_]+(?:@[A-Za-z0-9_]+)?(?=\s|$)/u.exec(text)?.[0];
+  if (!raw) return undefined;
+
+  const parsed = /^\/([A-Za-z0-9_]+)(?:@([A-Za-z0-9_]+))?$/u.exec(raw);
+  if (!parsed) return undefined;
+  const name = parsed[1];
+  if (!name) return undefined;
+  const payload = text.slice(raw.length).trim();
+  return {
+    name: name.toLowerCase(),
+    raw,
+    ...(parsed[2] ? { botUsername: parsed[2] } : {}),
+    ...(payload ? { payload } : {}),
+  };
+}
+
 export class TelegramAdapter implements ChannelAdapter {
   type = "TELEGRAM" as const;
   private readonly botApi: TelegramBotApiClient;
@@ -216,6 +259,13 @@ export class TelegramAdapter implements ChannelAdapter {
         : typeof message.caption === "string"
           ? message.caption
           : "Telegram message";
+    const commandEntities =
+      typeof message.text === "string" ? message.entities : message.caption_entities;
+    const telegramCommand = normalizeTelegramCommand(text, commandEntities);
+    const customerLocale =
+      typeof from.language_code === "string" && from.language_code.trim()
+        ? from.language_code.trim()
+        : undefined;
     const unixDate = typeof message.date === "number" ? message.date : undefined;
 
     return Promise.resolve({
@@ -225,7 +275,9 @@ export class TelegramAdapter implements ChannelAdapter {
       eventKind: isEditedMessage ? "MESSAGE_EDITED" : "MESSAGE",
       ...(authenticatedCustomer ? { authenticatedCustomer } : {}),
       ...(customerName ? { customerName } : {}),
+      ...(customerLocale ? { customerLocale } : {}),
       ...(phone ? { customerPhone: phone } : {}),
+      ...(telegramCommand ? { telegramCommand } : {}),
       text,
       timestamp: unixDate ? new Date(unixDate * 1000).toISOString() : new Date().toISOString(),
       raw: input,

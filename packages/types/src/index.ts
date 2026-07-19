@@ -661,6 +661,7 @@ export interface Conversation {
   lead?: Lead | null;
   lastMessage?: string | null;
   unreadCount?: number;
+  activationWelcomeAt?: string | null;
   isInternalSample?: boolean;
 }
 

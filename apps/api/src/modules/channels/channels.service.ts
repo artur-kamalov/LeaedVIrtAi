@@ -839,6 +839,9 @@ export class ChannelsService {
       expectedEncryptedCredentials: string | null;
       webhookSecret: string;
       retainPreviousBotWebhookCleanup: boolean;
+      activationWelcomeLocale?: string | null;
+      activationWelcomeTokenHash: string;
+      activationWelcomeRequestedAt: string;
     },
   ) {
     const channel = await this.prisma.$transaction(async (tx) => {
@@ -910,6 +913,11 @@ export class ChannelsService {
               botUsername: input.botUsername,
               webhookConfigured: true,
               autoReply: false,
+              activationWelcomePending: true,
+              activationWelcomeVersion: 1,
+              activationWelcomeLocale: input.activationWelcomeLocale ?? "en",
+              activationWelcomeTokenHash: input.activationWelcomeTokenHash,
+              activationWelcomeRequestedAt: input.activationWelcomeRequestedAt,
             },
           },
           ...(current.automaticRepliesEnabled

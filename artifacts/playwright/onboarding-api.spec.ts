@@ -141,7 +141,10 @@ test("mobile onboarding announces progress, intent availability, and saving stat
   await expect(page.getByText(/books customers automatically/i)).toHaveCount(0);
 });
 
-test("company onboarding fields expose associated required labels", async ({ context, page }) => {
+test("company onboarding asks only for the business name and defers details", async ({
+  context,
+  page,
+}) => {
   await context.addCookies([
     { name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" },
   ]);
@@ -156,6 +159,7 @@ test("company onboarding fields expose associated required labels", async ({ con
             businessType: "services",
             selectedChannels: ["telegram"],
             scenario: "support",
+            companyName: "Prefilled workspace",
           },
           completedAt: null,
         },
@@ -165,13 +169,15 @@ test("company onboarding fields expose associated required labels", async ({ con
 
   await page.goto(`${webBase}/onboarding`, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByLabel(/Company name/)).toHaveAttribute("required", "");
-  await expect(page.getByLabel(/Company name/)).toHaveAttribute("maxlength", "160");
-  await expect(page.getByLabel(/About the company/)).toHaveAttribute("required", "");
-  await expect(page.getByLabel(/About the company/)).toHaveAttribute("maxlength", "4000");
-  await expect(page.getByLabel("Catalog, services, and prices")).toBeVisible();
-  await expect(page.getByTestId("onboarding-timezone")).toBeVisible();
-  await expect(page.getByLabel("Business hours")).toBeVisible();
+  const companyName = page.getByLabel(/Company name/);
+  await expect(companyName).toHaveAttribute("required", "");
+  await expect(companyName).toHaveAttribute("maxlength", "160");
+  await expect(companyName).toHaveValue("Prefilled workspace");
+  await expect(page.getByLabel(/About the company/)).toHaveCount(0);
+  await expect(page.getByLabel("Catalog, services, and prices")).toHaveCount(0);
+  await expect(page.getByTestId("onboarding-timezone")).toHaveCount(0);
+  await expect(page.getByLabel("Business hours")).toHaveCount(0);
+  await expect(page.locator("textarea")).toHaveCount(0);
 });
 
 test("onboarding hydrates state and persists progress", async ({ page }) => {
@@ -327,10 +333,6 @@ test("onboarding completes all six steps through atomic ordered advances", async
   await page.getByRole("button", { name: /Customer support/ }).click();
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await page.getByLabel("Company name").fill("Complete onboarding workspace");
-  await page
-    .getByLabel("About the company")
-    .fill("A complete six-step onboarding contract fixture.");
-  await expect(page.getByTestId("onboarding-timezone")).toContainText(/Paris|UTC/);
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await page.getByRole("button", { name: /LeadVirt Inbox/ }).click();
   await page.getByRole("button", { name: "Next", exact: true }).click();
@@ -343,9 +345,10 @@ test("onboarding completes all six steps through atomic ordered advances", async
     timezone: expect.any(String),
     companyInfo: {
       name: "Complete onboarding workspace",
-      description: "A complete six-step onboarding contract fixture.",
     },
   });
+  expect(requests[3]?.data.companyInfo).toEqual({ name: "Complete onboarding workspace" });
+  expect(requests[3]?.data.timezone).toEqual(expect.stringMatching(/\S/u));
 });
 
 test("onboarding does not expose a blank form when saved state cannot load", async ({
@@ -723,7 +726,7 @@ test("onboarding does not present a fresh setup when saved state cannot be loade
   await error.getByRole("button").click();
 
   await expect(error).toBeHidden();
-  await expect(page.getByRole("heading", { name: "Company information" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What is your business called?" })).toBeVisible();
   await expect(page.getByPlaceholder("For example: Aura Beauty Studio")).toHaveValue(
     "Recovered workspace",
   );
@@ -789,7 +792,14 @@ test("onboarding company step sends a scoped profile write with the loaded ETag"
     advanceIfMatches.push(route.request().headers()["if-match"]);
     if (body.data?.companyInfo) {
       profileVersion += 1;
-      savedData = { ...savedData, ...body.data };
+      savedData = {
+        ...savedData,
+        ...body.data,
+        companyInfo: {
+          ...((savedData.companyInfo as Record<string, unknown> | undefined) ?? {}),
+          ...(body.data.companyInfo as Record<string, unknown>),
+        },
+      };
     }
     await route.fulfill({
       json: {
@@ -806,10 +816,6 @@ test("onboarding company step sends a scoped profile write with the loaded ETag"
 
   await page.goto(`${webBase}/onboarding`, { waitUntil: "networkidle" });
   await page.getByPlaceholder("For example: Aura Beauty Studio").fill("Scoped profile update");
-  await page
-    .getByPlaceholder("What your company does and what makes it different...")
-    .fill("Only the company step should be persisted.");
-  await page.getByPlaceholder(/For example: women's haircut/).fill("Consultation - 60 min");
   await page.getByRole("button", { name: "Next", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Where should leads go?" })).toBeVisible();
@@ -817,13 +823,19 @@ test("onboarding company step sends a scoped profile write with the loaded ETag"
   expect(advanceIfMatches).toEqual(['"business-profile-onboarding-7"']);
   expect(advances[0]?.step).toBe("company");
   expect(Object.keys(advances[0]?.data ?? {}).sort()).toEqual(["companyInfo", "timezone"]);
+  expect(advances[0]?.data?.companyInfo).toEqual({ name: "Scoped profile update" });
+  expect(savedData.companyInfo).toMatchObject({
+    name: "Scoped profile update",
+    description: "Existing description",
+    servicesCatalog: "",
+  });
   expect(advances[0]?.data).not.toHaveProperty("businessType");
   expect(advances[0]?.data).not.toHaveProperty("selectedChannels");
   expect(advances[0]?.data).not.toHaveProperty("scenario");
   expect(advances[0]?.data).not.toHaveProperty("crm");
 });
 
-test("onboarding shows API validation beside the company field without a connection warning", async ({
+test("onboarding shows API validation beside the visible company name", async ({
   context,
   page,
 }) => {
@@ -858,14 +870,9 @@ test("onboarding shows API validation beside the company field without a connect
           message: "The request contains invalid fields.",
           fieldErrors: [
             {
-              field: "data.companyInfo.description",
-              code: "KNOWLEDGE_VALIDATION_MAX_LENGTH",
-              message: "The company description is invalid.",
-            },
-            {
-              field: "data.companyInfo.faq",
-              code: "KNOWLEDGE_VALIDATION_MAX_LENGTH",
-              message: "The FAQ is invalid.",
+              field: "data.companyInfo.name",
+              code: "KNOWLEDGE_VALIDATION_INPUT_INVALID",
+              message: "The company name is invalid.",
             },
           ],
         },
@@ -876,18 +883,14 @@ test("onboarding shows API validation beside the company field without a connect
   await page.goto(`${webBase}/onboarding`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Next", exact: true }).click();
 
-  await expect(page.getByText("The company description is invalid.")).toBeVisible();
-  const description = page.getByLabel("About the company");
-  const faq = page.getByLabel("FAQ and common objections");
-  await expect(description).toHaveAttribute("aria-invalid", "true");
-  await expect(description).toBeFocused();
-  await expect(faq).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByText("The company name is invalid.")).toBeVisible();
+  const companyName = page.getByLabel("Company name");
+  await expect(companyName).toHaveAttribute("aria-invalid", "true");
+  await expect(companyName).toBeFocused();
   await expect(page.getByTestId("onboarding-persistence-error")).toHaveCount(0);
 
-  await description.fill("Corrected description");
-  await expect(page.getByText("The company description is invalid.")).toHaveCount(0);
-  await expect(faq).toHaveAttribute("aria-invalid", "true");
-  await expect(page.getByText("The FAQ is invalid.")).toBeVisible();
+  await companyName.fill("Corrected company name");
+  await expect(page.getByText("The company name is invalid.")).toHaveCount(0);
 });
 
 test("onboarding ignores profile ETags from workflow, completion, and navigation responses", async ({
@@ -954,19 +957,16 @@ test("onboarding ignores profile ETags from workflow, completion, and navigation
   await page.getByRole("button", { name: /Customer support/ }).click();
   await page.getByRole("button", { name: "Next", exact: true }).click();
 
-  await expect(page.getByRole("heading", { name: "Company information" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What is your business called?" })).toBeVisible();
   const companyName = page.getByPlaceholder("For example: Aura Beauty Studio");
   await companyName.fill("First fenced profile save");
-  await page
-    .getByPlaceholder("What your company does and what makes it different...")
-    .fill("The workflow responses must not replace the loaded profile token.");
   await page.getByRole("button", { name: "Next", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Where should leads go?" })).toBeVisible();
   expect(profileIfMatches).toEqual(['"business-profile-onboarding-1"']);
 
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Company information" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What is your business called?" })).toBeVisible();
   await companyName.fill("Second fenced profile save");
   await page.getByRole("button", { name: "Next", exact: true }).click();
 

@@ -21,8 +21,6 @@ import {
   MessageSquare,
   HeadphonesIcon,
   Building2,
-  Clock,
-  DollarSign,
   Database,
   AlertCircle,
   Loader2,
@@ -34,7 +32,7 @@ import { BrandMark } from "../../components/BrandMark";
 import { LanguageSwitcher } from "../../components/LanguageSwitcher";
 import { BrandWordmark } from "../../components/BrandWordmark";
 import { Card, channels } from "../shared";
-import { Select, Skeleton } from "../ui";
+import { Skeleton } from "../ui";
 import { ResourceErrorState } from "../ResourceErrorState";
 import { useProductPermissions } from "../CurrentUser";
 import { cn } from "../../lib/utils";
@@ -66,25 +64,6 @@ interface CompanyInfo {
 const TOTAL_STEPS = 6;
 const stepIds = ["business", "channels", "scenario", "company", "crm", "launch"] as const;
 type OnboardingStepId = (typeof stepIds)[number];
-const onboardingTimezones = [
-  "UTC",
-  "Europe/London",
-  "Europe/Paris",
-  "Europe/Berlin",
-  "Europe/Moscow",
-  "Europe/Samara",
-  "Asia/Dubai",
-  "Asia/Tbilisi",
-  "Asia/Almaty",
-  "Asia/Tashkent",
-  "Asia/Yekaterinburg",
-  "Asia/Novosibirsk",
-  "Asia/Vladivostok",
-  "America/New_York",
-  "America/Chicago",
-  "America/Los_Angeles",
-] as const;
-
 type CompanyField = keyof CompanyInfo | "timezone";
 type CompanyFieldErrors = Partial<Record<CompanyField, string>>;
 
@@ -252,7 +231,12 @@ function companyInfoFromData(data: Record<string, unknown>): CompanyInfo {
   const value = data.companyInfo;
   const record = isRecord(value) ? value : {};
   return {
-    name: typeof record.name === "string" ? record.name : "",
+    name:
+      typeof record.name === "string"
+        ? record.name
+        : typeof data.companyName === "string"
+          ? data.companyName
+          : "",
     description: typeof record.description === "string" ? record.description : "",
     hours: typeof record.hours === "string" ? record.hours : "",
     avgCheck: typeof record.avgCheck === "string" ? record.avgCheck : "",
@@ -595,15 +579,11 @@ function StepScenario({
 
 function StepCompanyInfo({
   value,
-  timezone,
   onChange,
-  onTimezoneChange,
   errors,
 }: {
   value: CompanyInfo;
-  timezone: string;
   onChange: (v: CompanyInfo) => void;
-  onTimezoneChange: (v: string) => void;
   errors: CompanyFieldErrors;
 }) {
   const { t } = useI18n();
@@ -614,7 +594,7 @@ function StepCompanyInfo({
     value: value[k],
     "aria-invalid": Boolean(errors[k]),
     "aria-describedby": errors[k] ? `${fieldId(k)}-error` : undefined,
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
       onChange({ ...value, [k]: e.target.value }),
   });
   const fieldError = (key: CompanyField) =>
@@ -628,15 +608,8 @@ function StepCompanyInfo({
         {errors[key]}
       </p>
     ) : null;
-  const timezoneOptions = React.useMemo(() => {
-    const values = [timezone, ...onboardingTimezones].filter(
-      (item, index, all) => item && all.indexOf(item) === index,
-    );
-    return values.map((item) => ({ value: item, label: item.replaceAll("_", " ") }));
-  }, [timezone]);
   const inputCls =
     "w-full h-11 bg-white/5 border border-white/5 rounded-xl px-4 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:bg-white/[0.07] transition-colors";
-  const textareaCls = cn(inputCls, "h-auto py-3 resize-none leading-relaxed");
   return (
     <div className="space-y-6">
       <div>
@@ -649,175 +622,21 @@ function StepCompanyInfo({
         </h2>
         <p className="text-zinc-400 mt-2">{t("onboarding.company.description")}</p>
       </div>
-      <div className="space-y-4">
-        <div className="space-y-1.5">
-          <label
-            htmlFor={fieldId("name")}
-            className="text-xs font-medium text-zinc-500 uppercase tracking-wider"
-          >
-            {t("onboarding.company.name")} <span aria-hidden="true">*</span>
-          </label>
-          <input
-            {...field("name")}
-            required
-            maxLength={160}
-            placeholder={t("onboarding.company.namePlaceholder")}
-            className={inputCls}
-          />
-          {fieldError("name")}
-        </div>
-        <div className="space-y-1.5">
-          <label
-            htmlFor={fieldId("description")}
-            className="text-xs font-medium text-zinc-500 uppercase tracking-wider"
-          >
-            {t("onboarding.company.about")} <span aria-hidden="true">*</span>
-          </label>
-          <textarea
-            {...field("description")}
-            required
-            maxLength={4_000}
-            rows={3}
-            placeholder={t("onboarding.company.aboutPlaceholder")}
-            className={textareaCls}
-          />
-          {fieldError("description")}
-        </div>
-        <div className="space-y-1.5">
-          <label
-            htmlFor={fieldId("timezone")}
-            className="text-xs font-medium text-zinc-500 uppercase tracking-wider"
-          >
-            {t("businessProfile.timezone")} <span aria-hidden="true">*</span>
-          </label>
-          <div id={fieldId("timezone")}>
-            <Select
-              value={timezone}
-              options={timezoneOptions}
-              ariaLabel={t("businessProfile.timezone")}
-              ariaInvalid={Boolean(errors.timezone)}
-              ariaDescribedBy={errors.timezone ? `${fieldId("timezone")}-error` : undefined}
-              testId="onboarding-timezone"
-              className={cn(errors.timezone && "border-red-500/60")}
-              onValueChange={onTimezoneChange}
-            />
-          </div>
-          {fieldError("timezone")}
-        </div>
-        <div className="space-y-1.5">
-          <label
-            htmlFor={fieldId("servicesCatalog")}
-            className="text-xs font-medium text-zinc-500 uppercase tracking-wider"
-          >
-            {t("onboarding.company.catalog")}
-          </label>
-          <textarea
-            {...field("servicesCatalog")}
-            maxLength={20_000}
-            rows={5}
-            placeholder={t("onboarding.company.catalogPlaceholder")}
-            className={textareaCls}
-          />
-          {fieldError("servicesCatalog")}
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <label
-              htmlFor={fieldId("hours")}
-              className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-zinc-500"
-            >
-              <Clock className="w-3 h-3" />
-              {t("onboarding.company.hours")}
-            </label>
-            <input
-              {...field("hours")}
-              maxLength={4_000}
-              placeholder={t("onboarding.company.hoursPlaceholder")}
-              className={inputCls}
-            />
-            {fieldError("hours")}
-          </div>
-          <div className="space-y-1.5">
-            <label
-              htmlFor={fieldId("avgCheck")}
-              className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-zinc-500"
-            >
-              <DollarSign className="w-3 h-3" />
-              {t("onboarding.company.average")}
-            </label>
-            <input
-              {...field("avgCheck")}
-              maxLength={500}
-              placeholder={t("onboarding.company.averagePlaceholder")}
-              className={inputCls}
-            />
-            {fieldError("avgCheck")}
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <label
-            htmlFor={fieldId("availability")}
-            className="text-xs font-medium text-zinc-500 uppercase tracking-wider"
-          >
-            {t("onboarding.company.availability")}
-          </label>
-          <textarea
-            {...field("availability")}
-            maxLength={10_000}
-            rows={4}
-            placeholder={t("onboarding.company.availabilityPlaceholder")}
-            className={textareaCls}
-          />
-          {fieldError("availability")}
-        </div>
-        <div className="space-y-1.5">
-          <label
-            htmlFor={fieldId("faq")}
-            className="text-xs font-medium text-zinc-500 uppercase tracking-wider"
-          >
-            {t("onboarding.company.faq")}
-          </label>
-          <textarea
-            {...field("faq")}
-            maxLength={20_000}
-            rows={4}
-            placeholder={t("onboarding.company.faqPlaceholder")}
-            className={textareaCls}
-          />
-          {fieldError("faq")}
-        </div>
-        <div className="space-y-1.5">
-          <label
-            htmlFor={fieldId("policies")}
-            className="text-xs font-medium text-zinc-500 uppercase tracking-wider"
-          >
-            {t("onboarding.company.policies")}
-          </label>
-          <textarea
-            {...field("policies")}
-            maxLength={20_000}
-            rows={4}
-            placeholder={t("onboarding.company.policiesPlaceholder")}
-            className={textareaCls}
-          />
-          {fieldError("policies")}
-        </div>
-        <div className="space-y-1.5">
-          <label
-            htmlFor={fieldId("escalationRules")}
-            className="text-xs font-medium text-zinc-500 uppercase tracking-wider"
-          >
-            {t("onboarding.company.escalation")}
-          </label>
-          <textarea
-            {...field("escalationRules")}
-            maxLength={20_000}
-            rows={3}
-            placeholder={t("onboarding.company.escalationPlaceholder")}
-            className={textareaCls}
-          />
-          {fieldError("escalationRules")}
-        </div>
+      <div className="space-y-1.5">
+        <label
+          htmlFor={fieldId("name")}
+          className="text-xs font-medium text-zinc-500 uppercase tracking-wider"
+        >
+          {t("onboarding.company.name")} <span aria-hidden="true">*</span>
+        </label>
+        <input
+          {...field("name")}
+          required
+          maxLength={160}
+          placeholder={t("onboarding.company.namePlaceholder")}
+          className={inputCls}
+        />
+        {fieldError("name")}
       </div>
     </div>
   );
@@ -1159,17 +978,6 @@ export function OnboardingPage({
     setCompanyInfo(value);
   };
 
-  const updateTimezone = (value: string) => {
-    markLocalChange("company");
-    setCompanyFieldErrors((current) => {
-      if (!current.timezone) return current;
-      const next = { ...current };
-      delete next.timezone;
-      return next;
-    });
-    setTimezone(value);
-  };
-
   const updateCrm = (value: string) => {
     markLocalChange("crm");
     setCrm(value);
@@ -1184,7 +992,7 @@ export function OnboardingPage({
       case "scenario":
         return { scenario };
       case "company":
-        return { companyInfo, timezone };
+        return { companyInfo: { name: companyInfo.name }, timezone };
       case "crm":
         return { crm };
       case "launch":
@@ -1221,9 +1029,7 @@ export function OnboardingPage({
           const fields: CompanyFieldErrors = {};
           for (const fieldError of error.fieldErrors) {
             const field = fieldError.field.split(".").at(-1);
-            if (field && ([...Object.keys(companyInfo), "timezone"] as string[]).includes(field)) {
-              fields[field as CompanyField] = fieldError.message;
-            }
+            if (field === "name") fields.name = fieldError.message;
           }
           setCompanyFieldErrors(fields);
         }
@@ -1253,29 +1059,23 @@ export function OnboardingPage({
     if (step === 0) return hasBusinessType;
     if (step === 1) return selectedChannels.length > 0;
     if (step === 2) return hasScenario;
-    if (step === 3)
-      return (
-        companyInfo.name.trim().length > 0 &&
-        companyInfo.description.trim().length > 0 &&
-        timezone.trim().length > 0
-      );
+    if (step === 3) return companyInfo.name.trim().length > 0;
     if (step === 4) return hasCrm;
     return Boolean(
       hasBusinessType &&
       selectedChannels.length > 0 &&
       hasScenario &&
       companyInfo.name.trim() &&
-      companyInfo.description.trim() &&
-      timezone.trim() &&
       hasCrm,
     );
   };
 
   const draftDataForStep = (stepId: OnboardingStepId) => {
     if (stepId !== "company") return onboardingDataForStep(stepId);
-    const draftCompanyInfo: Partial<CompanyInfo> = { ...companyInfo };
-    if (!draftCompanyInfo.name?.trim()) delete draftCompanyInfo.name;
-    return { companyInfo: draftCompanyInfo, timezone };
+    return {
+      ...(companyInfo.name.trim() ? { companyInfo: { name: companyInfo.name } } : {}),
+      timezone,
+    };
   };
 
   const dirtyDraftData = () => {
@@ -1393,10 +1193,8 @@ export function OnboardingPage({
         return (
           <StepCompanyInfo
             value={companyInfo}
-            timezone={timezone}
             errors={companyFieldErrors}
             onChange={updateCompanyInfo}
-            onTimezoneChange={updateTimezone}
           />
         );
       case 4:

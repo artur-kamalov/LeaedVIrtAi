@@ -227,7 +227,7 @@ Grafana dashboards:
 
 Status: implemented.
 
-- Extend onboarding to collect business profile, services, prices, availability, FAQ, and policies.
+- Keep onboarding limited to business identity; collect services, prices, availability, FAQ, and policies in the canonical Business Information editor after entry.
 - Persist structured business data in Postgres.
 - Add first tenant knowledge-source API.
 - Add clean-user smoke for a fully filled business profile.

@@ -317,7 +317,11 @@ function chatMessageFromApi(message: Message, locale: Locale, useDemoSeed: boole
   return {
     id: message.id,
     from:
-      message.senderType === "AI" ? "ai" : message.senderType === "CUSTOMER" ? "client" : "manager",
+      message.senderType === "AI" || message.senderType === "SYSTEM"
+        ? "ai"
+        : message.senderType === "CUSTOMER"
+          ? "client"
+          : "manager",
     text: localizeSeedText(message.text, locale, useDemoSeed) || "",
     time: formatMessageTime(message.createdAt, locale),
     status: message.status,

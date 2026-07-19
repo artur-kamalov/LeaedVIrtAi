@@ -25,6 +25,7 @@ import type {
 import { PrismaService } from "../database/prisma.service.js";
 import { WorkflowsService } from "../workflows/workflows.service.js";
 import { AiReplyQueueService } from "../ai/ai-reply-queue.service.js";
+import { RuntimeQueueService } from "../ai/runtime-queue.service.js";
 import {
   claimWebhookEvent,
   completeWebhookEvent,
@@ -33,6 +34,12 @@ import {
 } from "../../common/webhook-event-claim.js";
 import { assertTenantRuntimeActive } from "../../common/tenant-lifecycle.js";
 import { withTelegramLifecycleLock } from "../../common/telegram-lifecycle-lock.js";
+import {
+  buildTelegramActivationWelcome,
+  type TelegramActivationWelcomeMode,
+  telegramActivationStartParameterHash,
+  telegramActivationWelcomeTtlMs,
+} from "./telegram-activation-welcome.js";
 
 type TelegramChannel = Prisma.ChannelGetPayload<{
   include: { tenant: true };
@@ -63,6 +70,9 @@ export type TelegramWebhookOrigin = "TELEGRAM_WEBHOOK" | "INTERNAL_SAMPLE";
 
 const providerName = "telegram";
 const adapter = new TelegramAdapter();
+const telegramSystemCommandReason = "TELEGRAM_SYSTEM_COMMAND";
+const telegramActivationWelcomeReason = "TELEGRAM_ACTIVATION_WELCOME";
+const telegramActivationWelcomeKind = "TELEGRAM_ACTIVATION_WELCOME";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -91,6 +101,67 @@ function jsonPayload(body: unknown): Prisma.InputJsonValue {
     return body;
   if (Array.isArray(body) || isRecord(body)) return body as Prisma.InputJsonValue;
   return { unsupportedPayloadType: typeof body };
+}
+
+function telegramCommandPayload(
+  command: NonNullable<NormalizedInboundMessage["telegramCommand"]>,
+): Prisma.InputJsonObject {
+  return {
+    name: command.name,
+    raw: command.raw,
+    ...(command.botUsername ? { botUsername: command.botUsername } : {}),
+    ...(command.payload ? { payload: command.payload } : {}),
+  };
+}
+
+function telegramInboundMetadata(
+  existing: unknown,
+  inbound: NormalizedInboundMessage,
+  aiIgnoredReason: string | null,
+): Prisma.InputJsonObject {
+  const metadata: Record<string, unknown> = {
+    ...asRecord(existing),
+    customerExternalId: inbound.customerExternalId,
+    raw: jsonPayload(inbound.raw),
+  };
+  delete metadata.telegramCommand;
+  delete metadata.aiIgnoredReason;
+  if (inbound.telegramCommand) {
+    metadata.telegramCommand = telegramCommandPayload(inbound.telegramCommand);
+  }
+  if (aiIgnoredReason) metadata.aiIgnoredReason = aiIgnoredReason;
+  return metadata as Prisma.InputJsonObject;
+}
+
+function isTelegramActivationStart(
+  inbound: NormalizedInboundMessage,
+  telegramSettings: Record<string, unknown>,
+) {
+  const command = inbound.telegramCommand;
+  const payload = command?.payload;
+  const tokenHash = telegramSettings.activationWelcomeTokenHash;
+  const botUsername = telegramSettings.botUsername;
+  if (
+    command?.name !== "start" ||
+    !payload ||
+    typeof tokenHash !== "string" ||
+    (command.botUsername &&
+      (typeof botUsername !== "string" ||
+        command.botUsername.toLowerCase() !== botUsername.toLowerCase()))
+  ) {
+    return false;
+  }
+  return telegramActivationStartParameterHash(payload) === tokenHash;
+}
+
+function isTelegramActivationWindowActive(telegramSettings: Record<string, unknown>) {
+  const requestedAt = telegramSettings.activationWelcomeRequestedAt;
+  if (typeof requestedAt !== "string") return false;
+  const requestedAtMs = Date.parse(requestedAt);
+  const ageMs = Date.now() - requestedAtMs;
+  return (
+    Number.isFinite(requestedAtMs) && ageMs >= -60_000 && ageMs <= telegramActivationWelcomeTtlMs
+  );
 }
 
 function assertTelegramInboundPayload(body: unknown) {
@@ -126,6 +197,7 @@ export class TelegramService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AiReplyQueueService) private readonly aiReplyQueue: AiReplyQueueService,
+    @Inject(RuntimeQueueService) private readonly runtimeQueue: RuntimeQueueService,
     @Inject(WorkflowsService) private readonly workflowsService: WorkflowsService,
   ) {}
 
@@ -284,17 +356,22 @@ export class TelegramService {
       const shouldProcessMessage =
         inbound.created || (claim.resumed && normalized.eventKind !== "MESSAGE_EDITED");
       let aiResult: TelegramAiDispatchResult = {
-        messageId: null,
-        reply: null,
-        outbound: inbound.aiDispatchPersisted
+        messageId: inbound.activationWelcome?.messageId ?? null,
+        reply: inbound.activationWelcome?.text ?? null,
+        outbound: inbound.activationWelcome
           ? {
-              externalMessageId: `ai-reply:${conversation.id}:${inbound.message.id}`,
+              externalMessageId: inbound.activationWelcome.deliveryJobId,
               status: "queued",
             }
-          : { externalMessageId: "", status: "skipped" as const },
+          : inbound.aiDispatchPersisted
+            ? {
+                externalMessageId: `ai-reply:${conversation.id}:${inbound.message.id}`,
+                status: "queued",
+              }
+            : { externalMessageId: "", status: "skipped" as const },
       };
       if (!webhookEvent.aiDispatchCompletedAt && !inbound.aiDispatchCompleted) {
-        if (shouldProcessMessage) {
+        if (shouldProcessMessage && !normalized.telegramCommand) {
           aiResult = await this.generateAndQueueReply(
             channel,
             conversation,
@@ -310,7 +387,7 @@ export class TelegramService {
       }
 
       if (!webhookEvent.workflowDispatchCompletedAt) {
-        if (shouldProcessMessage) {
+        if (shouldProcessMessage && !normalized.telegramCommand) {
           await this.workflowsService.runForEvent({
             tenantId: channel.tenantId,
             eventType: "message.received",
@@ -349,7 +426,11 @@ export class TelegramService {
               externalMessageId: normalized.externalMessageId,
               botId,
               eventKind: normalized.eventKind ?? "MESSAGE",
+              ...(normalized.telegramCommand
+                ? { telegramCommand: normalized.telegramCommand.name }
+                : {}),
               messageCreated: inbound.created,
+              activationWelcomeQueued: Boolean(inbound.activationWelcome),
               outboundStatus: aiResult.outbound.status,
               ...(inbound.aiDispatchRejectionReason
                 ? { aiDispatchRejectionReason: inbound.aiDispatchRejectionReason }
@@ -551,7 +632,7 @@ export class TelegramService {
       authenticatedAt: Date;
     },
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const authenticatedCustomer =
         authentication.origin === "TELEGRAM_WEBHOOK" &&
         channel.externalId &&
@@ -565,6 +646,39 @@ export class TelegramService {
         FOR UPDATE
       `);
       if (locked.length !== 1) throw new NotFoundException("Telegram conversation was not found.");
+      const lockedChannel = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT "id" FROM "Channel"
+        WHERE "id" = ${channel.id} AND "tenantId" = ${channel.tenantId} AND "deletedAt" IS NULL
+        FOR UPDATE
+      `);
+      if (lockedChannel.length !== 1)
+        throw new NotFoundException("Telegram channel was not found.");
+      const currentChannel = await tx.channel.findUniqueOrThrow({
+        where: { id: channel.id },
+        select: { settings: true },
+      });
+      const currentSettings = asRecord(currentChannel.settings);
+      const currentTelegramSettings = asRecord(currentSettings.telegram);
+      const activationWelcomeBaseEligible = Boolean(
+        authentication.origin === "TELEGRAM_WEBHOOK" &&
+        inbound.eventKind !== "MESSAGE_EDITED" &&
+        inbound.authenticatedCustomer &&
+        currentTelegramSettings.activationWelcomePending === true,
+      );
+      const activationWelcomeMode: TelegramActivationWelcomeMode | null =
+        activationWelcomeBaseEligible && isTelegramActivationStart(inbound, currentTelegramSettings)
+          ? "SETUP_START"
+          : activationWelcomeBaseEligible &&
+              !inbound.telegramCommand &&
+              isTelegramActivationWindowActive(currentTelegramSettings)
+            ? "FIRST_MESSAGE"
+            : null;
+      const activationWelcomeEligible = activationWelcomeMode !== null;
+      const aiIgnoredReason = inbound.telegramCommand
+        ? telegramSystemCommandReason
+        : activationWelcomeEligible
+          ? telegramActivationWelcomeReason
+          : null;
       const existing = await tx.message.findFirst({
         where: {
           tenantId: channel.tenantId,
@@ -598,11 +712,11 @@ export class TelegramService {
                 where: { id: existing.id },
                 data: {
                   text: inbound.text ?? null,
-                  metadata: {
-                    ...asRecord(existing.metadata),
-                    customerExternalId: inbound.customerExternalId,
-                    raw: jsonPayload(inbound.raw),
-                  },
+                  metadata: telegramInboundMetadata(
+                    existing.metadata,
+                    inbound,
+                    inbound.telegramCommand ? telegramSystemCommandReason : null,
+                  ),
                   updatedAt: new Date(),
                 },
               })
@@ -642,6 +756,7 @@ export class TelegramService {
           aiDispatchPersisted: false,
           aiDispatchCompleted: false,
           aiDispatchRejectionReason: null,
+          activationWelcome: null,
           ...(customerIdentity?.version === 1
             ? {
                 customerIdentity: {
@@ -658,7 +773,7 @@ export class TelegramService {
       const receivedAt = new Date(inbound.timestamp);
       const currentConversation = await tx.conversation.findUniqueOrThrow({
         where: { id: conversation.id },
-        select: { status: true },
+        select: { status: true, metadata: true },
       });
 
       const message = await tx.message.create({
@@ -670,10 +785,7 @@ export class TelegramService {
           externalMessageId: inbound.externalMessageId,
           text: inbound.text ?? null,
           status: "RECEIVED",
-          metadata: {
-            customerExternalId: inbound.customerExternalId,
-            raw: jsonPayload(inbound.raw),
-          },
+          metadata: telegramInboundMetadata(null, inbound, aiIgnoredReason),
           createdAt: receivedAt,
           updatedAt: receivedAt,
         },
@@ -750,6 +862,134 @@ export class TelegramService {
         };
       }
 
+      let activationWelcome: {
+        messageId: string;
+        text: string;
+        deliveryEventId: string;
+        deliveryJobId: string;
+      } | null = null;
+      if (activationWelcomeEligible) {
+        const welcome = buildTelegramActivationWelcome({
+          customerName: inbound.customerName ?? null,
+          businessName: channel.tenant.name,
+          customerLocale: inbound.customerLocale ?? null,
+          accountLocale:
+            typeof currentTelegramSettings.activationWelcomeLocale === "string"
+              ? currentTelegramSettings.activationWelcomeLocale
+              : null,
+          mode: activationWelcomeMode ?? "SETUP_START",
+        });
+        const queuedAt = new Date();
+        const welcomeMessage = await tx.message.create({
+          data: {
+            tenantId: channel.tenantId,
+            conversationId: conversation.id,
+            direction: "OUTBOUND",
+            senderType: "SYSTEM",
+            text: welcome.text,
+            status: "QUEUED",
+            metadata: {
+              kind: telegramActivationWelcomeKind,
+              version: 1,
+              locale: welcome.locale,
+              scenario: activationWelcomeMode,
+              triggerMessageId: message.id,
+              outboundStatus: "queued",
+            },
+            createdAt: queuedAt,
+            updatedAt: queuedAt,
+          },
+        });
+        const deliveryJobId = `channel-send-${welcomeMessage.id}`;
+        const deliveryEvent = await this.runtimeQueue.createChannelDeliveryEvent(tx, {
+          tenantId: channel.tenantId,
+          conversationId: conversation.id,
+          messageId: welcomeMessage.id,
+          source: "telegram",
+          triggerMessageId: message.id,
+          requestedAt: queuedAt.toISOString(),
+        });
+        await tx.message.update({
+          where: { id: welcomeMessage.id },
+          data: {
+            metadata: {
+              kind: telegramActivationWelcomeKind,
+              version: 1,
+              locale: welcome.locale,
+              scenario: activationWelcomeMode,
+              triggerMessageId: message.id,
+              outboundStatus: "queued",
+              deliveryJobId,
+              deliveryOutboxId: deliveryEvent.id,
+            },
+          },
+        });
+        await tx.channel.update({
+          where: { id: channel.id },
+          data: {
+            settings: {
+              ...currentSettings,
+              telegram: {
+                ...currentTelegramSettings,
+                activationWelcomePending: false,
+                activationWelcomeConsumedAt: queuedAt.toISOString(),
+                activationWelcomeTriggerMessageId: message.id,
+                activationWelcomeMessageId: welcomeMessage.id,
+                activationWelcomeScenario: activationWelcomeMode,
+              },
+            },
+          },
+        });
+        await tx.conversation.update({
+          where: { id: conversation.id },
+          data: {
+            lastMessageAt: queuedAt,
+            updatedAt: queuedAt,
+            metadata: {
+              ...asRecord(currentConversation.metadata),
+              telegramActivationWelcomeAt: queuedAt.toISOString(),
+            },
+          },
+        });
+        const telegramIntegration = await tx.integrationAccount.findUnique({
+          where: {
+            tenantId_provider: { tenantId: channel.tenantId, provider: "TELEGRAM" },
+          },
+          select: { id: true, settings: true },
+        });
+        if (telegramIntegration) {
+          const integrationSettings = { ...asRecord(telegramIntegration.settings) };
+          delete integrationSettings.activationStartParameter;
+          await tx.integrationAccount.update({
+            where: { id: telegramIntegration.id },
+            data: { settings: integrationSettings as Prisma.InputJsonObject },
+          });
+        }
+        if (conversation.leadId) {
+          await tx.leadEvent.create({
+            data: {
+              tenantId: channel.tenantId,
+              leadId: conversation.leadId,
+              type: "telegram_activation_welcome_queued",
+              title: "Telegram activation welcome queued",
+              message: welcome.text,
+              metadata: {
+                conversationId: conversation.id,
+                triggerMessageId: message.id,
+                messageId: welcomeMessage.id,
+                deliveryOutboxId: deliveryEvent.id,
+              },
+            },
+          });
+        }
+        activationWelcome = {
+          messageId: welcomeMessage.id,
+          text: welcome.text,
+          deliveryEventId: deliveryEvent.id,
+          deliveryJobId,
+        };
+      }
+
       if (conversation.leadId) {
         await tx.leadEvent.create({
           data: {
@@ -775,7 +1015,15 @@ export class TelegramService {
       let aiDispatchPersisted = false;
       let aiDispatchCompleted = false;
       let aiDispatchRejectionReason: string | null = null;
-      if (this.aiReplyQueue.enabled) {
+      if (inbound.telegramCommand || activationWelcome) {
+        aiDispatchRejectionReason = aiIgnoredReason;
+        await completeWebhookEventStage(tx, {
+          eventId: authentication.webhookEventId,
+          claimToken: authentication.claimToken,
+          stage: "aiDispatchCompletedAt",
+        });
+        aiDispatchCompleted = true;
+      } else if (this.aiReplyQueue.enabled) {
         const queueResult = await this.aiReplyQueue.createEvent(
           tx,
           this.aiReplyRequest(channel, conversation, message.id, inbound.text ?? ""),
@@ -812,9 +1060,14 @@ export class TelegramService {
         aiDispatchPersisted,
         aiDispatchCompleted,
         aiDispatchRejectionReason,
+        activationWelcome,
         ...(customerIdentity ? { customerIdentity } : {}),
       };
     });
+    if (result.activationWelcome) {
+      this.runtimeQueue.dispatch(result.activationWelcome.deliveryEventId);
+    }
+    return result;
   }
 
   private aiReplyRequest(

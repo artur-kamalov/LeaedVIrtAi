@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { loadEnvFile } from "@leadvirt/config";
 import { prisma, type Prisma } from "@leadvirt/db";
-import type { AiReplyEnqueueRequest } from "@leadvirt/types";
+import type { AiReplyEnqueueRequest, ChannelSendMessageJobData } from "@leadvirt/types";
 import {
   claimWebhookEvent,
   completeWebhookEvent,
@@ -11,6 +11,7 @@ import {
 } from "../../apps/api/src/common/webhook-event-claim.js";
 import type { RequestContext } from "../../apps/api/src/common/request-context.js";
 import type { AiReplyQueueService } from "../../apps/api/src/modules/ai/ai-reply-queue.service.js";
+import type { RuntimeQueueService } from "../../apps/api/src/modules/ai/runtime-queue.service.js";
 import type { PrismaService } from "../../apps/api/src/modules/database/prisma.service.js";
 import { TelegramService } from "../../apps/api/src/modules/telegram/telegram.service.js";
 import { WorkflowsService } from "../../apps/api/src/modules/workflows/workflows.service.js";
@@ -96,9 +97,24 @@ async function main() {
         return result;
       },
     } as WorkflowsService;
+    let channelDeliveryEvents = 0;
+    let channelDeliveryDispatches = 0;
+    const runtimeQueue = {
+      createChannelDeliveryEvent: async (
+        _tx: Prisma.TransactionClient,
+        data: ChannelSendMessageJobData,
+      ) => {
+        channelDeliveryEvents += 1;
+        return { id: `runtime-delivery:${data.messageId}` };
+      },
+      dispatch: (_eventId: string) => {
+        channelDeliveryDispatches += 1;
+      },
+    } as unknown as RuntimeQueueService;
     const telegram = new TelegramService(
       prisma as unknown as PrismaService,
       queue,
+      runtimeQueue,
       crashAfterCommittedWorkflow,
     );
     const updateId = Math.floor(Date.now() / 10);
@@ -215,7 +231,11 @@ async function main() {
     );
     assert(duplicate.duplicate, "A processed Telegram replay was not acknowledged as duplicate.");
     assert(
-      aiDispatches === 1 && redundantAiEnqueues === 0 && workflowCalls === 2,
+      aiDispatches === 1 &&
+        redundantAiEnqueues === 0 &&
+        workflowCalls === 2 &&
+        channelDeliveryEvents === 0 &&
+        channelDeliveryDispatches === 0,
       "A processed Telegram duplicate executed a side effect.",
     );
 

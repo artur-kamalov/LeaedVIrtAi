@@ -4011,10 +4011,38 @@ Context: New owners completed six onboarding stages, then landed in a technical 
 Consequences:
 
 - Telegram onboarding carries plan intent into a guided connection flow and defers Billing until after first value.
-- The bot opens only after Inbox baselining; visible-tab polling detects a new real inbound conversation or a new inbound message on an existing conversation and preserves the exact conversation link.
+- The guided bot opens immediately; visible-tab polling uses activation-specific server evidence instead of unread-message order and preserves the exact conversation link even when the welcome predates the first poll.
 - Conversation replies expose queued, sent, delivered, and failed states. First-run completion requires a persisted `SENT` or `DELIVERED` manager message.
 - Fresh workspaces receive one activation surface instead of empty analytics. The full Dashboard appears after canonical real inbound evidence exists.
 - Website, Telegram, and Webhook readiness share the same real-inbound evidence. Synthetic samples are marked at the API boundary and excluded without a database migration.
 - Automatic replies still require the existing Knowledge publication and channel-readiness gates; first-run setup never enables them implicitly.
 - Notification controls remain hidden until a durable delivery runtime exists. Their API contract is retained for a future opt-in migration.
 - Regression coverage exercises all six supported demo locales and separately protects the live tenant boundary.
+
+## 2026-07-19: Keep Business Detail Out Of Initial Onboarding
+
+Decision: The onboarding company step requires only the company name. The browser captures timezone silently, while Business Information remains the canonical editor for description, services, prices, hours, availability, FAQ, policies, and escalation rules.
+
+Context: Asking for the complete knowledge profile before a new owner enters the product delayed the first useful channel connection and duplicated an existing structured editor.
+
+Consequences:
+
+- Existing detailed onboarding values continue to hydrate and are never cleared by the shortened step.
+- Company-step writes contain only `companyInfo.name` and timezone; backend and demo readiness require only a nonblank name.
+- Knowledge readiness, testing, publication, and automatic-reply activation continue to require the detailed post-entry workflow.
+
+## 2026-07-19: Separate Telegram Setup Scenarios From AI Replies
+
+Decision: Every successful Telegram connection arms one durable welcome. The guided bot link carries a random one-time `/start` parameter whose hash is stored with the channel; that command queues the localized operator setup confirmation. A normal private message received during the short post-connect window instead receives customer-safe acknowledgement copy. Both use the standard channel-delivery outbox. Any leading Telegram bot command is persisted but excluded from AI admission and the generic `message.received` workflow.
+
+Context: A connected bot accepted inbound messages but intentionally produced no reply because automatic replies remain disabled until Knowledge and channel readiness pass. Treating `/start` as customer prose would also send Telegram menu/setup commands into the AI runtime.
+
+Consequences:
+
+- Setup confirmation does not enable or bypass automatic-reply publication, capability, identity, or channel fences.
+- The pending marker, inbound message, welcome message, delivery outbox event, and consumed marker commit atomically; webhook replay cannot duplicate the welcome.
+- Only the one-time guided `/start` capability can expose operator setup instructions. A bare, wrongly addressed, or wrong-parameter command cannot consume setup; the customer-safe normal-message fallback expires after 30 minutes.
+- `/help`, `/settings`, and other commands produce no AI or generic workflow side effects. The plaintext start parameter is exposed only through the authenticated integration response and is removed when consumed; normal integration cards open the bot without it.
+- The high-entropy signed setup link remains valid only while that connection's welcome is pending. Consumption or reconnecting invalidates it; the separate normal-message fallback retains its 30-minute limit.
+- The Inbox presents the setup welcome as a bot/system response and keeps the conversation actionable for the owner's first manual reply.
+- The authenticated integration response carries the same per-connection activation timestamp stored on the channel. Inbox polling matches `activationWelcomeAt` against that boundary, so a fast webhook or a newer unrelated unread chat cannot hide or replace the setup conversation.

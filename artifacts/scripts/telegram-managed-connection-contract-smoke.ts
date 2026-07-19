@@ -131,6 +131,67 @@ async function main() {
     "Eligible private Telegram message did not expose the authenticated customer claim.",
   );
   assert(normalizedPrivate.eventKind === "MESSAGE", "Telegram message kind was not normalized.");
+  const addressedStartToken = "/start@client_magic_bot";
+  const normalizedAddressedStart = await adapter.normalizeInbound({
+    update_id: 88_019,
+    message: {
+      ...privateMessage,
+      message_id: 103,
+      text: `${addressedStartToken} leadvirt`,
+      entities: [{ type: "bot_command", offset: 0, length: addressedStartToken.length }],
+    },
+  });
+  assert(
+    normalizedAddressedStart.telegramCommand?.name === "start" &&
+      normalizedAddressedStart.telegramCommand.payload === "leadvirt" &&
+      normalizedAddressedStart.telegramCommand.botUsername === "client_magic_bot" &&
+      normalizedAddressedStart.telegramCommand.raw === addressedStartToken,
+    "Telegram bot_command entity was not normalized into a command envelope.",
+  );
+  const normalizedFallbackCommand = await adapter.normalizeInbound({
+    update_id: 88_020,
+    message: {
+      ...privateMessage,
+      message_id: 104,
+      text: "/HELP   account status",
+    },
+  });
+  assert(
+    normalizedFallbackCommand.telegramCommand?.name === "help" &&
+      normalizedFallbackCommand.telegramCommand.payload === "account status" &&
+      normalizedFallbackCommand.telegramCommand.botUsername === undefined &&
+      normalizedFallbackCommand.telegramCommand.raw === "/HELP",
+    "Telegram slash-command fallback did not normalize the leading command.",
+  );
+  const midSentenceText = "Pricing details mention /start but this is customer text";
+  const normalizedMidSentence = await adapter.normalizeInbound({
+    update_id: 88_021,
+    message: {
+      ...privateMessage,
+      message_id: 105,
+      text: midSentenceText,
+      entities: [{ type: "bot_command", offset: midSentenceText.indexOf("/start"), length: 6 }],
+    },
+  });
+  assert(
+    normalizedMidSentence.telegramCommand === undefined,
+    "A mid-sentence Telegram command entity was misclassified as a system command.",
+  );
+  const normalizedCaptionCommand = await adapter.normalizeInbound({
+    update_id: 88_022,
+    message: {
+      ...privateMessage,
+      message_id: 106,
+      text: undefined,
+      caption: "/settings notifications",
+      caption_entities: [{ type: "bot_command", offset: 0, length: 9 }],
+    },
+  });
+  assert(
+    normalizedCaptionCommand.telegramCommand?.name === "settings" &&
+      normalizedCaptionCommand.telegramCommand.payload === "notifications",
+    "Telegram caption command entity was not normalized.",
+  );
   const normalizedEditedPrivate = await adapter.normalizeInbound({
     update_id: 88_002,
     edited_message: { ...privateMessage, message_id: 102, text: "Edited private message" },
@@ -407,7 +468,7 @@ async function main() {
     deployWorkflow.includes('--data "$telegram_relay_probe_payload"'),
     "Deployment does not send the validated Telegram relay probe payload.",
   );
-  console.log("Telegram managed connection contract: 41/41 checks passed");
+  console.log("Telegram managed connection contract: 45/45 checks passed");
 }
 
 void main();

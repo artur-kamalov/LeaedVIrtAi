@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { loadEnvFile } from "@leadvirt/config";
 import { prisma, Prisma, type ChannelDeliveryOperation } from "@leadvirt/db";
-import { WebhookDeliveryError, type ChannelAdapter } from "@leadvirt/integrations";
+import {
+  encryptIntegrationCredentials,
+  WebhookDeliveryError,
+  type ChannelAdapter,
+} from "@leadvirt/integrations";
 import type { ChannelSendMessageJobData } from "@leadvirt/types";
 import {
   deliverChannelMessage,
@@ -229,6 +233,93 @@ async function main() {
       where: { tenantId: tenant.id, action: "channel.message.sent", entityId: message.id },
     });
     assert(duplicateAuditCount === 1, "Retry created a duplicate delivery audit");
+
+    const telegramSystemChannel = await prisma.channel.create({
+      data: {
+        tenantId: tenant.id,
+        type: "TELEGRAM",
+        status: "ACTIVE",
+        name: "Telegram activation delivery smoke",
+        externalId: `telegram-activation-${suffix}`,
+        publicKey: `telegram_activation_${suffix.replace(/-/g, "_")}`,
+        encryptedCredentials: encryptIntegrationCredentials({
+          botToken: "123456:telegram-activation-delivery-smoke",
+        }),
+      },
+    });
+    const telegramSystemConversation = await prisma.conversation.create({
+      data: {
+        tenantId: tenant.id,
+        leadId: lead.id,
+        channelId: telegramSystemChannel.id,
+        externalConversationId: `telegram:activation:${suffix}`,
+        status: "OPEN",
+        subject: "Telegram activation delivery smoke",
+      },
+    });
+    const telegramSystemData: ChannelSendMessageJobData = {
+      ...data,
+      conversationId: telegramSystemConversation.id,
+      source: "telegram",
+    };
+    const systemMessage = await prisma.message.create({
+      data: {
+        tenantId: tenant.id,
+        conversationId: telegramSystemConversation.id,
+        direction: "OUTBOUND",
+        senderType: "SYSTEM",
+        text: "Deterministic activation welcome.",
+        status: "QUEUED",
+        metadata: {
+          kind: "TELEGRAM_ACTIVATION_WELCOME",
+          version: 1,
+          outboundStatus: "queued",
+        },
+      },
+    });
+    const systemDelivery = await processLeadVirtJob("channels.sendMessage", {
+      id: `channel-send-${systemMessage.id}`,
+      data: {
+        ...telegramSystemData,
+        messageId: systemMessage.id,
+        triggerMessageId: `activation-trigger-${suffix}`,
+      },
+    });
+    assert(
+      hasRecord(systemDelivery) && systemDelivery.status === "sent" && providerCalls === 2,
+      "SYSTEM activation welcome was not accepted by the channel delivery worker.",
+    );
+    const sentSystemMessage = await prisma.message.findUniqueOrThrow({
+      where: { id: systemMessage.id },
+      select: { status: true },
+    });
+    assert(
+      sentSystemMessage.status === "SENT",
+      "SYSTEM activation welcome did not reach a terminal sent state.",
+    );
+
+    const unrelatedSystemMessage = await prisma.message.create({
+      data: {
+        tenantId: tenant.id,
+        conversationId: telegramSystemConversation.id,
+        direction: "OUTBOUND",
+        senderType: "SYSTEM",
+        text: "Internal maintenance event.",
+        status: "QUEUED",
+        metadata: { kind: "INTERNAL_MAINTENANCE", version: 1 },
+      },
+    });
+    const unrelatedSystemDelivery = await processLeadVirtJob("channels.sendMessage", {
+      id: `channel-send-${unrelatedSystemMessage.id}`,
+      data: { ...telegramSystemData, messageId: unrelatedSystemMessage.id },
+    });
+    assert(
+      hasRecord(unrelatedSystemDelivery) &&
+        unrelatedSystemDelivery.status === "skipped" &&
+        unrelatedSystemDelivery.reason === "system_message_not_deliverable" &&
+        providerCalls === 2,
+      "An unrelated SYSTEM message reached the channel provider.",
+    );
 
     const ambiguousMessage = await prisma.message.create({
       data: {

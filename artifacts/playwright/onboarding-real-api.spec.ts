@@ -98,14 +98,6 @@ test("a clean QA owner completes all six onboarding steps against the real API",
   const runId = Date.now().toString();
   const company = {
     name: `LeadVirt Onboarding QA ${runId}`,
-    description: "A real-stack QA workspace for validating customer onboarding.",
-    servicesCatalog: "AI consultation - EUR 100; implementation workshop - EUR 250.",
-    hours: "Monday-Friday, 09:00-18:00",
-    avgCheck: "EUR 100-250",
-    availability: "Book at least two hours ahead; reschedule one day before.",
-    faq: "Consultations are remote. A written summary is included.",
-    policies: "Do not promise delivery dates or discounts without staff approval.",
-    escalationRules: "Involve a person for refunds, legal questions, or complaints.",
   };
 
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -159,57 +151,16 @@ test("a clean QA owner completes all six onboarding steps against the real API",
   await expect(next).toBeEnabled();
   await advance(page, () => next.click());
 
-  await expectStep(page, 4, "Company information");
+  await expectStep(page, 4, "What is your business called?");
   await expect(back).toBeEnabled();
   await expect(next).toBeDisabled();
 
   const companyName = page.getByRole("textbox", { name: "Company name", exact: true });
-  const description = page.getByRole("textbox", { name: "About the company", exact: true });
-  const catalog = page.getByRole("textbox", {
-    name: "Catalog, services, and prices",
-    exact: true,
-  });
-  const hours = page.getByRole("textbox", { name: "Business hours", exact: true });
-  const average = page.getByRole("textbox", { name: "Average order value", exact: true });
-  const availability = page.getByRole("textbox", {
-    name: "Availability and booking rules",
-    exact: true,
-  });
-  const faq = page.getByRole("textbox", { name: "FAQ and common objections", exact: true });
-  const policies = page.getByRole("textbox", {
-    name: "Rules, limitations, and restricted promises",
-    exact: true,
-  });
-  const escalation = page.getByRole("textbox", { name: "When to involve a person", exact: true });
-
-  for (const [field, limit] of [
-    [companyName, "160"],
-    [description, "4000"],
-    [catalog, "20000"],
-    [hours, "4000"],
-    [average, "500"],
-    [availability, "10000"],
-    [faq, "20000"],
-    [policies, "20000"],
-    [escalation, "20000"],
-  ] as const) {
-    await expect(field).toHaveAttribute("maxlength", limit);
-  }
-
-  const timezone = page.getByTestId("onboarding-timezone");
-  await timezone.click();
-  await page.getByRole("option", { name: "Europe/Paris" }).click();
-  await expect(timezone).toContainText("Europe/Paris");
+  await expect(companyName).toHaveAttribute("maxlength", "160");
+  await expect(page.locator("textarea")).toHaveCount(0);
+  await expect(page.getByTestId("onboarding-timezone")).toHaveCount(0);
 
   await companyName.fill(company.name);
-  await description.fill(company.description);
-  await catalog.fill(company.servicesCatalog);
-  await hours.fill(company.hours);
-  await average.fill(company.avgCheck);
-  await availability.fill(company.availability);
-  await faq.fill(company.faq);
-  await policies.fill(company.policies);
-  await escalation.fill(company.escalationRules);
   await expect(next).toBeEnabled();
   await advance(page, () => next.click());
 
@@ -248,11 +199,15 @@ test("a clean QA owner completes all six onboarding steps against the real API",
     animations: "disabled",
   });
 
+  await page.setViewportSize({ width: 1440, height: 1000 });
   const knowledgeNavigation = page.waitForURL(`${webBase}/app/knowledge?welcome=1`);
   await advance(page, () => reviewBusiness.click());
   await knowledgeNavigation;
   await expect(page).toHaveURL(`${webBase}/app/knowledge?welcome=1`);
   await expect(page.getByText("Your setup answers are saved.", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("business-profile-description")).toBeVisible();
+  await expect(page.getByTestId("business-profile-services")).toBeVisible();
+  await expect(page.getByTestId("business-profile-faq")).toBeVisible();
   await expect.poll(() => knowledgeOverviewResponses.length).toBeGreaterThan(0);
   expect(
     knowledgeOverviewResponses.filter(({ status }) => status >= 400),
@@ -269,7 +224,7 @@ test("a clean QA owner completes all six onboarding steps against the real API",
     businessType: "services",
     selectedChannels: ["telegram", "website"],
     scenario: "consult",
-    timezone: "Europe/Paris",
+    timezone: expect.any(String),
     crm: "none",
     companyInfo: company,
   });

@@ -428,6 +428,16 @@ async function markSkipped(
   return { status: "skipped", messageId: message.id, reason };
 }
 
+function systemMessageFenceReason(data: ChannelSendMessageJobData, message: DeliveryMessage) {
+  if (message.senderType !== "SYSTEM") return null;
+  const metadata = isRecord(message.metadata) ? message.metadata : {};
+  return data.source === "telegram" &&
+    metadata.kind === "TELEGRAM_ACTIVATION_WELCOME" &&
+    metadata.version === 1
+    ? null
+    : "system_message_not_deliverable";
+}
+
 async function aiReplyFenceReason(data: ChannelSendMessageJobData, message: DeliveryMessage) {
   if (message.senderType !== "AI") return null;
   const run = await prisma.aiReplyRun.findUnique({
@@ -1088,7 +1098,7 @@ export async function deliverChannelMessage(
         tenantId: data.tenantId,
         conversationId: data.conversationId,
         direction: "OUTBOUND",
-        senderType: { in: ["AI", "USER"] },
+        senderType: { in: ["AI", "USER", "SYSTEM"] },
       },
       include: {
         conversation: {
@@ -1150,6 +1160,13 @@ export async function deliverChannelMessage(
         messageId: message.id,
         reason: `message_status_${message.status.toLowerCase()}`,
       };
+    }
+
+    const systemFenceReason = systemMessageFenceReason(data, message);
+    if (systemFenceReason) {
+      const result = await markSkipped(message, systemFenceReason, jobId);
+      deliveryStatus = result.status;
+      return result;
     }
 
     const replyFenceReason = await aiReplyFenceReason(data, message);

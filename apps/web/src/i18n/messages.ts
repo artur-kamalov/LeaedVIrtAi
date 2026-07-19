@@ -396,8 +396,9 @@ const ru = {
   "onboarding.scenario.support": "Поддержка клиентов",
   "onboarding.scenario.supportDescription":
     "Цель: отвечать на типовые вопросы по базе знаний и при необходимости передавать диалог команде",
-  "onboarding.company.title": "Информация о компании",
-  "onboarding.company.description": "AI использует эти данные для общения с клиентами",
+  "onboarding.company.title": "Как называется ваш бизнес?",
+  "onboarding.company.description":
+    "Сейчас укажите только название. Услуги, цены, график, FAQ и правила можно добавить позже в разделе «Информация о бизнесе».",
   "onboarding.company.name": "Название компании",
   "onboarding.company.namePlaceholder": "Например: Студия красоты «Аура»",
   "onboarding.company.about": "О компании",
@@ -818,8 +819,9 @@ const en: Record<BaseTranslationKey, string> = {
   "onboarding.scenario.support": "Customer support",
   "onboarding.scenario.supportDescription":
     "Goal: answer common questions from approved knowledge and hand off when needed",
-  "onboarding.company.title": "Company information",
-  "onboarding.company.description": "AI uses this information when talking to customers",
+  "onboarding.company.title": "What is your business called?",
+  "onboarding.company.description":
+    "Enter the name now. Add services, prices, hours, FAQ, and rules later in Business information.",
   "onboarding.company.name": "Company name",
   "onboarding.company.namePlaceholder": "For example: Aura Beauty Studio",
   "onboarding.company.about": "About the company",

@@ -250,11 +250,11 @@ Website widget:
 ## Pilot Script
 
 1. Open `/demo` with the client to show the product without implying account access.
-2. Use `/login` for the client cabinet flow. Complete onboarding and select Telegram as the customer channel.
-3. In the guided Telegram dialog, connect the bot token and wait until LeadVirt finishes baselining Inbox before opening Telegram.
-4. Send a real message to the bot. Do not use the internal sample as activation evidence.
-5. Open the detected conversation, send a manual reply, and wait for `Sent` or `Delivered` before treating the loop as complete.
-6. Continue to Knowledge, review the business facts, run answer checks, publish, and explicitly enable automatic replies only after readiness passes.
+2. Use `/login` for the client cabinet flow. Complete the short onboarding, enter the company name, and select Telegram as the customer channel.
+3. In the guided Telegram dialog, connect the bot token, open the bot, and tap `Start` from the one-time guided link.
+4. The signed `Start` sends an operator setup confirmation; a normal private message during the short fallback window receives customer-safe acknowledgement. The exact conversation appears in Inbox, while other slash commands remain menu events and never enter AI or generic workflows.
+5. Open the detected conversation, send a manual reply, and wait for `Sent` or `Delivered` before treating the loop as complete. Do not use the internal sample as activation evidence.
+6. Continue to Knowledge > Business Information, add services, prices, hours, FAQ, policies, and escalation rules, then run answer checks, publish, and explicitly enable automatic replies only after readiness passes.
 7. Verify the lead appears in `/app/inbox` and `/app/leads` with the correct customer, channel, source, and latest message.
 8. Verify message history, timeline, AI draft, handoff/status actions, transcript export, and lead-stage movement.
 9. Check `/app/analytics` after several real messages; internal samples must not appear in Dashboard totals or trend data.

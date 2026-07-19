@@ -7,7 +7,12 @@ const apiBase = process.env.LEADVIRT_API_BASE ?? "http://localhost:4001/api";
 function telegramConversation(
   id: string,
   lastMessageAt: string,
-  options: { isInternalSample?: boolean } = {},
+  options: {
+    isInternalSample?: boolean;
+    lastMessage?: string;
+    unreadCount?: number;
+    activationWelcomeAt?: string | null;
+  } = {},
 ) {
   return {
     id,
@@ -19,8 +24,9 @@ function telegramConversation(
     lastMessageAt,
     aiEnabled: false,
     handoffRequested: false,
-    lastMessage: "Hello",
-    unreadCount: 1,
+    lastMessage: options.lastMessage ?? "Hello",
+    unreadCount: options.unreadCount ?? 1,
+    activationWelcomeAt: options.activationWelcomeAt ?? null,
     lead: {
       id: `lead-${id}`,
       tenantId: "tenant-activation",
@@ -54,14 +60,15 @@ test.beforeEach(async ({ context, page }) => {
   ]);
 });
 
-test("Telegram first run baselines before opening and finds a real update", async ({ page }) => {
+test("Telegram first run detects an already-queued welcome and ignores newer unread chats", async ({
+  page,
+}) => {
   let inboxRequests = 0;
-  let releaseBaseline!: () => void;
-  const baselineGate = new Promise<void>((resolve) => {
-    releaseBaseline = resolve;
-  });
-  const originalMessageAt = "2026-07-19T10:00:00.000Z";
+  const activationRequestedAt = "2026-07-19T10:00:30.000Z";
   const updatedMessageAt = "2026-07-19T10:01:00.000Z";
+  const newerUnreadMessageAt = "2026-07-19T10:02:00.000Z";
+  const activationWelcome =
+    "Hello, Telegram customer! LeadVirt AI administrator received your message.";
 
   await page.route("**/api/integrations", async (route) => {
     await route.fulfill({
@@ -77,6 +84,8 @@ test("Telegram first run baselines before opening and finds a real update", asyn
             settings: {
               botId: "123456789",
               botUsername: "activation_bot",
+              activationStartParameter: "lv_test_activation_123",
+              activationWelcomeRequestedAt: activationRequestedAt,
               tokenConfigured: true,
               webhookConfigured: true,
               managedByLeadVirt: true,
@@ -96,17 +105,22 @@ test("Telegram first run baselines before opening and finds a real update", asyn
   });
   await page.route("**/api/inbox/conversations**", async (route) => {
     inboxRequests += 1;
-    if (inboxRequests === 1) {
-      await baselineGate;
-      await fulfillInbox(route, [telegramConversation("conversation-existing", originalMessageAt)]);
-      return;
-    }
-
     await fulfillInbox(route, [
+      telegramConversation("conversation-newer-unread", newerUnreadMessageAt, {
+        lastMessage: "A newer unrelated customer message",
+        unreadCount: 1,
+      }),
       telegramConversation("conversation-sample", updatedMessageAt, {
         isInternalSample: true,
+        lastMessage: activationWelcome,
+        unreadCount: 0,
+        activationWelcomeAt: updatedMessageAt,
       }),
-      telegramConversation("conversation-existing", updatedMessageAt),
+      telegramConversation("conversation-existing", updatedMessageAt, {
+        lastMessage: activationWelcome,
+        unreadCount: 0,
+        activationWelcomeAt: updatedMessageAt,
+      }),
     ]);
   });
 
@@ -116,19 +130,24 @@ test("Telegram first run baselines before opening and finds a real update", asyn
   });
 
   await expect(page.getByTestId("telegram-first-reply-flow")).toBeVisible();
-  await expect(page.getByTestId("telegram-open-bot-preparing")).toBeDisabled();
-  await expect(page.getByTestId("telegram-open-bot")).toHaveCount(0);
-  await expect.poll(() => inboxRequests).toBe(1);
-
-  releaseBaseline();
+  await expect(page.getByTestId("telegram-first-reply-flow")).toContainText(
+    "Confirm your Telegram connection",
+  );
+  await expect(page.getByTestId("telegram-first-reply-flow")).toContainText(
+    "Slash commands are never sent to AI.",
+  );
 
   const openTelegram = page.getByTestId("telegram-open-bot");
-  await expect(openTelegram).toHaveAttribute("href", "https://t.me/activation_bot?start=leadvirt");
-  await expect(openTelegram).toBeFocused();
-  await expect(page.getByTestId("telegram-first-reply-status")).toHaveAttribute(
-    "data-status",
-    "waiting",
+  await expect(openTelegram).toHaveAttribute(
+    "href",
+    "https://t.me/activation_bot?start=lv_test_activation_123",
   );
+  await expect(page.getByTestId("telegram-card-open-bot")).toHaveAttribute(
+    "href",
+    "https://t.me/activation_bot",
+  );
+  await expect(openTelegram).toBeFocused();
+  await expect.poll(() => inboxRequests).toBeGreaterThan(0);
 
   const conversationLink = page.getByTestId("telegram-first-reply-open-conversation");
   await expect(conversationLink).toHaveAttribute(
@@ -140,11 +159,24 @@ test("Telegram first run baselines before opening and finds a real update", asyn
     "data-status",
     "found",
   );
+  await expect(page.getByTestId("telegram-first-reply-status")).toContainText(
+    "automatic customer replies remain off",
+  );
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBeTruthy();
   await page.screenshot({
     path: "artifacts/tmp/telegram-first-reply-mobile.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBeTruthy();
+  await page.screenshot({
+    path: "artifacts/tmp/telegram-first-reply-desktop.png",
     fullPage: true,
     animations: "disabled",
   });

@@ -27,7 +27,6 @@ import {
   LogOut,
   ChevronDown,
   UserPlus,
-  Loader2,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { toast } from "sonner";
@@ -77,6 +76,36 @@ function isRealTelegramConversation(conversation: ActivationConversation) {
 async function listRealTelegramConversations() {
   const result = await listInboxConversations({ channel: "TELEGRAM", limit: 50 });
   return (result.data as ActivationConversation[]).filter(isRealTelegramConversation);
+}
+
+function telegramActivationConversation(
+  conversations: ActivationConversation[],
+  requestedAt: string | null,
+) {
+  if (!requestedAt) return null;
+  const requestedAtMs = Date.parse(requestedAt);
+  if (!Number.isFinite(requestedAtMs)) return null;
+
+  return (
+    conversations
+      .map((conversation) => ({
+        conversation,
+        activatedAtMs: conversation.activationWelcomeAt
+          ? Date.parse(conversation.activationWelcomeAt)
+          : Number.NaN,
+      }))
+      .filter(
+        ({ activatedAtMs }) => Number.isFinite(activatedAtMs) && activatedAtMs >= requestedAtMs,
+      )
+      .sort((left, right) => left.activatedAtMs - right.activatedAtMs)[0]?.conversation ?? null
+  );
+}
+
+function telegramBotHref(username: string, activationStartParameter?: string) {
+  const botUrl = `https://t.me/${encodeURIComponent(username)}`;
+  return activationStartParameter
+    ? `${botUrl}?start=${encodeURIComponent(activationStartParameter)}`
+    : botUrl;
 }
 
 interface Integration {
@@ -1008,7 +1037,6 @@ function TelegramConnectModal({
   const [botToken, setBotToken] = useState("");
   const [activationStatus, setActivationStatus] = useState<TelegramActivationStatus>("idle");
   const [detectedConversationId, setDetectedConversationId] = useState<string | null>(null);
-  const baselineConversationsRef = React.useRef<Map<string, string | null> | null>(null);
   const activationStartedAtRef = React.useRef(0);
   const activationRunRef = React.useRef(0);
   const tokenInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -1016,40 +1044,29 @@ function TelegramConnectModal({
   const initialFocusDoneRef = React.useRef(false);
   const settings = asRecord(account?.settings);
   const botUsername = stringSetting(settings, "botUsername");
+  const activationStartParameter = stringSetting(settings, "activationStartParameter");
+  const activationWelcomeRequestedAt =
+    stringSetting(settings, "activationWelcomeRequestedAt") ?? account?.connectedAt ?? null;
   const connected = account?.status === "CONNECTED";
 
-  const prepareFirstReplyDetection = React.useCallback(async () => {
-    const run = activationRunRef.current + 1;
-    activationRunRef.current = run;
-    baselineConversationsRef.current = null;
+  const beginFirstReplyDetection = React.useCallback(() => {
+    activationRunRef.current += 1;
     setDetectedConversationId(null);
-    setActivationStatus("preparing");
-
-    try {
-      const conversations = await listRealTelegramConversations();
-      if (activationRunRef.current !== run) return;
-      baselineConversationsRef.current = new Map(
-        conversations.map((conversation) => [conversation.id, conversation.lastMessageAt ?? null]),
-      );
-      activationStartedAtRef.current = Date.now();
-      setActivationStatus("waiting");
-    } catch {
-      if (activationRunRef.current === run) setActivationStatus("error");
-    }
+    activationStartedAtRef.current = Date.now();
+    setActivationStatus("waiting");
   }, []);
 
   useEffect(() => {
     if (!open) {
       activationRunRef.current += 1;
-      baselineConversationsRef.current = null;
       initialFocusDoneRef.current = false;
       setBotToken("");
       setDetectedConversationId(null);
       setActivationStatus("idle");
       return;
     }
-    if (firstRun && connected) void prepareFirstReplyDetection();
-  }, [connected, firstRun, open, prepareFirstReplyDetection]);
+    if (firstRun && connected) beginFirstReplyDetection();
+  }, [activationWelcomeRequestedAt, beginFirstReplyDetection, connected, firstRun, open]);
 
   useEffect(() => {
     if (!open || !firstRun || !connected || activationStatus !== "waiting") return;
@@ -1074,12 +1091,9 @@ function TelegramConnectModal({
       try {
         const conversations = await listRealTelegramConversations();
         if (activationRunRef.current !== run) return;
-        const baseline = baselineConversationsRef.current;
-        const detected = conversations.find(
-          (conversation) =>
-            (conversation.unreadCount ?? 0) > 0 &&
-            (!baseline?.has(conversation.id) ||
-              baseline.get(conversation.id) !== (conversation.lastMessageAt ?? null)),
+        const detected = telegramActivationConversation(
+          conversations,
+          activationWelcomeRequestedAt,
         );
         if (detected) {
           setDetectedConversationId(detected.id);
@@ -1098,16 +1112,14 @@ function TelegramConnectModal({
     const timer = window.setInterval(() => void checkForFirstReply(), TELEGRAM_FIRST_REPLY_POLL_MS);
     window.addEventListener("focus", checkWhenVisible);
     document.addEventListener("visibilitychange", checkWhenVisible);
+    void checkForFirstReply();
 
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("focus", checkWhenVisible);
       document.removeEventListener("visibilitychange", checkWhenVisible);
     };
-  }, [activationStatus, connected, firstRun, open]);
-
-  const baselineReady = baselineConversationsRef.current !== null;
-  const botLinkReady = !firstRun || !connected || baselineReady;
+  }, [activationStatus, activationWelcomeRequestedAt, connected, firstRun, open]);
 
   useEffect(() => {
     if (!open || !firstRun || initialFocusDoneRef.current) return;
@@ -1125,14 +1137,7 @@ function TelegramConnectModal({
   }
 
   function retryFirstReplyDetection() {
-    if (!baselineConversationsRef.current) {
-      void prepareFirstReplyDetection();
-      return;
-    }
-    activationRunRef.current += 1;
-    activationStartedAtRef.current = Date.now();
-    setDetectedConversationId(null);
-    setActivationStatus("waiting");
+    beginFirstReplyDetection();
   }
 
   const firstReplyParams = new URLSearchParams({ firstRun: "1" });
@@ -1194,51 +1199,36 @@ function TelegramConnectModal({
                 : t("integrations.telegram.create")}
             </p>
           </div>
-          {connected && botUsername && !botLinkReady ? (
-            <Button
-              variant="primary"
-              size="sm"
-              className="min-h-11 w-full shrink-0 sm:w-auto"
-              disabled
-              data-testid="telegram-open-bot-preparing"
+          <Button
+            asChild
+            variant={connected && botUsername ? "primary" : "outline"}
+            size="sm"
+            className="min-h-11 w-full shrink-0 sm:w-auto"
+          >
+            <a
+              ref={openBotRef}
+              href={
+                connected && botUsername
+                  ? telegramBotHref(botUsername, activationStartParameter)
+                  : "https://t.me/BotFather"
+              }
+              target="_blank"
+              rel="noreferrer"
+              data-testid={connected && botUsername ? "telegram-open-bot" : undefined}
             >
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {t("activation.telegram.preparing")}
-            </Button>
-          ) : (
-            <Button
-              asChild
-              variant={connected && botUsername ? "primary" : "outline"}
-              size="sm"
-              className="min-h-11 w-full shrink-0 sm:w-auto"
-            >
-              <a
-                ref={openBotRef}
-                href={
-                  connected && botUsername
-                    ? `https://t.me/${encodeURIComponent(botUsername)}?start=leadvirt`
-                    : "https://t.me/BotFather"
-                }
-                target="_blank"
-                rel="noreferrer"
-                data-testid={connected && botUsername ? "telegram-open-bot" : undefined}
-              >
-                {connected && botUsername ? (
-                  <>
-                    <Send className="h-3.5 w-3.5" />
-                    {firstRun
-                      ? t("activation.telegram.openBot")
-                      : t("integrations.telegram.openBot")}
-                  </>
-                ) : (
-                  <>
-                    BotFather
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </>
-                )}
-              </a>
-            </Button>
-          )}
+              {connected && botUsername ? (
+                <>
+                  <Send className="h-3.5 w-3.5" />
+                  {firstRun ? t("activation.telegram.openBot") : t("integrations.telegram.openBot")}
+                </>
+              ) : (
+                <>
+                  BotFather
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </>
+              )}
+            </a>
+          </Button>
         </div>
 
         {!firstRun || !connected ? (
@@ -1792,7 +1782,7 @@ function IntegrationCard({
             </span>
             {connectedVisible && telegramUsername ? (
               <a
-                href={`https://t.me/${encodeURIComponent(telegramUsername)}?start=leadvirt`}
+                href={telegramBotHref(telegramUsername)}
                 target="_blank"
                 rel="noreferrer"
                 data-testid="telegram-card-open-bot"

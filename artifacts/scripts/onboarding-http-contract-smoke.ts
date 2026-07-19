@@ -247,12 +247,22 @@ async function main() {
 
     await advance("channels", { selectedChannels: ["telegram", "website"] }, "scenario");
     await advance("scenario", { scenario: "support" }, "company");
+    const missingCompanyName = await request(
+      origin,
+      "/api/onboarding/advance",
+      { step: "company", data: { companyInfo: {}, timezone: "Europe/Paris" } },
+      { "If-Match": '"onboarding-http-4"' },
+      "POST",
+    );
+    assert(
+      missingCompanyName.response.status === 400,
+      "Company advance accepted a missing business name.",
+    );
     await advance(
       "company",
       {
         companyInfo: {
           name: "HTTP Contract Workspace",
-          description: "Atomic onboarding HTTP coverage.",
         },
         timezone: "Europe/Paris",
       },
@@ -270,7 +280,10 @@ async function main() {
 
     const completedAt = launched.completedAt;
     const replayed = await advance("scenario", { scenario: "consult" }, "launch");
-    assert(replayed.completedAt === completedAt, "Older-step replay changed launch completion time.");
+    assert(
+      replayed.completedAt === completedAt,
+      "Older-step replay changed launch completion time.",
+    );
     assert(dispatches === 8, "Every state write did not dispatch after its transaction.");
     assert(
       auditEvents.filter((event) => event === "onboarding.step_completed").length === 6,

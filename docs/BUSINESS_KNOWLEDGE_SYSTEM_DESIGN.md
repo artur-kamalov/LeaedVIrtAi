@@ -81,7 +81,7 @@ LeadVirt has a useful prototype foundation, but the current path cannot guarante
 
 ### 5.1 Current flow
 
-1. The onboarding company step collects name, description, hours, average check, catalog, availability, FAQ, policies, and escalation text in [OnboardingPage.tsx](../apps/web/src/design/product/pages/OnboardingPage.tsx).
+1. The onboarding company step collects only the required company name and captures timezone silently. Description, hours, catalog, availability, FAQ, policies, and escalation remain editable after entry in the canonical Business Information workspace; legacy onboarding detail values are preserved.
 2. On step navigation, the browser persists onboarding JSON and the API upserts six `BusinessKnowledgeSource` records.
 3. The upsert does not create chunks or enqueue indexing.
 4. Chunks exist only after the manual `POST /knowledge/sources/reindex` route is called. No production frontend or backend flow calls it.

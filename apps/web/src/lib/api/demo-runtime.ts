@@ -1036,14 +1036,7 @@ function demoOnboardingValueReady(step: string, data: Record<string, unknown>) {
   if (step === "scenario")
     return typeof data.scenario === "string" && Boolean(data.scenario.trim());
   if (step === "company")
-    return (
-      typeof companyInfo.name === "string" &&
-      Boolean(companyInfo.name.trim()) &&
-      typeof companyInfo.description === "string" &&
-      Boolean(companyInfo.description.trim()) &&
-      typeof data.timezone === "string" &&
-      Boolean(data.timezone.trim())
-    );
+    return typeof companyInfo.name === "string" && Boolean(companyInfo.name.trim());
   if (step === "crm") return typeof data.crm === "string" && Boolean(data.crm.trim());
   return step === "launch";
 }
