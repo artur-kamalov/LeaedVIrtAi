@@ -114,6 +114,7 @@ async function mockReadiness(
     knowledge: "ready" | "review" | "unavailable" | "null";
     repliesActive?: boolean;
     inboundSucceeded?: boolean;
+    sampleInboundSucceeded?: boolean;
     channelConnected?: boolean;
     integrationProvider?: "TELEGRAM" | "AMOCRM";
     channelsFailingInitially?: boolean;
@@ -183,7 +184,7 @@ async function mockReadiness(
             status: "CONNECTED",
             name: "Telegram",
             connectedAt: "2026-07-17T09:00:00.000Z",
-            recentSyncLogs: options.inboundSucceeded
+            recentSyncLogs: options.sampleInboundSucceeded
               ? [
                   {
                     id: "successful-sample",
@@ -193,7 +194,31 @@ async function mockReadiness(
                   },
                 ]
               : [],
-            recentWebhookEvents: [],
+            recentWebhookEvents: options.inboundSucceeded
+              ? [
+                  {
+                    id: "real-inbound",
+                    provider: "TELEGRAM",
+                    externalEventId: "telegram-update-42",
+                    status: "PROCESSED",
+                    receivedAt: "2026-07-17T10:00:00.000Z",
+                    processedAt: "2026-07-17T10:00:01.000Z",
+                    internalSample: false,
+                  },
+                ]
+              : options.sampleInboundSucceeded
+                ? [
+                    {
+                      id: "sample-inbound",
+                      provider: "TELEGRAM",
+                      externalEventId: "telegram-sample-42",
+                      status: "PROCESSED",
+                      receivedAt: "2026-07-17T10:00:00.000Z",
+                      processedAt: "2026-07-17T10:00:01.000Z",
+                      internalSample: true,
+                    },
+                  ]
+                : [],
           },
         ],
       },
@@ -362,6 +387,54 @@ test("a connected CRM does not complete customer channel or inbound readiness", 
     "href",
     "/app/integrations",
   );
+});
+
+test("an internal sample does not complete real inbound readiness", async ({ page }) => {
+  await mockReadiness(page, {
+    knowledge: "ready",
+    repliesActive: true,
+    sampleInboundSucceeded: true,
+  });
+  await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
+
+  const journey = page.getByTestId("dashboard-readiness");
+  const inbound = page.getByTestId("dashboard-readiness-step-inbound");
+  await expect(journey).toHaveAttribute("data-ready", "false");
+  await expect(inbound).toHaveAttribute("data-state", "current");
+  await expect(inbound).toHaveAttribute("data-evidence", "incomplete");
+  await expect(inbound).toContainText("real customer message");
+});
+
+test("canonical real inbound evidence completes readiness for non-integration channels", async ({
+  page,
+}) => {
+  await page.unroute("**/api/dashboard/summary");
+  await page.route("**/api/dashboard/summary", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          ...summary,
+          activation: {
+            hasRealInbound: true,
+            hasProviderReply: false,
+            latestRealConversationId: "website-conversation",
+            latestRealInboundAt: "2026-07-17T10:00:00.000Z",
+          },
+        },
+      },
+    }),
+  );
+  await mockReadiness(page, {
+    knowledge: "ready",
+    repliesActive: true,
+  });
+  await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
+
+  await expect(page.getByTestId("dashboard-readiness-step-inbound")).toHaveAttribute(
+    "data-evidence",
+    "complete",
+  );
+  await expect(page.getByTestId("dashboard-readiness")).toHaveAttribute("data-ready", "true");
 });
 
 test("legacy notes do not replace structured services and schedule", async ({ page }) => {

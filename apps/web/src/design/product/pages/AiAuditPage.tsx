@@ -152,7 +152,7 @@ function AuditItemCard({ item }: { item: AiAuditItem }) {
       )}
       {payload && (
         <details className="mt-4">
-          <summary className="cursor-pointer text-sm font-medium text-emerald-300">
+          <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-emerald-300">
             {t("suite.audit.payload")}
           </summary>
           <pre className="mt-3 max-h-80 overflow-auto rounded-2xl border border-white/5 bg-black/30 p-4 text-xs leading-relaxed text-zinc-300">

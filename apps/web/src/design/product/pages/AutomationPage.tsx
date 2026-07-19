@@ -1600,6 +1600,8 @@ export function AutomationPage() {
                       scenarioTabRefs.current[i] = node;
                     }}
                     key={i}
+                    type="button"
+                    aria-pressed={i === activeScenario}
                     onClick={() => {
                       if (workflow) {
                         hydrateWorkflow(workflow, i);
@@ -1647,7 +1649,7 @@ export function AutomationPage() {
               value={scenarioName}
               onChange={(e) => setScenarioName(e.target.value)}
               readOnly={!permissions.canManageWorkflows}
-              className="flex-1 min-w-[180px] bg-transparent border-b border-white/10 pb-0.5 text-base font-bold text-zinc-100 tracking-tight outline-none focus:border-emerald-500/50 transition-colors placeholder-zinc-600"
+              className="min-h-11 min-w-[180px] flex-1 border-b border-white/10 bg-transparent py-2 text-base font-bold tracking-tight text-zinc-100 outline-none transition-colors placeholder-zinc-600 focus:border-emerald-500/50"
             />
             <WorkflowStatusBadge
               workflow={activeWorkflow}

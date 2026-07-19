@@ -1,6 +1,6 @@
 # First Social Test Client Pilot Runbook
 
-Last updated: 2026-07-06
+Last updated: 2026-07-19
 
 This runbook is for the first controlled pilot clients coming from social traffic. The goal is to prove the manager-facing product loop, not final production operations.
 
@@ -87,6 +87,7 @@ corepack pnpm --filter @leadvirt/web typecheck
 corepack pnpm --filter @leadvirt/web lint
 corepack pnpm --filter @leadvirt/web build
 corepack pnpm run qa:api
+corepack pnpm run qa:activation-evidence
 corepack pnpm run qa:ai:provider
 corepack pnpm run qa:auth:staging-ready
 corepack pnpm run qa:channels:provisioning
@@ -249,14 +250,14 @@ Website widget:
 ## Pilot Script
 
 1. Open `/demo` with the client to show the product without implying account access.
-2. Use `/login` for the client cabinet flow. In the seeded local workspace, use `admin@leadvirt.ai` / `demo-demo`.
-3. Send one inbound message through a selected entry point.
-4. Verify the lead appears in `/app/inbox` with the correct client name, channel, source, and latest message.
-5. Open the conversation and verify message history, timeline, AI draft, handoff/status actions, and transcript export.
-6. Check `/app/leads` and verify the lead is in the correct pipeline column with the same source/channel context.
-7. Move the lead one stage forward and create a manager task.
-8. Check `/app/automations` and confirm active workflow status, test-run behavior, and no unsaved changes before relying on a scenario.
-9. Check `/app/analytics` after a few messages to confirm visible activity and export a CSV if needed.
+2. Use `/login` for the client cabinet flow. Complete onboarding and select Telegram as the customer channel.
+3. In the guided Telegram dialog, connect the bot token and wait until LeadVirt finishes baselining Inbox before opening Telegram.
+4. Send a real message to the bot. Do not use the internal sample as activation evidence.
+5. Open the detected conversation, send a manual reply, and wait for `Sent` or `Delivered` before treating the loop as complete.
+6. Continue to Knowledge, review the business facts, run answer checks, publish, and explicitly enable automatic replies only after readiness passes.
+7. Verify the lead appears in `/app/inbox` and `/app/leads` with the correct customer, channel, source, and latest message.
+8. Verify message history, timeline, AI draft, handoff/status actions, transcript export, and lead-stage movement.
+9. Check `/app/analytics` after several real messages; internal samples must not appear in Dashboard totals or trend data.
 
 ## What To Watch
 

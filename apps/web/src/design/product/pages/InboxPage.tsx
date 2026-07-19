@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import { Search, Bot, MessageSquare, Filter, X, ChevronRight } from "lucide-react";
 import { ProductLayout } from "../ProductLayout";
 import { Card, Avatar, ChannelBadge, StatusPill, TempPill, channels, stages } from "../shared";
 import type { ChannelId, StageId } from "../shared";
 import type { Lead } from "../types";
-import { useNav } from "../nav";
+import { hrefForRoute, useNav } from "../nav";
 import { Button } from "../../components/ui/Button";
 import { EmptyState, Skeleton } from "../ui";
 import { cn } from "../../lib/utils";
@@ -322,7 +323,7 @@ const LeadRow = React.forwardRef<
    Right pane – lead summary
 ───────────────────────────────────────────── */
 function LeadSummary({ lead }: { lead: Lead }) {
-  const { go } = useNav();
+  const { mode } = useNav();
   const { formatCurrency, t } = useI18n();
 
   const fields: { label: string; value: string }[] = [
@@ -398,12 +399,14 @@ function LeadSummary({ lead }: { lead: Lead }) {
 
         {/* Action buttons */}
         <div>
-          <Button
-            className="w-full justify-center"
-            onClick={() => go("conversation", { id: lead.conversationId ?? lead.id })}
-          >
-            <MessageSquare className="w-4 h-4 mr-1.5" />
-            {t("ops.inbox.openConversation")}
+          <Button asChild className="w-full justify-center">
+            <Link
+              href={hrefForRoute("conversation", { id: lead.conversationId ?? lead.id }, mode)}
+              data-testid="inbox-open-conversation"
+            >
+              <MessageSquare className="w-4 h-4 mr-1.5" />
+              {t("ops.inbox.openConversation")}
+            </Link>
           </Button>
         </div>
       </Card>

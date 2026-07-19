@@ -944,6 +944,7 @@ function integration(
               status: "PROCESSED",
               receivedAt: iso(35),
               processedAt: iso(34),
+              internalSample: false,
             },
           ]
         : [],
@@ -1236,6 +1237,12 @@ function dashboardSummary(s: DemoState): DashboardSummary {
   const activeLeads = s.leads.filter((lead) => lead.status !== "LOST");
   const qualified = activeLeads.filter((lead) => lead.status === "QUALIFIED").length;
   return {
+    activation: {
+      hasRealInbound: true,
+      hasProviderReply: true,
+      latestRealConversationId: s.conversations[0]?.id ?? null,
+      latestRealInboundAt: s.conversations[0]?.lastMessageAt ?? null,
+    },
     metrics: {
       newLeadsCount: activeLeads.length,
       aiConversationsCount: s.conversations.filter((conversation) => conversation.aiEnabled).length,

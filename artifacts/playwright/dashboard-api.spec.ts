@@ -20,6 +20,69 @@ test.beforeEach(async ({ page }) => {
   await loginAsCleanUser(page, apiBase, { locale: "ru" });
 });
 
+test("a fresh workspace shows one activation outcome instead of empty analytics", async ({
+  context,
+  page,
+}) => {
+  await context.addCookies([
+    { name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" },
+  ]);
+  await page.route("**/api/dashboard/summary", async (route) => {
+    await route.fulfill({
+      json: {
+        data: {
+          activation: {
+            hasRealInbound: false,
+            hasProviderReply: false,
+            latestRealConversationId: null,
+            latestRealInboundAt: null,
+          },
+          metrics: {
+            newLeadsCount: 0,
+            aiConversationsCount: 0,
+            bookingsOrdersCreated: 0,
+            leadsSentToCrm: 0,
+            averageResponseTimeSeconds: 0,
+            conversionRate: 0,
+          },
+          recentLeads: [],
+          recentActivity: [],
+          channelPerformance: [],
+          trend: [],
+        },
+      },
+    });
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${webBase}/app`, { waitUntil: "networkidle" });
+
+  await expect(page.getByTestId("dashboard-activation-mode")).toBeVisible();
+  await expect(page.getByTestId("dashboard-stat-grid")).toHaveCount(0);
+  await expect(page.getByTestId("dashboard-trend-empty")).toHaveCount(0);
+  await expect(page.getByTestId("dashboard-open-inbox")).toHaveCount(0);
+  await expect(page.getByTestId("dashboard-activation-cta")).toHaveAttribute(
+    "href",
+    "/app/integrations?setup=telegram&firstRun=1",
+  );
+  await page.screenshot({
+    path: "artifacts/tmp/dashboard-activation-desktop.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByTestId("dashboard-activation-mode")).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBeTruthy();
+  await page.screenshot({
+    path: "artifacts/tmp/dashboard-activation-mobile.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+});
+
 test("dashboard renders API metric deltas", async ({ page }) => {
   await page.route("**/api/dashboard/summary", async (route) => {
     await route.fulfill({

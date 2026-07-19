@@ -1,4 +1,5 @@
 import type { ChannelId, StageId, Temp } from "./shared";
+import type { MessageStatus } from "@leadvirt/types";
 
 export interface Lead {
   id: string;
@@ -24,6 +25,7 @@ export interface ChatMessage {
   from: "client" | "ai" | "manager";
   text: string;
   time: string;
+  status?: MessageStatus;
   attachments?: ChatAttachment[];
 }
 

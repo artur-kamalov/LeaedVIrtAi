@@ -19,6 +19,11 @@ import type {
   IntegrationWebhookEventSummary,
 } from "@leadvirt/types";
 import { Prisma } from "@leadvirt/db";
+import {
+  internalSampleConversationIds,
+  internalSampleExternalEventIds,
+  isInternalSampleWebhookEvent,
+} from "../../common/internal-sample.js";
 import type { RequestContext } from "../../common/request-context.js";
 import {
   type TelegramBotLifecycleLock,
@@ -208,7 +213,7 @@ export class IntegrationsService {
   ) {}
 
   async list(context: RequestContext): Promise<IntegrationAccount[]> {
-    const [integrations, channels] = await Promise.all([
+    const [integrations, channels, sampleAuditLogs] = await Promise.all([
       this.prisma.integrationAccount.findMany({
         where: { tenantId: context.tenantId, deletedAt: null },
         include: {
@@ -236,13 +241,18 @@ export class IntegrationsService {
           createdAt: true,
         },
       }),
+      this.prisma.auditLog.findMany({
+        where: { tenantId: context.tenantId, action: "integration.sample_inbound" },
+        select: { payload: true },
+      }),
     ]);
+    const sampleConversationIds = internalSampleConversationIds(sampleAuditLogs);
     const webhookProviders = [
       ...new Set(channels.flatMap((channel) => this.webhookProvidersForChannel(channel))),
     ];
-    const webhookEvents =
+    const [webhookEvents, sampleWebhookAuditLogs] = await Promise.all([
       webhookProviders.length > 0
-        ? await this.prisma.webhookEvent.findMany({
+        ? this.prisma.webhookEvent.findMany({
             where: {
               tenantId: context.tenantId,
               provider: { in: webhookProviders },
@@ -259,7 +269,22 @@ export class IntegrationsService {
               processedAt: true,
             },
           })
-        : [];
+        : [],
+      sampleConversationIds.size > 0
+        ? this.prisma.auditLog.findMany({
+            where: {
+              tenantId: context.tenantId,
+              action: { in: ["telegram.webhook.processed", "webhook.event.processed"] },
+              entityId: { in: [...sampleConversationIds] },
+            },
+            select: { action: true, entityId: true, payload: true },
+          })
+        : [],
+    ]);
+    const sampleExternalEventIds = internalSampleExternalEventIds(
+      sampleWebhookAuditLogs,
+      sampleConversationIds,
+    );
 
     return integrations.map((integration) => {
       const unavailable = isUnavailableProvider(integration.provider);
@@ -298,6 +323,7 @@ export class IntegrationsService {
           integration.provider,
           channels,
           webhookEvents,
+          sampleExternalEventIds,
         ),
         recentSyncLogs: unavailable
           ? []
@@ -1589,6 +1615,7 @@ export class IntegrationsService {
       receivedAt: Date;
       processedAt: Date | null;
     }[],
+    sampleExternalEventIds: ReadonlySet<string>,
   ): IntegrationWebhookEventSummary[] {
     const webhookProviders = this.webhookProviderKeysForIntegration(provider, channels);
     if (webhookProviders.length === 0) return [];
@@ -1603,6 +1630,7 @@ export class IntegrationsService {
         errorMessage: event.errorMessage,
         receivedAt: event.receivedAt.toISOString(),
         processedAt: event.processedAt?.toISOString() ?? null,
+        internalSample: isInternalSampleWebhookEvent(event, sampleExternalEventIds),
       }));
   }
 

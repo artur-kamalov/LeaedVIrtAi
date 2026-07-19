@@ -335,9 +335,9 @@ test("onboarding completes all six steps through atomic ordered advances", async
   await page.getByRole("button", { name: /LeadVirt Inbox/ }).click();
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Initial setup saved" })).toBeFocused();
-  await page.getByRole("button", { name: "Review business information" }).click();
+  await page.getByRole("button", { name: "Connect Telegram" }).click();
 
-  await expect(page).toHaveURL(`${webBase}/app/knowledge?welcome=1`);
+  await expect(page).toHaveURL(`${webBase}/app/integrations?setup=telegram&firstRun=1`);
   expect(requests.map((request) => request.step)).toEqual(steps);
   expect(requests[3]?.data).toMatchObject({
     timezone: expect.any(String),
@@ -586,7 +586,7 @@ test("legacy custom onboarding values remain reviewable and recoverable", async 
   await expect(page.getByText("wellness-studio", { exact: true })).toBeVisible();
   await expect(page.getByText("sales-assistant", { exact: true })).toBeVisible();
   await expect(page.getByText("spreadsheet", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Review business information" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Connect Telegram" })).toBeEnabled();
 
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await expect(page.getByRole("button", { name: "spreadsheet", exact: true })).toHaveAttribute(
@@ -1063,26 +1063,28 @@ async function launchReadyOnboarding(page: Page, path: string, actionLabel: stri
   await expect(page.getByTestId("onboarding-persistence-error")).toBeHidden();
 }
 
-test("successful onboarding launch opens Knowledge review", async ({ page }) => {
-  await launchReadyOnboarding(page, "/onboarding", "Review business information");
+test("successful Telegram onboarding starts first-reply activation", async ({ page }) => {
+  await launchReadyOnboarding(page, "/onboarding", "Connect Telegram");
 
-  await expect(page).toHaveURL(`${webBase}/app/knowledge?welcome=1`, { timeout: 15_000 });
-  await expect(page.getByText("Your setup answers are saved.")).toBeVisible();
+  await expect(page).toHaveURL(`${webBase}/app/integrations?setup=telegram&firstRun=1`, {
+    timeout: 15_000,
+  });
 });
 
-test("successful onboarding launch hands a selected plan to billing", async ({ page }) => {
-  await launchReadyOnboarding(page, "/onboarding?plan=pro", "Review selected plan");
+test("successful Telegram onboarding carries a selected plan past first value", async ({
+  page,
+}) => {
+  await launchReadyOnboarding(page, "/onboarding?plan=pro", "Connect Telegram");
 
-  await expect(page).toHaveURL(`${webBase}/app/billing?plan=pro`, { timeout: 15_000 });
+  await expect(page).toHaveURL(`${webBase}/app/integrations?setup=telegram&firstRun=1&plan=pro`, {
+    timeout: 15_000,
+  });
 });
 
 test("successful onboarding launch ignores a malformed plan", async ({ page }) => {
-  await launchReadyOnboarding(
-    page,
-    "/onboarding?plan=pro%2F..%2Fcorporate",
-    "Review business information",
-  );
+  await launchReadyOnboarding(page, "/onboarding?plan=pro%2F..%2Fcorporate", "Connect Telegram");
 
-  await expect(page).toHaveURL(`${webBase}/app/knowledge?welcome=1`, { timeout: 15_000 });
-  await expect(page.getByText("Your setup answers are saved.")).toBeVisible();
+  await expect(page).toHaveURL(`${webBase}/app/integrations?setup=telegram&firstRun=1`, {
+    timeout: 15_000,
+  });
 });

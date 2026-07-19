@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -110,16 +110,39 @@ export function DashboardReadinessJourney({
   snapshot,
   isLoading,
   isError,
+  hasRealInbound,
   onRetry,
 }: {
   snapshot: DashboardReadinessSnapshot | null;
   isLoading: boolean;
   isError: boolean;
+  hasRealInbound?: boolean;
   onRetry: () => void;
 }) {
   const { t } = useI18n();
   const { mode } = useNav();
   const [mobileStepsExpanded, setMobileStepsExpanded] = useState(false);
+  const [refreshFeedbackVisible, setRefreshFeedbackVisible] = useState(false);
+  const refreshFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (refreshFeedbackTimer.current) clearTimeout(refreshFeedbackTimer.current);
+    },
+    [],
+  );
+
+  const refreshActive = isLoading || refreshFeedbackVisible;
+  const handleRefresh = () => {
+    if (refreshActive) return;
+
+    setRefreshFeedbackVisible(true);
+    onRetry();
+    refreshFeedbackTimer.current = setTimeout(() => {
+      setRefreshFeedbackVisible(false);
+      refreshFeedbackTimer.current = null;
+    }, 1_500);
+  };
 
   if (!snapshot && isLoading) {
     return (
@@ -173,7 +196,7 @@ export function DashboardReadinessJourney({
     );
   }
 
-  const model = deriveDashboardReadiness(snapshot);
+  const model = deriveDashboardReadiness(snapshot, hasRealInbound);
   const progress = Math.round((model.completedCount / model.steps.length) * 100);
   const primaryLabel = model.primaryStepId
     ? t(actionKeys[model.primaryStepId])
@@ -185,7 +208,7 @@ export function DashboardReadinessJourney({
       className="min-w-0 overflow-hidden border-emerald-500/15 bg-emerald-500/[0.025]"
       data-testid="dashboard-readiness"
       data-ready={model.isReady ? "true" : "false"}
-      aria-busy={isLoading}
+      aria-busy={refreshActive}
     >
       {isError ? (
         <div
@@ -293,15 +316,20 @@ export function DashboardReadinessJourney({
               size="sm"
               className="h-11 w-11 shrink-0 justify-center gap-2 px-0 text-zinc-400 sm:mt-2 sm:w-full sm:px-3"
               data-testid="dashboard-readiness-refresh"
-              disabled={isLoading}
-              onClick={onRetry}
+              disabled={refreshActive}
+              aria-busy={refreshActive}
+              onClick={handleRefresh}
             >
-              <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+              <RefreshCw className={cn("h-4 w-4", refreshActive && "animate-spin")} />
               <span className="sr-only sm:not-sr-only">{t("dashboard.readiness.retry")}</span>
             </Button>
           </div>
-          {isLoading ? (
-            <p className="sr-only sm:not-sr-only sm:mt-2 sm:text-xs sm:text-zinc-600">
+          {refreshActive ? (
+            <p
+              className="sr-only sm:not-sr-only sm:mt-2 sm:text-xs sm:text-zinc-600"
+              role="status"
+              aria-live="polite"
+            >
               {t("dashboard.readiness.loading")}
             </p>
           ) : null}

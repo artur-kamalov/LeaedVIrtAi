@@ -599,6 +599,17 @@ test("restricted review actions are clear and the localized mobile view does not
   await page.setViewportSize({ width: 390, height: 844 });
   await openReview(page, "ru");
 
+  const mobileReviewTargetHeights = await page
+    .getByTestId("knowledge-review-queue")
+    .locator('input[aria-label], button[role="combobox"]')
+    .evaluateAll((elements) =>
+      elements
+        .map((element) => element.getBoundingClientRect())
+        .filter(({ height, width }) => height > 0 && width > 0)
+        .map(({ height }) => height),
+    );
+  expect(mobileReviewTargetHeights).toHaveLength(4);
+  expect(Math.min(...mobileReviewTargetHeights)).toBeGreaterThanOrEqual(44);
   await expect(page.getByText("Решения по проверке ограничены")).toBeVisible();
   await page.getByTestId("knowledge-review-item-review-sensitive").click();
   await expect(

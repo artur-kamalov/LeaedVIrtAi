@@ -2007,6 +2007,14 @@ const entries = [
     de: "Auswählen",
     pt: "Escolher",
   }),
+  entry("settings.billing.chooseNamed", {
+    en: "Choose {plan} plan",
+    ru: "Выбрать тариф {plan}",
+    es: "Elegir el plan {plan}",
+    fr: "Choisir le forfait {plan}",
+    de: "Tarif {plan} auswählen",
+    pt: "Escolher o plano {plan}",
+  }),
   entry("settings.billing.continueWithPlan", {
     en: "Continue with this plan",
     ru: "Продолжить с этим тарифом",

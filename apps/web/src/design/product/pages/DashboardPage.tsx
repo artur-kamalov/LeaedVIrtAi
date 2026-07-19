@@ -285,6 +285,77 @@ export function DashboardPage() {
     );
   }
 
+  const isActivationMode = !isDemo && summary.activation?.hasRealInbound === false;
+
+  if (isActivationMode) {
+    return (
+      <ProductLayout title={t("dashboard.title")}>
+        <div className="flex flex-col gap-8" data-testid="dashboard-activation-mode">
+          {summaryResource.isError ? (
+            <ResourceErrorState testId="dashboard-refresh-error" onRetry={summaryResource.reload} />
+          ) : null}
+
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, ease: "easeOut" }}
+          >
+            {tenantName ? (
+              <h2 className="text-2xl font-bold tracking-tight text-zinc-50">
+                {t("dashboard.welcome", { name: tenantName })}
+              </h2>
+            ) : tenantResource.isLoading ? (
+              <Skeleton className="h-8 w-64 max-w-full" />
+            ) : (
+              <h2 className="text-2xl font-bold tracking-tight text-zinc-50">
+                {t("auth.toast.welcome")}
+              </h2>
+            )}
+            <p className="mt-1 text-sm capitalize text-zinc-400">
+              {formatDate(new Date(), {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+            </p>
+          </motion.div>
+
+          <motion.section
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: 0.08, ease: "easeOut" }}
+            aria-labelledby="dashboard-activation-heading"
+            className="border-y border-white/10 bg-emerald-500/[0.04] py-8"
+          >
+            <div className="flex max-w-3xl flex-col items-start gap-5 px-1 sm:flex-row sm:items-center sm:gap-6">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-emerald-400/20 bg-emerald-400/10 text-emerald-300">
+                <MessageSquare className="h-6 w-6" aria-hidden="true" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3
+                  id="dashboard-activation-heading"
+                  className="text-xl font-semibold text-zinc-50"
+                >
+                  {t("activation.dashboard.heading")}
+                </h3>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+                  {t("activation.dashboard.body")}
+                </p>
+              </div>
+              <Button asChild className="min-h-11 shrink-0" data-testid="dashboard-activation-cta">
+                <Link href="/app/integrations?setup=telegram&firstRun=1">
+                  {t("activation.dashboard.cta")}
+                  <ChevronRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
+                </Link>
+              </Button>
+            </div>
+          </motion.section>
+        </div>
+      </ProductLayout>
+    );
+  }
+
   const stats = [
     {
       icon: Users,
@@ -463,6 +534,7 @@ export function DashboardPage() {
             snapshot={readinessResource.data}
             isLoading={readinessResource.isLoading}
             isError={readinessResource.isError}
+            hasRealInbound={summary.activation?.hasRealInbound}
             onRetry={readinessResource.reload}
           />
         </div>
@@ -670,7 +742,7 @@ export function DashboardPage() {
                 sub={t("dashboard.recent.description")}
                 action={
                   <Link
-                    href={hrefForRoute("inbox", {}, mode)}
+                    href={hrefForRoute("pipeline", {}, mode)}
                     className="flex min-h-11 items-center gap-1 text-xs text-emerald-400 transition-colors hover:text-emerald-300"
                   >
                     {t("dashboard.recent.all")} <ChevronRight className="w-3.5 h-3.5" />

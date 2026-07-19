@@ -157,6 +157,31 @@ test("automation page shows workflow status badges", async ({ page }) => {
   await expect(page.getByText("Активен").first()).toBeVisible();
 });
 
+test("automation scenario selection is announced and mobile controls remain usable", async ({
+  page,
+}) => {
+  await page.route("**/api/workflows", async (route) => {
+    await route.fulfill({
+      json: { data: [workflow("Primary Workflow"), workflow("Secondary Workflow", "DRAFT")] },
+    });
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${webBase}/app/automations`, { waitUntil: "networkidle" });
+
+  const scenarioTabs = page.getByTestId("automation-scenario-tabs").locator("button");
+  await expect(scenarioTabs.nth(0)).toHaveAttribute("aria-pressed", "true");
+  await expect(scenarioTabs.nth(1)).toHaveAttribute("aria-pressed", "false");
+  await scenarioTabs.nth(1).click();
+  await expect(scenarioTabs.nth(0)).toHaveAttribute("aria-pressed", "false");
+  await expect(scenarioTabs.nth(1)).toHaveAttribute("aria-pressed", "true");
+
+  const scenarioName = page.getByTestId("automation-editor").locator("input[aria-label]").first();
+  const scenarioNameBox = await scenarioName.boundingBox();
+  expect(scenarioNameBox).not.toBeNull();
+  expect(scenarioNameBox!.height).toBeGreaterThanOrEqual(44);
+});
+
 test("automation page blocks unsupported legacy actions instead of presenting them as runnable", async ({ page }) => {
   await page.route("**/api/workflows", async (route) => {
     await route.fulfill({ json: { data: [unsupportedWorkflow()] } });
@@ -457,4 +482,3 @@ test("archived workflow failures are not presented as an empty archive", async (
   await expect(archiveDialog.getByText("Archived Workflow", { exact: true })).toBeVisible();
   await expect(archiveDialog.getByTestId("automation-archive-load-error")).toHaveCount(0);
 });
-

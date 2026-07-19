@@ -1,5 +1,18 @@
 # Decision Log
 
+## 2026-07-19: Make Interactive State And Destinations Programmatic
+
+Decision: Product navigation uses real links when a destination exists; selected controls expose `aria-pressed` or `aria-current`; repeated actions include their provider or plan in the accessible name; and dialogs restore focus only to a stable, still-connected trigger. Mobile form and switch targets are at least 44px, while compact desktop icon actions remain at least 32px.
+
+Context: The exhaustive production UI pass found controls that looked distinct visually but shared names, hid selection state, navigated imperatively, restored focus to detached menu items, or exposed pointer targets no larger than their icons.
+
+Consequences:
+
+- Browser and assistive-technology navigation share the same route destination and history behavior.
+- Integration, Automation, Settings, Billing, and Knowledge controls expose their state and purpose without relying on visual proximity.
+- Connected-integration dialogs return focus to the current configure trigger even after account state changes.
+- Responsive target geometry and accessible-name uniqueness are enforced in Playwright regressions.
+
 ## 2026-07-19: Make Onboarding Patches Exact And Step Advances Atomic
 
 Decision: Onboarding normalizes class-transformed request data by recursively removing omitted `undefined` properties before field classification and merge. The client advances a step through one transactional endpoint; the server validates ordered prerequisites, saves that step's data, completes it, and derives the next step.
@@ -3988,4 +4001,20 @@ Consequences:
 - `/widget/demo` passes an explicit demo locale and translates only recognized demo fixtures.
 - Live widget frames preserve the tenant's configured locale, title, greeting, replies, and consent copy.
 - Unknown customer messages and tenant-authored values remain byte-for-byte content, while shared widget chrome follows the resolved widget locale.
+
+## 2026-07-19: Optimize Activation Around The First Verified Customer Reply
+
+Decision: The primary self-service activation outcome is a real customer message received through Telegram and a manual reply accepted by the provider. Internal samples remain diagnostics and never count as customer activation, readiness, leads, conversations, activity, response time, channel performance, or trend data.
+
+Context: New owners completed six onboarding stages, then landed in a technical Knowledge workspace or Billing before seeing customer value. A fresh Dashboard showed zero metrics and empty charts, Telegram setup did not hand users into a live conversation, and a successful internal sample could satisfy inbound readiness. Notification preferences also promised delivery without a dispatcher.
+
+Consequences:
+
+- Telegram onboarding carries plan intent into a guided connection flow and defers Billing until after first value.
+- The bot opens only after Inbox baselining; visible-tab polling detects a new real inbound conversation or a new inbound message on an existing conversation and preserves the exact conversation link.
+- Conversation replies expose queued, sent, delivered, and failed states. First-run completion requires a persisted `SENT` or `DELIVERED` manager message.
+- Fresh workspaces receive one activation surface instead of empty analytics. The full Dashboard appears after canonical real inbound evidence exists.
+- Website, Telegram, and Webhook readiness share the same real-inbound evidence. Synthetic samples are marked at the API boundary and excluded without a database migration.
+- Automatic replies still require the existing Knowledge publication and channel-readiness gates; first-run setup never enables them implicitly.
+- Notification controls remain hidden until a durable delivery runtime exists. Their API contract is retained for a future opt-in migration.
 - Regression coverage exercises all six supported demo locales and separately protects the live tenant boundary.

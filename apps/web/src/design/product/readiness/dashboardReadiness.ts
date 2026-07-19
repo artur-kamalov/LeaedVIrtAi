@@ -249,8 +249,7 @@ function connectedChannelAssessment(
   const channelConnected =
     channels.state === "available" && channels.value.some(isConnectedChannel);
   const integrationConnected =
-    integrations.state === "available" &&
-    integrations.value.some(isConnectedCustomerIntegration);
+    integrations.state === "available" && integrations.value.some(isConnectedCustomerIntegration);
   if (channelConnected || integrationConnected) {
     return { evidence: "complete", detail: { kind: "channel_complete" } };
   }
@@ -274,19 +273,20 @@ function repliesAssessment(
 
 function inboundAssessment(
   integrations: DataCheck<IntegrationAccount[]>,
+  hasRealInbound = false,
 ): Pick<DashboardReadinessStep, "evidence" | "detail"> {
+  if (hasRealInbound) {
+    return { evidence: "complete", detail: { kind: "inbound_complete" } };
+  }
   if (integrations.state === "unavailable") {
     return { evidence: "needs_check", detail: { kind: "needs_check" } };
   }
   const successfulInbound = integrations.value.some((integration) => {
     if (!isConnectedCustomerIntegration(integration)) return false;
     return Boolean(
-      integration.recentSyncLogs?.some(
-        (log) => log.action === "sample_inbound" && log.status.toUpperCase() === "SUCCESS",
-      ) ||
-        integration.recentWebhookEvents?.some(
-          (event) => Boolean(event.processedAt) && !event.errorMessage,
-        ),
+      integration.recentWebhookEvents?.some(
+        (event) => Boolean(event.processedAt) && !event.errorMessage && !event.internalSample,
+      ),
     );
   });
   return successfulInbound
@@ -312,6 +312,7 @@ function inboundHref(snapshot: DashboardReadinessSnapshot) {
 
 export function deriveDashboardReadiness(
   snapshot: DashboardReadinessSnapshot,
+  hasRealInbound = false,
 ): DashboardReadinessModel {
   const assessed = [
     {
@@ -351,7 +352,7 @@ export function deriveDashboardReadiness(
     {
       id: "inbound" as const,
       href: inboundHref(snapshot),
-      ...inboundAssessment(snapshot.integrations),
+      ...inboundAssessment(snapshot.integrations, hasRealInbound),
     },
   ];
 

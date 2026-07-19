@@ -4,6 +4,7 @@ Last updated: 2026-07-19
 
 ## Next
 
+- [x] Completed the second exhaustive 2026-07-19 UX pass: 761 public/demo interactive instances across 42 route-viewports, 643 authenticated desktop instances across 23 states, and 356 authenticated mobile state instances. Exercised all public link outcomes, every primary mobile navigation destination, all non-destructive authenticated controls, and isolated mock coverage for persistent/external/destructive actions. Fixed light theme, navigation truth, progress feedback, selection semantics, dialog focus, field and action naming, and desktop/mobile target sizes. Verified affected Playwright coverage `106/106`, final Integrations `8/8` effective, UI smoke `14/14`, Web checks, and production build.
 - [x] Made the email-only production gate fail closed: strict auth readiness requires explicit `AUTH_EMAIL_OTP_ENABLED=true` and `AUTH_TELEGRAM_ENABLED=false`, and the isolated candidate API proves email delivery readiness plus a redacted disabled Telegram auth config before the prior release is drained. Verified script syntax, scoped diff checks, and `qa:release-readiness`.
 - [x] Defined the current account-auth contract as email-only in public UI, with Telegram account auth disabled by default, legacy Telegram sessions recognized during migration, and business Telegram bot integrations unchanged. Removed the obsolete standalone Telegram account-auth smoke command and documented the migration boundary. Verified Types/API/Worker/Web checks, email OTP `11/11`, auth/CSP Playwright `11/11`, release readiness, and all four Telegram business-channel regression suites.
 - [x] Fixed production onboarding persistence and completed the six-step UX contract: nested DTOs omit transformed `undefined` fields before profile classification/merge, step advances are atomic and ordered, launch is idempotent, and business/company optimistic concurrency remains explicit. Added role gating, timezone capture, inline validation, focus management, all-dirty-draft exit persistence, and recoverable custom legacy business/scenario/CRM values. Verified onboarding HTTP `23/23`, business-profile contract `37/37`, API `46/46`, atomic `36/36`, direct QA provisioner `31/31`, and clean combined browser coverage `20/20`, including the real local API.
@@ -726,9 +727,15 @@ Last updated: 2026-07-19
 - [x] Made generic webhook AI admission single-write and transactionally truthful: the inbound transaction owns the outbox event, post-commit dispatch reuses that event, and policy rejection remains `skipped`. `qa:webhook:reliability` verifies rollback, retry, dedupe, and dispatch counts.
 - [x] Scoped Conversation async work by conversation id and generation so delayed loads, sends, AI drafts, attachments, and actions cannot mutate a newly opened chat. The delayed failed-send route-switch regression and affected conversation suites pass.
 - [x] Kept email-OTP configuration outages distinct from a disabled feature, added retry without forcing Telegram, and removed the unused persistent browser identity payload. Auth Playwright passes `9/9`; Web typecheck/lint pass with two existing image warnings.
+- [x] Reworked first value around one verified outcome: Telegram onboarding now continues through connect, baseline-safe real inbound detection, exact Inbox handoff, and a provider-accepted first manual reply. Fresh workspaces show this activation outcome instead of empty analytics, internal samples are excluded from readiness and Dashboard data, and inert notification settings are hidden. The completion action moves into view immediately, without delayed scrolling or stale queued feedback; focused desktop/mobile screenshots and browser coverage pass.
 - [ ] Provision encrypted offsite PostgreSQL and artifact backups with retention, key escrow, restore automation, and a recorded restore drill.
 - [x] Fenced provider delivery against concurrent channel disconnect/configuration changes by locking and reloading current routing, status, settings, and credentials immediately before send; delivery and structured-delivery database smokes pass.
 - [ ] Add live provider readiness probes and alert routing for email, AI, Telegram, backup age, queue backlog, and terminal delivery failures.
+- [ ] Add first-party funnel telemetry for landing CTA, OTP completion, onboarding completion, channel connection, first real inbound, first provider reply, retained usage, and plan request.
+- [ ] Define the trial duration, included allowance, expiry behavior, billing trigger, and owner sales follow-up policy.
+- [ ] Publish Privacy, Terms, data-processing, legal-operator, and monitored-support pages before broad external sales.
+- [ ] Implement a durable notification outbox and dispatcher before restoring customer notification preferences; migrate existing tenants to explicit opt-in defaults.
+- [ ] Add a setup-help request that includes the tenant's current failed or stalled activation stage.
 - [ ] Add focused tests for functional behavior once API-backed features return.
 
 ## Current Verification Commands
@@ -763,6 +770,7 @@ corepack pnpm --filter @leadvirt/db typecheck
 corepack pnpm run pilot:ready
 corepack pnpm run pilot:doctor
 corepack pnpm run qa:api
+corepack pnpm run qa:activation-evidence
 corepack pnpm run qa:pilot:intake
 corepack pnpm run qa:pilot:public
 corepack pnpm run qa:channels:provisioning

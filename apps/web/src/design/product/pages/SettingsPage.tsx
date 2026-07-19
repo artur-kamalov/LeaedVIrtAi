@@ -17,7 +17,6 @@ import {
   Building2,
   Users,
   Radio,
-  Bell,
   CreditCard,
   Shield,
   Key,
@@ -62,7 +61,6 @@ import {
   enableTwoFactor,
   getAccountSettings,
   getLegacyApiKeys,
-  getNotificationsSettings,
   getSecuritySettings,
   getTeamSettings,
   inviteTeamMember,
@@ -72,11 +70,9 @@ import {
   revokeSecuritySession,
   regenerateTwoFactorRecoveryCodes,
   startTwoFactorSetup,
-  type NotificationsSettings,
   type SecuritySession,
   type TeamRole,
   updateAccountSettings,
-  updateNotificationsSettings,
   updateTeamMemberRole,
 } from "@/lib/api/settings";
 import {
@@ -156,15 +152,19 @@ function Toggle({
 function Field({
   label,
   hint,
+  htmlFor,
   children,
 }: {
   label: string;
   hint?: string;
+  htmlFor?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-sm font-medium text-zinc-300">{label}</label>
+      <label htmlFor={htmlFor} className="block text-sm font-medium text-zinc-300">
+        {label}
+      </label>
       {children}
       {hint && <p className="text-xs text-zinc-500">{hint}</p>}
     </div>
@@ -246,13 +246,13 @@ function showLocalizedError(error: unknown, message: string) {
    Tab definitions
    ============================================================ */
 
-type TabId = "profile" | "team" | "channels" | "notifications" | "billing" | "security" | "api";
+type TabId = "profile" | "team" | "channels" | "billing" | "security" | "api";
+type LegacyTabId = TabId | "notifications";
 
 const tabs = [
   { id: "profile", labelKey: "settings.tab.profile", icon: Building2 },
   { id: "team", labelKey: "settings.tab.team", icon: Users },
   { id: "channels", labelKey: "settings.tab.channels", icon: Radio },
-  { id: "notifications", labelKey: "settings.tab.notifications", icon: Bell },
   { id: "billing", labelKey: "settings.tab.billing", icon: CreditCard },
   { id: "security", labelKey: "settings.tab.security", icon: Shield },
 ] as const;
@@ -265,14 +265,13 @@ type BillingPlanSelection = Awaited<ReturnType<typeof getBillingPlanSelection>>;
 type BillingUsage = Awaited<ReturnType<typeof getBillingUsage>>;
 type BillingPaymentMethod = Awaited<ReturnType<typeof getBillingPaymentMethod>>;
 type BillingInvoice = Awaited<ReturnType<typeof listBillingInvoices>>[number];
-type SettingsResource = "account" | "team" | "security" | "notifications";
+type SettingsResource = "account" | "team" | "security";
 type SettingsResourceStatus = "loading" | "ready" | "error";
 
-const settingsResources: SettingsResource[] = ["account", "team", "security", "notifications"];
+const settingsResources: SettingsResource[] = ["account", "team", "security"];
 const settingsResourceByTab: Partial<Record<TabId, SettingsResource>> = {
   profile: "account",
   team: "team",
-  notifications: "notifications",
   security: "security",
 };
 
@@ -294,8 +293,6 @@ interface SettingsApiState {
   setTeam: React.Dispatch<React.SetStateAction<TeamSettings | null>>;
   security: SecuritySettings | null;
   setSecurity: (security: SecuritySettings) => void;
-  notifications: NotificationsSettings | null;
-  setNotifications: (notifications: NotificationsSettings) => void;
 }
 
 const SettingsApiContext = React.createContext<SettingsApiState>({
@@ -305,8 +302,6 @@ const SettingsApiContext = React.createContext<SettingsApiState>({
   setTeam: () => {},
   security: null,
   setSecurity: () => {},
-  notifications: null,
-  setNotifications: () => {},
 });
 
 function useSettingsApi() {
@@ -788,8 +783,13 @@ function ProfileTab() {
           </div>
 
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-            <Field label={t("settings.profile.email")} hint={t("settings.profile.emailHint")}>
+            <Field
+              label={t("settings.profile.email")}
+              hint={t("settings.profile.emailHint")}
+              htmlFor="settings-account-email"
+            >
               <Input
+                id="settings-account-email"
                 data-testid="settings-account-email"
                 type="email"
                 value={account?.owner.email ?? ""}
@@ -798,8 +798,9 @@ function ProfileTab() {
               />
             </Field>
 
-            <Field label={t("settings.profile.phone")}>
+            <Field label={t("settings.profile.phone")} htmlFor="settings-profile-phone">
               <Input
+                id="settings-profile-phone"
                 data-testid="settings-profile-phone"
                 type="tel"
                 value={phone}
@@ -809,8 +810,9 @@ function ProfileTab() {
             </Field>
           </div>
 
-          <Field label={t("settings.profile.website")}>
+          <Field label={t("settings.profile.website")} htmlFor="settings-profile-website">
             <Input
+              id="settings-profile-website"
               data-testid="settings-profile-website"
               type="url"
               value={website}
@@ -1117,15 +1119,17 @@ function TeamTab() {
           }
         >
           <div className="space-y-4">
-            <Field label={t("settings.team.name")}>
+            <Field label={t("settings.team.name")} htmlFor="settings-invite-name">
               <Input
+                id="settings-invite-name"
                 value={inviteName}
                 onChange={(event) => setInviteName(event.target.value)}
                 placeholder={t("settings.team.namePlaceholder")}
               />
             </Field>
-            <Field label="Email">
+            <Field label={t("settings.profile.email")} htmlFor="settings-invite-email">
               <Input
+                id="settings-invite-email"
                 type="email"
                 value={inviteEmail}
                 onChange={(event) => setInviteEmail(event.target.value)}
@@ -1133,7 +1137,11 @@ function TeamTab() {
               />
             </Field>
             <Field label={t("settings.team.role")}>
-              <Select value={inviteRole} onChange={(value) => setInviteRole(value as TeamRole)}>
+              <Select
+                value={inviteRole}
+                onChange={(value) => setInviteRole(value as TeamRole)}
+                ariaLabel={t("settings.team.role")}
+              >
                 <option value="ADMIN">{t("settings.team.role.admin")}</option>
                 <option value="MANAGER">{t("settings.team.role.manager")}</option>
                 <option value="AGENT">{t("settings.team.role.agent")}</option>
@@ -2665,96 +2673,6 @@ function ChannelsTab() {
   );
 }
 
-const notifItems = [
-  {
-    id: "new_lead",
-    labelKey: "settings.notifications.newLead",
-    descKey: "settings.notifications.newLeadDesc",
-  },
-  {
-    id: "no_reply",
-    labelKey: "settings.notifications.noReply",
-    descKey: "settings.notifications.noReplyDesc",
-  },
-  {
-    id: "booking",
-    labelKey: "settings.notifications.booking",
-    descKey: "settings.notifications.bookingDesc",
-  },
-  {
-    id: "daily",
-    labelKey: "settings.notifications.daily",
-    descKey: "settings.notifications.dailyDesc",
-  },
-  {
-    id: "tg_summary",
-    labelKey: "settings.notifications.telegram",
-    descKey: "settings.notifications.telegramDesc",
-  },
-] as const;
-
-function NotificationsTab() {
-  const { t } = useI18n();
-  const { notifications, setNotifications } = useSettingsApi();
-  const [toggles, setToggles] = useState<Record<string, boolean>>({
-    new_lead: true,
-    no_reply: true,
-    booking: true,
-    daily: false,
-    tg_summary: true,
-  });
-
-  useEffect(() => {
-    if (notifications) setToggles(notifications);
-  }, [notifications]);
-
-  const handleToggle = async (id: string, value: boolean) => {
-    const previous = toggles;
-    const next = { ...toggles, [id]: value };
-    setToggles(next);
-    try {
-      const updated = await updateNotificationsSettings({
-        [id]: value,
-      });
-      setNotifications(updated);
-      toast(t("settings.notifications.updated"));
-    } catch (error) {
-      setToggles(previous);
-      showLocalizedError(error, t("settings.notifications.error"));
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <SectionHeader
-        title={t("settings.notifications.title")}
-        description={t("settings.notifications.description")}
-      />
-
-      <Card className="divide-y divide-white/5">
-        {notifItems.map((item) => (
-          <div key={item.id} className="flex items-center gap-4 px-5 py-4">
-            <div className="flex-1 min-w-0">
-              <p
-                id={`settings-notification-${item.id}-label`}
-                className="text-sm font-semibold text-zinc-100"
-              >
-                {t(item.labelKey)}
-              </p>
-              <p className="text-xs text-zinc-500 mt-0.5">{t(item.descKey)}</p>
-            </div>
-            <Toggle
-              ariaLabelledBy={`settings-notification-${item.id}-label`}
-              checked={toggles[item.id]}
-              onChange={(v) => void handleToggle(item.id, v)}
-            />
-          </div>
-        ))}
-      </Card>
-    </div>
-  );
-}
-
 function BillingTab() {
   const i18n = useI18n();
   const { t, formatDate: formatLocalizedDate, formatNumber } = i18n;
@@ -3234,6 +3152,21 @@ function BillingTab() {
               const selected = Boolean(planCode && selectedPlan?.code === planCode);
               const requested = Boolean(planCode && requestedPlanCode === planCode);
               const changing = Boolean(planCode && planChangeCode === planCode);
+              const actionLabel = changing
+                ? t("settings.billing.changing")
+                : active
+                  ? t("settings.billing.current")
+                  : selected
+                    ? t("settings.billing.activationPending")
+                    : requested
+                      ? t("settings.billing.continueWithPlan")
+                      : planCode
+                        ? t("settings.billing.choose")
+                        : t("settings.common.unavailable");
+              const actionAriaLabel =
+                planCode && !changing && !active && !selected && !requested
+                  ? t("settings.billing.chooseNamed", { plan: plan.name })
+                  : `${actionLabel}: ${plan.name}`;
               return (
                 <div
                   key={plan.id}
@@ -3277,21 +3210,12 @@ function BillingTab() {
                     variant={plan.popular ? "primary" : "outline"}
                     className="mt-auto"
                     disabled={!planCode || active || selected || planChangeCode !== null}
+                    aria-label={actionAriaLabel}
                     onClick={() => {
                       if (planCode) void handleSelectPlan(planCode, plan.name);
                     }}
                   >
-                    {changing
-                      ? t("settings.billing.changing")
-                      : active
-                        ? t("settings.billing.current")
-                        : selected
-                          ? t("settings.billing.activationPending")
-                          : requested
-                            ? t("settings.billing.continueWithPlan")
-                            : planCode
-                              ? t("settings.billing.choose")
-                              : t("settings.common.unavailable")}
+                    {actionLabel}
                   </Button>
                 </div>
               );
@@ -4227,11 +4151,14 @@ const tabContentMap: Record<TabId, React.ComponentType> = {
   profile: ProfileTab,
   team: TeamTab,
   channels: ChannelsTab,
-  notifications: NotificationsTab,
   billing: BillingTab,
   security: SecurityTab,
   api: ApiKeysTab,
 };
+
+function visibleInitialTab(tab: LegacyTabId): TabId {
+  return tab === "api" || tab === "notifications" ? "profile" : tab;
+}
 
 /* ============================================================
    Main SettingsPage
@@ -4241,35 +4168,32 @@ export function SettingsPage({
   initialTab = "profile",
   title,
 }: {
-  initialTab?: TabId;
+  initialTab?: LegacyTabId;
   title?: string;
 }) {
   const { t } = useI18n();
-  const allowedInitialTab = initialTab === "api" ? "profile" : initialTab;
+  const allowedInitialTab = visibleInitialTab(initialTab);
   const visibleTabs = tabs;
   const [activeTab, setActiveTab] = useState<TabId>(allowedInitialTab);
   const [account, setAccount] = useState<SettingsAccount | null>(null);
   const [team, setTeam] = useState<TeamSettings | null>(null);
   const [security, setSecurity] = useState<SecuritySettings | null>(null);
-  const [notifications, setNotifications] = useState<NotificationsSettings | null>(null);
   const [resourceStatus, setResourceStatus] = useState<
     Record<SettingsResource, SettingsResourceStatus>
   >({
     account: "loading",
     team: "loading",
     security: "loading",
-    notifications: "loading",
   });
   const resourceGeneration = useRef<Record<SettingsResource, number>>({
     account: 0,
     team: 0,
     security: 0,
-    notifications: 0,
   });
   const ActiveContent = tabContentMap[activeTab];
 
   useEffect(() => {
-    setActiveTab(initialTab === "api" ? "profile" : initialTab);
+    setActiveTab(visibleInitialTab(initialTab));
   }, [initialTab]);
 
   const loadResource = React.useCallback(async (resource: SettingsResource) => {
@@ -4295,12 +4219,6 @@ export function SettingsPage({
           setSecurity(value);
           break;
         }
-        case "notifications": {
-          const value = await getNotificationsSettings();
-          if (resourceGeneration.current[resource] !== generation) return;
-          setNotifications(value);
-          break;
-        }
       }
       if (resourceGeneration.current[resource] === generation) {
         setResourceStatus((current) => ({ ...current, [resource]: "ready" }));
@@ -4321,7 +4239,7 @@ export function SettingsPage({
 
   const activeResource = settingsResourceByTab[activeTab];
   const activeResourceValue = activeResource
-    ? { account, team, security, notifications }[activeResource]
+    ? { account, team, security }[activeResource]
     : true;
   const activeResourceStatus = activeResource ? resourceStatus[activeResource] : "ready";
   const showInitialLoading = activeResourceStatus === "loading" && !activeResourceValue;
@@ -4336,8 +4254,6 @@ export function SettingsPage({
         setTeam,
         security,
         setSecurity,
-        notifications,
-        setNotifications,
       }}
     >
       <ProductLayout
@@ -4372,13 +4288,18 @@ export function SettingsPage({
           </nav>
 
           {/* Desktop vertical nav */}
-          <nav className="hidden lg:flex lg:w-56 shrink-0 flex-col gap-1">
+          <nav
+            aria-label={t("settings.title")}
+            className="hidden lg:flex lg:w-56 shrink-0 flex-col gap-1"
+          >
             {visibleTabs.map((tab) => {
               const Icon = tab.icon;
               const active = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
+                  type="button"
+                  aria-current={active ? "page" : undefined}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
                     "group relative flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm font-medium text-left transition-all",

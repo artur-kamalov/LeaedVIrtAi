@@ -462,19 +462,26 @@ select {
 .theme-light.bg-zinc-950,
 .theme-light .bg-zinc-950 { background-color: #f4f4f5; }
 .theme-light .bg-zinc-950\/90 { background-color: rgba(244, 244, 245, 0.9); }
+.theme-light .bg-zinc-950\/95 { background-color: rgba(244, 244, 245, 0.96); }
 .theme-light .bg-zinc-950\/70 { background-color: rgba(248, 248, 249, 0.7); }
 .theme-light .bg-zinc-950\/60 { background-color: rgba(248, 248, 249, 0.6); }
+.theme-light .bg-zinc-950\/50 { background-color: rgba(244, 244, 245, 0.5); }
 .theme-light .bg-zinc-950\/40 { background-color: rgba(244, 244, 245, 0.4); }
+.theme-light .bg-zinc-950\/30 { background-color: rgba(244, 244, 245, 0.3); }
+.theme-light .bg-zinc-950\/25 { background-color: rgba(244, 244, 245, 0.25); }
 .theme-light .bg-zinc-950\/20 { background-color: rgba(244, 244, 245, 0.2); }
 
 .theme-light .bg-zinc-900 { background-color: #ffffff; }
 .theme-light .bg-zinc-900\/90 { background-color: rgba(255, 255, 255, 0.92); }
 .theme-light .bg-zinc-900\/80 { background-color: rgba(255, 255, 255, 0.85); }
+.theme-light .bg-zinc-900\/70 { background-color: rgba(255, 255, 255, 0.78); }
+.theme-light .bg-zinc-900\/65 { background-color: rgba(255, 255, 255, 0.76); }
 .theme-light .bg-zinc-900\/60 { background-color: rgba(255, 255, 255, 0.72); }
 .theme-light .bg-zinc-900\/50 { background-color: rgba(255, 255, 255, 0.65); }
 .theme-light .bg-zinc-900\/40 { background-color: rgba(255, 255, 255, 0.55); }
 
 .theme-light .bg-zinc-800 { background-color: #e4e4e7; }
+.theme-light .bg-zinc-800\/70 { background-color: rgba(228, 228, 231, 0.7); }
 .theme-light .bg-zinc-800\/60 { background-color: rgba(228, 228, 231, 0.6); }
 .theme-light .bg-zinc-700 { background-color: #d4d4d8; }
 .theme-light .bg-zinc-500 { background-color: #a1a1aa; }

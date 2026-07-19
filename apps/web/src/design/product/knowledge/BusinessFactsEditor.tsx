@@ -222,7 +222,7 @@ const FIELD_TYPE_KEYS: Partial<Record<string, TranslationKey>> = {
 };
 
 const inputClassName =
-  "h-10 w-full min-w-0 rounded-md border border-white/10 bg-white/5 px-3 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-60";
+  "h-10 w-full min-w-0 rounded-md border border-white/10 bg-white/5 px-3 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-60 max-sm:min-h-11";
 const textAreaClassName = `${inputClassName} h-auto min-h-24 resize-y py-2.5`;
 
 function emptyForm(kind: FactKind = "BUSINESS_NAME"): FactForm {

@@ -134,7 +134,11 @@ test("ai audit page renders API-backed events with redacted payloads", async ({ 
     page.getByTestId("ai-audit-item-audit-audit-1").getByText("-", { exact: true }),
   ).toHaveCount(3);
 
-  await page.getByText("Payload").first().click();
+  const payloadDisclosure = page.locator("summary").filter({ hasText: "Payload" }).first();
+  const payloadDisclosureBox = await payloadDisclosure.boundingBox();
+  expect(payloadDisclosureBox).not.toBeNull();
+  expect(payloadDisclosureBox!.height).toBeGreaterThanOrEqual(44);
+  await payloadDisclosure.click();
   await expect(page.getByText("[redacted-email]").first()).toBeVisible();
   await expect(page.getByText("[redacted-phone]").first()).toBeVisible();
   await expect(page.getByText("[redacted-secret]").first()).toBeVisible();

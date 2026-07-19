@@ -661,6 +661,7 @@ export interface Conversation {
   lead?: Lead | null;
   lastMessage?: string | null;
   unreadCount?: number;
+  isInternalSample?: boolean;
 }
 
 export interface Message {
@@ -803,6 +804,7 @@ export interface IntegrationWebhookEventSummary {
   errorMessage?: string | null;
   receivedAt: string;
   processedAt?: string | null;
+  internalSample: boolean;
 }
 
 export interface PricingPlan {
@@ -953,6 +955,12 @@ export interface DashboardRecentLead {
 }
 
 export interface DashboardSummary {
+  activation: {
+    hasRealInbound: boolean;
+    hasProviderReply: boolean;
+    latestRealConversationId: string | null;
+    latestRealInboundAt: string | null;
+  };
   metrics: {
     newLeadsCount: number;
     aiConversationsCount: number;

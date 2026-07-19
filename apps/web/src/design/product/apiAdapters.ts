@@ -177,11 +177,7 @@ const knownSourceLabels: Record<
   },
 };
 
-function localizeSource(
-  value?: string | null,
-  locale: Locale = "en",
-  useDemoSeed = false,
-) {
+function localizeSource(value?: string | null, locale: Locale = "en", useDemoSeed = false) {
   if (!value) return "";
   const sourceKey = knownSourceKeyByLabel[value];
   return sourceKey
@@ -257,8 +253,7 @@ export function leadFromConversation(
         lead?.source ?? conversation.channel?.name ?? conversation.subject,
         locale,
         useDemoSeed,
-      ) ||
-      "LeadVirt",
+      ) || "LeadVirt",
     value: lead?.valueAmount ?? 0,
     currency: currencyCode(lead?.currency),
     manager: localizeSeedText(lead?.assignedToName, locale, useDemoSeed) || "—",
@@ -293,7 +288,8 @@ export function leadFromApiLead(
     manager: localizeSeedText(lead.assignedToName, locale, useDemoSeed) || "—",
     service: localizeSeedText(lead.interest, locale, useDemoSeed) || fallbacks.interest,
     lastMessage:
-      localizeSeedText(lead.summary ?? lead.interest, locale, useDemoSeed) || fallbacks.conversation,
+      localizeSeedText(lead.summary ?? lead.interest, locale, useDemoSeed) ||
+      fallbacks.conversation,
     time: relativeTimeLabel(lead.lastMessageAt ?? lead.createdAt, locale),
     unread: 0,
     ai: true,
@@ -324,6 +320,7 @@ function chatMessageFromApi(message: Message, locale: Locale, useDemoSeed: boole
       message.senderType === "AI" ? "ai" : message.senderType === "CUSTOMER" ? "client" : "manager",
     text: localizeSeedText(message.text, locale, useDemoSeed) || "",
     time: formatMessageTime(message.createdAt, locale),
+    status: message.status,
     attachments: message.attachments?.map((attachment) => ({
       id: attachment.id,
       filename: attachment.filename,

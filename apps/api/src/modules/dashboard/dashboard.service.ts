@@ -1,7 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
+import type { Prisma } from "@leadvirt/db";
 import type { DashboardMetricDeltas, DashboardSummary } from "@leadvirt/types";
+import {
+  internalSampleConversationIds,
+  internalSampleLeadIds,
+} from "../../common/internal-sample.js";
 import type { RequestContext } from "../../common/request-context.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { dashboardUtcWeekdayTrend } from "./dashboard-metrics.js";
 
 const productActivityActions: string[] = [
   "seed.completed",
@@ -9,7 +15,6 @@ const productActivityActions: string[] = [
   "booking.created",
   "task.created",
   "integration.connected",
-  "integration.sample_inbound",
   "integration.test_connection",
   "workflow.published",
   "onboarding.step_completed",
@@ -43,14 +48,16 @@ function pointDelta(current: number, previous: number) {
 
 function conversionRateForLeads(leads: { status: string }[]) {
   if (leads.length === 0) return 0;
-  const converted = leads.filter((lead) => convertedLeadStatuses.includes(lead.status as (typeof convertedLeadStatuses)[number])).length;
+  const converted = leads.filter((lead) =>
+    convertedLeadStatuses.includes(lead.status as (typeof convertedLeadStatuses)[number]),
+  ).length;
   return roundOne((converted / leads.length) * 100);
 }
 
 function averageFirstResponseSeconds(
   messages: { conversationId: string; direction: string; senderType: string; createdAt: Date }[],
   start: Date,
-  end: Date
+  end: Date,
 ) {
   const pendingInboundByConversation = new Map<string, Date>();
   const samples: number[] = [];
@@ -86,6 +93,59 @@ export class DashboardService {
     const now = new Date();
     const currentPeriodStart = addDays(now, -7);
     const previousPeriodStart = addDays(now, -14);
+    const sampleAuditLogs = await this.prisma.auditLog.findMany({
+      where: { tenantId, action: "integration.sample_inbound" },
+      select: { payload: true },
+    });
+    const sampleConversationIds = internalSampleConversationIds(sampleAuditLogs);
+    const sampleConversations =
+      sampleConversationIds.size > 0
+        ? await this.prisma.conversation.findMany({
+            where: { tenantId, id: { in: [...sampleConversationIds] } },
+            select: { id: true, leadId: true },
+          })
+        : [];
+    const sampleLeadIds = internalSampleLeadIds(sampleConversations, sampleConversationIds);
+    const sampleConversationIdList = [...sampleConversationIds];
+    const sampleLeadIdList = [...sampleLeadIds];
+    const realLeadWhere: Prisma.LeadWhereInput = {
+      tenantId,
+      deletedAt: null,
+      ...(sampleLeadIdList.length > 0 ? { id: { notIn: sampleLeadIdList } } : {}),
+    };
+    const realConversationWhere: Prisma.ConversationWhereInput = {
+      tenantId,
+      deletedAt: null,
+      AND: [
+        ...(sampleConversationIdList.length > 0
+          ? [{ id: { notIn: sampleConversationIdList } }]
+          : []),
+        ...(sampleLeadIdList.length > 0
+          ? [{ OR: [{ leadId: null }, { leadId: { notIn: sampleLeadIdList } }] }]
+          : []),
+      ],
+    };
+    const realRelatedLeadWhere =
+      sampleLeadIdList.length > 0
+        ? { OR: [{ leadId: null }, { leadId: { notIn: sampleLeadIdList } }] }
+        : {};
+    const realActivityWhere: Prisma.AuditLogWhereInput = {
+      tenantId,
+      action: { in: productActivityActions },
+      NOT: [
+        ...(sampleConversationIdList.length > 0
+          ? [
+              {
+                entityType: "conversation",
+                entityId: { in: sampleConversationIdList },
+              },
+            ]
+          : []),
+        ...(sampleLeadIdList.length > 0
+          ? [{ entityType: "lead", entityId: { in: sampleLeadIdList } }]
+          : []),
+      ],
+    };
     const [
       newLeadsCount,
       aiConversationsCount,
@@ -101,25 +161,34 @@ export class DashboardService {
       channels,
       periodBookings,
       periodOrders,
-      periodMessages
+      periodMessages,
     ] = await Promise.all([
-      this.prisma.lead.count({ where: { tenantId, status: "NEW", deletedAt: null } }),
-      this.prisma.conversation.count({ where: { tenantId, aiEnabled: true, deletedAt: null } }),
-      this.prisma.booking.count({ where: { tenantId, deletedAt: null } }),
-      this.prisma.order.count({ where: { tenantId, deletedAt: null } }),
-      this.prisma.lead.count({ where: { tenantId, sentToCrmAt: { not: null }, deletedAt: null } }),
-      this.prisma.lead.count({
-        where: { tenantId, deletedAt: null, status: { in: ["QUALIFIED", "BOOKED", "ORDERED", "SENT_TO_CRM", "CLOSED"] } }
+      this.prisma.lead.count({ where: { ...realLeadWhere, status: "NEW" } }),
+      this.prisma.conversation.count({
+        where: { ...realConversationWhere, aiEnabled: true },
       }),
-      this.prisma.lead.count({ where: { tenantId, deletedAt: null } }),
+      this.prisma.booking.count({
+        where: { tenantId, deletedAt: null, ...realRelatedLeadWhere },
+      }),
+      this.prisma.order.count({
+        where: { tenantId, deletedAt: null, ...realRelatedLeadWhere },
+      }),
+      this.prisma.lead.count({ where: { ...realLeadWhere, sentToCrmAt: { not: null } } }),
+      this.prisma.lead.count({
+        where: {
+          ...realLeadWhere,
+          status: { in: ["QUALIFIED", "BOOKED", "ORDERED", "SENT_TO_CRM", "CLOSED"] },
+        },
+      }),
+      this.prisma.lead.count({ where: realLeadWhere }),
       this.prisma.auditLog.findMany({
-        where: { tenantId, action: { in: productActivityActions } },
+        where: realActivityWhere,
         orderBy: { createdAt: "desc" },
         take: 8,
-        select: { id: true, action: true, entityType: true, createdAt: true, payload: true }
+        select: { id: true, action: true, entityType: true, createdAt: true, payload: true },
       }),
       this.prisma.lead.findMany({
-        where: { tenantId, deletedAt: null },
+        where: realLeadWhere,
         orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
         take: 5,
         select: {
@@ -136,94 +205,180 @@ export class DashboardService {
           createdAt: true,
           lastMessageAt: true,
           conversations: {
-            where: { deletedAt: null },
+            where: {
+              deletedAt: null,
+              ...(sampleConversationIdList.length > 0
+                ? { id: { notIn: sampleConversationIdList } }
+                : {}),
+            },
             orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
             take: 1,
-            select: { id: true }
-          }
-        }
+            select: { id: true },
+          },
+        },
       }),
       this.prisma.lead.findMany({
-        where: { tenantId, deletedAt: null },
-        select: { channelType: true, status: true, valueAmount: true, createdAt: true, bookedAt: true, sentToCrmAt: true }
+        where: realLeadWhere,
+        select: {
+          channelType: true,
+          status: true,
+          valueAmount: true,
+          createdAt: true,
+          bookedAt: true,
+          sentToCrmAt: true,
+        },
       }),
       this.prisma.conversation.findMany({
-        where: { tenantId, deletedAt: null },
-        select: { channelId: true, aiEnabled: true, createdAt: true }
+        where: realConversationWhere,
+        select: { channelId: true, aiEnabled: true, createdAt: true },
       }),
       this.prisma.channel.findMany({
         where: { tenantId, deletedAt: null },
-        select: { id: true, type: true, name: true }
+        select: { id: true, type: true, name: true },
       }),
       this.prisma.booking.findMany({
-        where: { tenantId, deletedAt: null, createdAt: { gte: previousPeriodStart } },
-        select: { createdAt: true }
+        where: {
+          tenantId,
+          deletedAt: null,
+          createdAt: { gte: previousPeriodStart },
+          ...realRelatedLeadWhere,
+        },
+        select: { createdAt: true },
       }),
       this.prisma.order.findMany({
-        where: { tenantId, deletedAt: null, createdAt: { gte: previousPeriodStart } },
-        select: { createdAt: true }
+        where: {
+          tenantId,
+          deletedAt: null,
+          createdAt: { gte: previousPeriodStart },
+          ...realRelatedLeadWhere,
+        },
+        select: { createdAt: true },
       }),
       this.prisma.message.findMany({
-        where: { tenantId, createdAt: { gte: previousPeriodStart }, senderType: { in: ["CUSTOMER", "AI", "USER"] } },
+        where: {
+          tenantId,
+          createdAt: { gte: previousPeriodStart },
+          senderType: { in: ["CUSTOMER", "AI", "USER"] },
+          conversation: realConversationWhere,
+        },
         orderBy: [{ conversationId: "asc" }, { createdAt: "asc" }],
-        select: { conversationId: true, direction: true, senderType: true, createdAt: true }
-      })
+        select: { conversationId: true, direction: true, senderType: true, createdAt: true },
+      }),
+    ]);
+    const [latestRealInbound, providerReply] = await Promise.all([
+      this.prisma.message.findFirst({
+        where: {
+          tenantId,
+          direction: "INBOUND",
+          senderType: "CUSTOMER",
+          conversation: realConversationWhere,
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { conversationId: true, createdAt: true },
+      }),
+      this.prisma.message.findFirst({
+        where: {
+          tenantId,
+          direction: "OUTBOUND",
+          senderType: { in: ["AI", "USER"] },
+          status: { in: ["SENT", "DELIVERED"] },
+          conversation: realConversationWhere,
+        },
+        select: { id: true },
+      }),
     ]);
 
-    const conversionRate = totalLeads > 0 ? Math.round((qualifiedLeads / totalLeads) * 1000) / 10 : 0;
+    const conversionRate =
+      totalLeads > 0 ? Math.round((qualifiedLeads / totalLeads) * 1000) / 10 : 0;
     const currentLeads = leads.filter((lead) => inRange(lead.createdAt, currentPeriodStart, now));
-    const previousLeads = leads.filter((lead) => inRange(lead.createdAt, previousPeriodStart, currentPeriodStart));
-    const currentAiConversations = conversations.filter((conversation) => conversation.aiEnabled && inRange(conversation.createdAt, currentPeriodStart, now));
-    const previousAiConversations = conversations.filter((conversation) => conversation.aiEnabled && inRange(conversation.createdAt, previousPeriodStart, currentPeriodStart));
+    const previousLeads = leads.filter((lead) =>
+      inRange(lead.createdAt, previousPeriodStart, currentPeriodStart),
+    );
+    const currentAiConversations = conversations.filter(
+      (conversation) =>
+        conversation.aiEnabled && inRange(conversation.createdAt, currentPeriodStart, now),
+    );
+    const previousAiConversations = conversations.filter(
+      (conversation) =>
+        conversation.aiEnabled &&
+        inRange(conversation.createdAt, previousPeriodStart, currentPeriodStart),
+    );
     const currentBookingsOrders =
-      periodBookings.filter((booking) => inRange(booking.createdAt, currentPeriodStart, now)).length +
+      periodBookings.filter((booking) => inRange(booking.createdAt, currentPeriodStart, now))
+        .length +
       periodOrders.filter((order) => inRange(order.createdAt, currentPeriodStart, now)).length;
     const previousBookingsOrders =
-      periodBookings.filter((booking) => inRange(booking.createdAt, previousPeriodStart, currentPeriodStart)).length +
-      periodOrders.filter((order) => inRange(order.createdAt, previousPeriodStart, currentPeriodStart)).length;
-    const currentLeadsSentToCrm = leads.filter((lead) => inRange(lead.sentToCrmAt, currentPeriodStart, now)).length;
-    const previousLeadsSentToCrm = leads.filter((lead) => inRange(lead.sentToCrmAt, previousPeriodStart, currentPeriodStart)).length;
+      periodBookings.filter((booking) =>
+        inRange(booking.createdAt, previousPeriodStart, currentPeriodStart),
+      ).length +
+      periodOrders.filter((order) =>
+        inRange(order.createdAt, previousPeriodStart, currentPeriodStart),
+      ).length;
+    const currentLeadsSentToCrm = leads.filter((lead) =>
+      inRange(lead.sentToCrmAt, currentPeriodStart, now),
+    ).length;
+    const previousLeadsSentToCrm = leads.filter((lead) =>
+      inRange(lead.sentToCrmAt, previousPeriodStart, currentPeriodStart),
+    ).length;
     const currentConversionRate = conversionRateForLeads(currentLeads);
     const previousConversionRate = conversionRateForLeads(previousLeads);
-    const currentAverageResponse = averageFirstResponseSeconds(periodMessages, currentPeriodStart, now);
-    const previousAverageResponse = averageFirstResponseSeconds(periodMessages, previousPeriodStart, currentPeriodStart);
-    const averageResponseTimeSeconds = Math.round(currentAverageResponse ?? previousAverageResponse ?? 0);
+    const currentAverageResponse = averageFirstResponseSeconds(
+      periodMessages,
+      currentPeriodStart,
+      now,
+    );
+    const previousAverageResponse = averageFirstResponseSeconds(
+      periodMessages,
+      previousPeriodStart,
+      currentPeriodStart,
+    );
+    const averageResponseTimeSeconds = Math.round(
+      currentAverageResponse ?? previousAverageResponse ?? 0,
+    );
     const deltas: DashboardMetricDeltas = {
       newLeadsPercent: percentDelta(currentLeads.length, previousLeads.length),
-      aiConversationsPercent: percentDelta(currentAiConversations.length, previousAiConversations.length),
+      aiConversationsPercent: percentDelta(
+        currentAiConversations.length,
+        previousAiConversations.length,
+      ),
       bookingsOrdersPercent: percentDelta(currentBookingsOrders, previousBookingsOrders),
       leadsSentToCrmPercent: percentDelta(currentLeadsSentToCrm, previousLeadsSentToCrm),
-      averageResponseTimePercent: percentDelta(currentAverageResponse ?? 0, previousAverageResponse ?? 0),
-      conversionRatePoints: pointDelta(currentConversionRate, previousConversionRate)
+      averageResponseTimePercent: percentDelta(
+        currentAverageResponse ?? 0,
+        previousAverageResponse ?? 0,
+      ),
+      conversionRatePoints: pointDelta(currentConversionRate, previousConversionRate),
     };
     const channelById = new Map(channels.map((channel) => [channel.id, channel]));
 
     const performance = channels.map((channel) => {
       const channelLeads = leads.filter((lead) => lead.channelType === channel.type);
-      const channelConversations = conversations.filter((conversation) => channelById.get(conversation.channelId ?? "")?.type === channel.type);
+      const channelConversations = conversations.filter(
+        (conversation) => channelById.get(conversation.channelId ?? "")?.type === channel.type,
+      );
       const converted = channelLeads.filter((lead) =>
-        ["QUALIFIED", "BOOKED", "ORDERED", "SENT_TO_CRM", "CLOSED"].includes(lead.status)
+        ["QUALIFIED", "BOOKED", "ORDERED", "SENT_TO_CRM", "CLOSED"].includes(lead.status),
       ).length;
       return {
         channelType: channel.type,
         name: channel.name,
         leads: channelLeads.length,
         conversations: channelConversations.length,
-        conversionRate: channelLeads.length > 0 ? Math.round((converted / channelLeads.length) * 1000) / 10 : 0,
-        valueAmount: channelLeads.reduce((sum, lead) => sum + (lead.valueAmount ?? 0), 0)
+        conversionRate:
+          channelLeads.length > 0 ? Math.round((converted / channelLeads.length) * 1000) / 10 : 0,
+        valueAmount: channelLeads.reduce((sum, lead) => sum + (lead.valueAmount ?? 0), 0),
       };
     });
 
-    const trend = Array.from({ length: 7 }, (_, weekday) => {
-      const leadsForSlot = leads.filter((_, leadIndex) => leadIndex % 7 === weekday);
-      return {
-        weekday,
-        leads: leadsForSlot.length,
-        booked: leadsForSlot.filter((lead) => lead.bookedAt || ["BOOKED", "ORDERED"].includes(lead.status)).length
-      };
-    });
+    const trend = dashboardUtcWeekdayTrend(leads, currentPeriodStart, now);
 
     return {
+      activation: {
+        hasRealInbound: latestRealInbound !== null,
+        hasProviderReply: providerReply !== null,
+        latestRealConversationId: latestRealInbound?.conversationId ?? null,
+        latestRealInboundAt: latestRealInbound?.createdAt.toISOString() ?? null,
+      },
       metrics: {
         newLeadsCount,
         aiConversationsCount,
@@ -231,7 +386,7 @@ export class DashboardService {
         leadsSentToCrm,
         averageResponseTimeSeconds,
         conversionRate,
-        deltas
+        deltas,
       },
       recentLeads: recentLeads.map((lead) => ({
         id: lead.id,
@@ -246,15 +401,15 @@ export class DashboardService {
         interest: lead.interest,
         summary: lead.summary,
         createdAt: lead.createdAt.toISOString(),
-        lastMessageAt: lead.lastMessageAt?.toISOString() ?? null
+        lastMessageAt: lead.lastMessageAt?.toISOString() ?? null,
       })),
       recentActivity: recentAuditLogs.map((log) => ({
         id: log.id,
         action: log.action,
-        createdAt: log.createdAt.toISOString()
+        createdAt: log.createdAt.toISOString(),
       })),
       channelPerformance: performance,
-      trend
+      trend,
     };
   }
 }

@@ -190,7 +190,7 @@ export function Select({
         aria-describedby={ariaDescribedBy}
         data-testid={testId}
         className={cn(
-          "group flex h-11 w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-sm text-zinc-100 outline-none transition-colors hover:border-white/20 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-zinc-500",
+          "group flex h-11 w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-sm text-zinc-100 outline-none transition-colors hover:border-white/20 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-zinc-500 max-sm:min-h-11",
           className,
         )}
       >
@@ -235,6 +235,7 @@ export function Select({
 export function Modal({
   open,
   onOpenChange,
+  returnFocusRef,
   title,
   description,
   ariaTitle,
@@ -246,6 +247,7 @@ export function Modal({
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
   title?: React.ReactNode;
   description?: React.ReactNode;
   /** Accessible label used when no visible `title` is rendered. */
@@ -263,6 +265,11 @@ export function Modal({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-[90] bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
+          onCloseAutoFocus={(event) => {
+            if (!returnFocusRef?.current?.isConnected) return;
+            event.preventDefault();
+            returnFocusRef.current.focus();
+          }}
           className={cn(
             themeClass,
             "fixed left-1/2 top-1/2 z-[91] max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] min-w-0 max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-x-hidden overflow-y-auto rounded-3xl border border-white/10 bg-zinc-900 p-6 text-zinc-50 shadow-2xl shadow-black/60",

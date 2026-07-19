@@ -127,6 +127,58 @@ test("integrations page starts empty when API returns no tenant integrations", a
   expect(webhookCard!.y).toBeLessThan(readinessPanel!.y);
 });
 
+test("integration filters announce selection and dialogs return focus", async ({ page }) => {
+  await page.route("**/api/integrations", async (route) => {
+    await route.fulfill({ json: { data: [] } });
+  });
+  await page.route("**/api/channels", async (route) => {
+    await route.fulfill({ json: { data: [] } });
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${webBase}/app/integrations`, { waitUntil: "networkidle" });
+
+  const allFilter = page
+    .locator("button[aria-pressed]")
+    .filter({ hasText: messages.ru["integrations.category.all"] });
+  const channelsFilter = page
+    .locator("button[aria-pressed]")
+    .filter({ hasText: messages.ru["integrations.category.channels"] });
+  const developersFilter = page
+    .locator("button[aria-pressed]")
+    .filter({ hasText: messages.ru["integrations.category.developers"] });
+  await expect(allFilter).toHaveAttribute("aria-pressed", "true");
+  await expect(channelsFilter).toHaveAttribute("aria-pressed", "false");
+
+  await channelsFilter.click();
+  await expect(allFilter).toHaveAttribute("aria-pressed", "false");
+  await expect(channelsFilter).toHaveAttribute("aria-pressed", "true");
+
+  const telegramConnect = page
+    .getByTestId("integration-card-telegram")
+    .getByRole("button", { name: messages.ru["integrations.connect"], exact: true });
+  await telegramConnect.click();
+  const telegramDialog = page.getByRole("dialog", {
+    name: messages.ru["integrations.telegram.connect"],
+  });
+  await expect(page.getByLabel(messages.ru["integrations.telegram.token"])).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(telegramDialog).toBeHidden();
+  await expect(telegramConnect).toBeFocused();
+
+  await developersFilter.click();
+  await expect(developersFilter).toHaveAttribute("aria-pressed", "true");
+  const webhookConnect = page
+    .getByTestId("integration-card-webhook")
+    .getByRole("button", { name: messages.ru["integrations.connect"], exact: true });
+  await webhookConnect.click();
+  const webhookDialog = page.getByRole("dialog", { name: /^Webhook:/ });
+  await expect(webhookDialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(webhookDialog).toBeHidden();
+  await expect(webhookConnect).toBeFocused();
+});
+
 test("integration resource failures retry instead of appearing disconnected", async ({ page }) => {
   let failLoad = true;
 
@@ -214,7 +266,7 @@ test("ambiguous managed request delivery requires review without a duplicate act
   await page.getByTestId("integrations-planned-toggle").click();
 
   const card = page.getByTestId("integration-card-instagram");
-  await card.getByRole("button", { name: "Connect by request", exact: true }).click();
+  await card.getByRole("button", { name: /^Connect by request:/ }).click();
 
   const dialog = page.getByRole("dialog", { name: "Instagram: settings" });
   await dialog.getByTestId("integration-request-submit").click();
@@ -256,7 +308,7 @@ test("pending managed request stays pending instead of showing a sent confirmati
   const card = page.getByTestId("integration-card-whatsapp");
   await expect(card).toContainText("Sending request...");
   await expect(card).not.toContainText("Request sent");
-  await card.getByRole("button", { name: "Sending request...", exact: true }).click();
+  await card.getByRole("button", { name: /^Sending request\.\.\.:/ }).click();
 
   const dialog = page.getByRole("dialog", { name: "WhatsApp Business: settings" });
   await expect(dialog.getByTestId("integration-request-status")).toHaveText("Sending request...");
@@ -288,7 +340,7 @@ test("managed requests direct users without a reachable contact to add one", asy
   await selectLocale(page, "en");
   await page.getByTestId("integrations-planned-toggle").click();
   const card = page.getByTestId("integration-card-whatsapp");
-  await card.getByRole("button", { name: "Connect by request", exact: true }).click();
+  await card.getByRole("button", { name: /^Connect by request:/ }).click();
 
   const dialog = page.getByRole("dialog", { name: "WhatsApp Business: settings" });
   await dialog.getByTestId("integration-request-submit").click();
@@ -381,6 +433,7 @@ test("Telegram connects from one bot token while LeadVirt manages webhook securi
 
   await page.keyboard.press("Escape");
   await expect(connectedDialog).toBeHidden();
+  await expect(page.getByTestId("integration-configure-telegram")).toBeFocused();
   await expect(page.getByTestId("telegram-card-open-bot")).toHaveAttribute(
     "href",
     "https://t.me/client_magic_bot?start=leadvirt",
@@ -611,14 +664,26 @@ test("integrations expose only live self-service controls and preserve channel w
     "x-leadvirt-webhook-secret",
   );
   await expect(page.getByTestId("api-webhook-payload")).toContainText("leadvirt-sample-event");
+  for (const id of ["endpoint", "publicKey", "secretHeader", "payload"]) {
+    const box = await page.getByTestId(`api-webhook-${id}`).getByRole("button").boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(32);
+    expect(box?.height).toBeGreaterThanOrEqual(32);
+  }
   await expect(page.getByTestId("api-webhook-status")).toContainText("Webhook готов");
   await page.getByTestId("integrations-planned-toggle").click();
+  const plannedActionNames = await page
+    .getByTestId("integrations-planned")
+    .locator('button[data-testid^="integration-configure-"]')
+    .evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label") ?? ""));
+  expect(plannedActionNames.length).toBeGreaterThan(1);
+  expect(new Set(plannedActionNames).size).toBe(plannedActionNames.length);
+  expect(plannedActionNames.every((name) => name.includes(":"))).toBe(true);
   await expect(page.getByTestId("integration-card-instagram")).toContainText(
     "Подключение по запросу",
   );
   await page
     .getByTestId("integration-card-instagram")
-    .getByRole("button", { name: "Подключение по запросу" })
+    .getByRole("button", { name: /^Подключение по запросу:/ })
     .click();
   const instagramDialog = page.getByRole("dialog", { name: /Instagram: настройки/ });
   await expect(instagramDialog).toBeVisible();
@@ -677,7 +742,7 @@ test("integrations expose only live self-service controls and preserve channel w
   );
   await page
     .getByTestId("integration-card-whatsapp")
-    .getByRole("button", { name: "Подключение по запросу" })
+    .getByRole("button", { name: /^Подключение по запросу:/ })
     .click();
   const whatsappDialog = page.getByRole("dialog", { name: /WhatsApp Business: настройки/ });
   await expect(whatsappDialog).toBeVisible();
@@ -693,7 +758,7 @@ test("integrations expose only live self-service controls and preserve channel w
   await expect(page.getByTestId("integration-card-vk")).toContainText("Скоро будет");
   await page
     .getByTestId("integration-card-vk")
-    .getByRole("button", { name: "Скоро будет" })
+    .getByRole("button", { name: /^Скоро будет:/ })
     .click();
   const vkDialog = page.getByRole("dialog", { name: /VK: настройки/ });
   await expect(vkDialog).toBeVisible();
@@ -702,7 +767,7 @@ test("integrations expose only live self-service controls and preserve channel w
   await expect(vkDialog).toBeHidden();
   await page
     .getByTestId("integration-card-shopify")
-    .getByRole("button", { name: "Скоро будет" })
+    .getByRole("button", { name: /^Скоро будет:/ })
     .click();
   const shopifyDialog = page.getByRole("dialog", { name: /Shopify: настройки/ });
   await expect(shopifyDialog).toBeVisible();
@@ -711,7 +776,7 @@ test("integrations expose only live self-service controls and preserve channel w
   await expect(shopifyDialog).toBeHidden();
   await page
     .getByTestId("integration-card-shopscript")
-    .getByRole("button", { name: "Скоро будет" })
+    .getByRole("button", { name: /^Скоро будет:/ })
     .click();
   const shopScriptDialog = page.getByRole("dialog", { name: /Shop-Script: настройки/ });
   await expect(shopScriptDialog).toBeVisible();
@@ -741,7 +806,7 @@ test("integrations expose only live self-service controls and preserve channel w
   await expect(amoCard).toContainText("Скоро будет");
   await expect(amoCard.getByText("Подключено")).toHaveCount(0);
   await expect(amoCard.getByRole("button", { name: /Подключить|Настроить/ })).toHaveCount(0);
-  await amoCard.getByRole("button", { name: "Скоро будет" }).click();
+  await amoCard.getByRole("button", { name: /^Скоро будет:/ }).click();
   const amoDialog = page.getByRole("dialog", { name: /amoCRM: настройки/ });
   await expect(amoDialog).toBeVisible();
   await expect(amoDialog.locator("input, textarea, [role='switch']")).toHaveCount(0);
@@ -752,6 +817,7 @@ test("integrations expose only live self-service controls and preserve channel w
   await amoDialog.getByRole("button", { name: "Закрыть", exact: true }).click();
 
   const telegramCard = page.locator(".group").filter({ hasText: "Telegram" }).first();
+  const telegramConfigure = page.getByTestId("integration-configure-telegram");
   await telegramCard.getByRole("button", { name: /Настроить/ }).click();
   await page.getByRole("menuitem", { name: /^Настроить$/ }).click();
   const telegramDialog = page.getByRole("dialog", { name: "Telegram @demo_telegram_bot" });
@@ -779,6 +845,7 @@ test("integrations expose only live self-service controls and preserve channel w
   await expect(telegramDialog.getByText("x-telegram-bot-api-secret-token")).toHaveCount(0);
   await telegramDialog.getByRole("button", { name: "Закрыть", exact: true }).click();
   await expect(telegramDialog).toBeHidden();
+  await expect(telegramConfigure).toBeFocused();
 
   const webhookCard = page.getByTestId("integration-card-webhook");
   await webhookCard.getByRole("button", { name: /Настроить/ }).click();
@@ -813,7 +880,7 @@ test("integrations expose only live self-service controls and preserve channel w
   const retailCard = page.locator(".group").filter({ hasText: "RetailCRM" }).first();
   await expect(retailCard).toContainText("Скоро будет");
   await expect(retailCard.getByRole("button", { name: /Подключить|Настроить/ })).toHaveCount(0);
-  await retailCard.getByRole("button", { name: "Скоро будет" }).click();
+  await retailCard.getByRole("button", { name: /^Скоро будет:/ }).click();
   const retailDialog = page.getByRole("dialog", { name: /RetailCRM: настройки/ });
   await expect(retailDialog).toBeVisible();
   await expect(retailDialog.locator("input, textarea, [role='switch']")).toHaveCount(0);

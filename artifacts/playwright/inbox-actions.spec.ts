@@ -60,8 +60,10 @@ test("inbox omits unavailable lead actions from the right panel", async ({ page 
 
   await expect(page.getByText("API Lead").first()).toBeVisible();
   const summary = page.getByTestId("inbox-lead-summary");
-  await expect(summary.getByRole("button", { name: /Открыть диалог/ })).toBeVisible();
+  const openConversation = summary.getByRole("link", { name: /Открыть диалог/ });
+  await expect(openConversation).toHaveAttribute("href", "/app/inbox/conversation-api-1");
   await expect(summary.getByRole("button", { name: /CRM/ })).toHaveCount(0);
   await expect(summary.getByRole("button", { name: /Создать задачу/ })).toHaveCount(0);
+  await openConversation.click();
+  await expect(page).toHaveURL(`${webBase}/app/inbox/conversation-api-1`);
 });
-

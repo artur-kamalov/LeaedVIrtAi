@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Bot,
@@ -50,6 +52,7 @@ import type { TranslationKey } from "@/i18n/messages";
 import { useProductPermissions } from "../CurrentUser";
 import { ResourceErrorState } from "../ResourceErrorState";
 import { ApiClientError } from "@/lib/api/client";
+import { acquisitionPlanIds } from "@/lib/acquisition";
 
 /* ── helpers ─────────────────────────────────────────────────── */
 type Translate = ReturnType<typeof useI18n>["t"];
@@ -72,7 +75,8 @@ function chatMessagesEqual(current: ChatMessage[], next: ChatMessage[]) {
       message.id !== candidate.id ||
       message.from !== candidate.from ||
       message.text !== candidate.text ||
-      message.time !== candidate.time
+      message.time !== candidate.time ||
+      message.status !== candidate.status
     ) {
       return false;
     }
@@ -97,6 +101,22 @@ function chatMessagesEqual(current: ChatMessage[], next: ChatMessage[]) {
 function isNearConversationBottom(container: HTMLDivElement | null) {
   if (!container) return true;
   return container.scrollHeight - container.scrollTop - container.clientHeight <= 80;
+}
+
+function deliveryLabel(status: ChatMessage["status"], t: Translate) {
+  switch (status) {
+    case "QUEUED":
+      return t("activation.delivery.queued");
+    case "SENT":
+      return t("activation.delivery.sent");
+    case "DELIVERED":
+      return t("activation.delivery.delivered");
+    case "FAILED":
+      return t("activation.delivery.failed");
+    case "RECEIVED":
+    case undefined:
+      return null;
+  }
 }
 
 /* ── Timeline data ───────────────────────────────────────────── */
@@ -306,6 +326,7 @@ function MessageBubble({
   const isClient = msg.from === "client";
   const isAI = msg.from === "ai";
   const isManager = msg.from === "manager";
+  const delivery = isClient ? null : deliveryLabel(msg.status, t);
 
   return (
     <motion.div
@@ -382,7 +403,23 @@ function MessageBubble({
             </div>
           ) : null}
         </div>
-        <span className="text-[10px] text-zinc-600 px-1">{msg.time}</span>
+        <span className="flex items-center gap-1.5 px-1 text-[10px] text-zinc-600">
+          <span>{msg.time}</span>
+          {delivery ? (
+            <span
+              data-testid={`conversation-message-status-${msg.id}`}
+              className={cn(
+                msg.status === "FAILED"
+                  ? "text-rose-400"
+                  : msg.status === "QUEUED"
+                    ? "text-amber-400"
+                    : "text-emerald-400",
+              )}
+            >
+              {delivery}
+            </span>
+          ) : null}
+        </span>
       </div>
     </motion.div>
   );
@@ -582,6 +619,7 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 export function ConversationPage() {
   const { demo } = useProductMode();
   const { params } = useNav();
+  const searchParams = useSearchParams();
   const { formatDate, formatNumber, locale, t } = useI18n();
   const permissions = useProductPermissions();
   const conversationId = typeof params.id === "string" && params.id.length > 0 ? params.id : "";
@@ -609,6 +647,8 @@ export function ConversationPage() {
     useState<ConversationAction | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const firstReplyPanelRef = useRef<HTMLElement>(null);
+  const firstReplyConfirmedRef = useRef(false);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const demoReplayTimersRef = useRef<number[]>([]);
   const loadedConversationIdRef = useRef<string | null>(null);
@@ -634,6 +674,27 @@ export function ConversationPage() {
     t("ops.conversation.senderClient").charAt(0).toUpperCase();
   const isDemoConversation = demo && conversationId.startsWith("demo-conv-");
   const hasDemoReplay = isDemoConversation && demoReplayMessages.length > 0;
+  const firstRun = !demo && searchParams.get("firstRun") === "1";
+  const requestedPlan =
+    acquisitionPlanIds.find((plan) => plan === searchParams.get("plan")) ?? null;
+  const hasConfirmedFirstReply = Boolean(
+    apiConversation?.messages.some(
+      (message) =>
+        message.direction === "OUTBOUND" &&
+        message.senderType === "USER" &&
+        (message.status === "SENT" || message.status === "DELIVERED"),
+    ),
+  );
+
+  useEffect(() => {
+    const wasConfirmed = firstReplyConfirmedRef.current;
+    firstReplyConfirmedRef.current = hasConfirmedFirstReply;
+    if (!firstRun || !hasConfirmedFirstReply || wasConfirmed) return;
+
+    window.requestAnimationFrame(() => {
+      firstReplyPanelRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
+    });
+  }, [firstRun, hasConfirmedFirstReply]);
 
   function captureConversationScope(targetConversationId: string): ConversationScope {
     return {
@@ -970,7 +1031,16 @@ export function ConversationPage() {
         setMessages(nextMessages.length > 0 ? nextMessages : [newMsg]);
       }
       if (isCurrentConversationScope(mutationToken)) {
-        toast.success(t("ops.conversation.messageSent"));
+        const persistedReply = [...updated.messages]
+          .reverse()
+          .find((message) => message.direction === "OUTBOUND" && message.senderType === "USER");
+        if (!(firstRun && persistedReply?.status === "QUEUED")) {
+          toast.success(
+            persistedReply?.status === "QUEUED"
+              ? t("activation.delivery.queuedToast")
+              : t("ops.conversation.messageSent"),
+          );
+        }
       }
     } catch (caught) {
       if (isCurrentConversationScope(mutationToken)) {
@@ -1168,6 +1238,60 @@ export function ConversationPage() {
             }}
           />
         </div>
+      ) : null}
+
+      {firstRun && conversationLoadStatus === "success" ? (
+        <section
+          ref={firstReplyPanelRef}
+          aria-live="polite"
+          data-testid={
+            hasConfirmedFirstReply
+              ? "conversation-first-reply-complete"
+              : "conversation-first-reply-pending"
+          }
+          className={cn(
+            "mb-4 scroll-mt-24 flex flex-col gap-3 border-y px-1 py-4 sm:flex-row sm:items-center sm:justify-between",
+            hasConfirmedFirstReply
+              ? "border-emerald-400/20 bg-emerald-400/[0.05]"
+              : "border-sky-400/20 bg-sky-400/[0.05]",
+          )}
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <div
+              className={cn(
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border",
+                hasConfirmedFirstReply
+                  ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+                  : "border-sky-400/20 bg-sky-400/10 text-sky-300",
+              )}
+            >
+              {hasConfirmedFirstReply ? (
+                <BadgeCheck className="h-5 w-5" aria-hidden="true" />
+              ) : (
+                <MessageSquare className="h-5 w-5" aria-hidden="true" />
+              )}
+            </div>
+            <p className="text-sm font-medium leading-6 text-zinc-200">
+              {hasConfirmedFirstReply
+                ? t("activation.conversation.success")
+                : t("activation.conversation.waiting")}
+            </p>
+          </div>
+          {hasConfirmedFirstReply ? (
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <Button asChild size="sm" className="min-h-11">
+                <Link href="/app/knowledge?welcome=1">{t("activation.conversation.continue")}</Link>
+              </Button>
+              {requestedPlan ? (
+                <Button asChild size="sm" variant="outline" className="min-h-11">
+                  <Link href={`/app/billing?plan=${encodeURIComponent(requestedPlan)}`}>
+                    {t("activation.conversation.billing")}
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
       ) : null}
 
       <div

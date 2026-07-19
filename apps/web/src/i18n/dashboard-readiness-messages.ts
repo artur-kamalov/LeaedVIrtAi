@@ -18,7 +18,7 @@ const en = {
   "dashboard.readiness.step.publish": "Publish knowledge",
   "dashboard.readiness.step.channel": "Connect a customer channel",
   "dashboard.readiness.step.replies": "Enable automatic replies",
-  "dashboard.readiness.step.inbound": "Send an inbound test",
+  "dashboard.readiness.step.inbound": "Receive a real customer message",
   "dashboard.readiness.detail.profileComplete":
     "Customers can receive your business details, services, hours, and rules.",
   "dashboard.readiness.detail.profileMissing":
@@ -41,9 +41,10 @@ const en = {
     "Automatic replies are active on a connected channel.",
   "dashboard.readiness.detail.repliesIncomplete":
     "Turn on automatic replies after the channel is ready.",
-  "dashboard.readiness.detail.inboundComplete": "An inbound message reached LeadVirt successfully.",
+  "dashboard.readiness.detail.inboundComplete":
+    "A real customer message reached LeadVirt successfully.",
   "dashboard.readiness.detail.inboundIncomplete":
-    "Send one test message and confirm that it reaches Inbox.",
+    "Ask a customer or teammate to message the connected channel and confirm it reaches Inbox.",
   "dashboard.readiness.detail.needsCheck":
     "LeadVirt could not verify this step. Open it to check the current state.",
   "dashboard.readiness.action.profile": "Add business information",
@@ -52,7 +53,7 @@ const en = {
   "dashboard.readiness.action.publish": "Publish knowledge",
   "dashboard.readiness.action.channel": "Connect a channel",
   "dashboard.readiness.action.replies": "Set up replies",
-  "dashboard.readiness.action.inbound": "Send a test message",
+  "dashboard.readiness.action.inbound": "Verify a real message",
   "dashboard.readiness.action.ready": "Open Inbox",
   "dashboard.readiness.loading": "Checking launch readiness",
   "dashboard.readiness.error.title": "Launch readiness could not be checked",
@@ -89,7 +90,7 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.step.publish": "Опубликуйте знания",
     "dashboard.readiness.step.channel": "Подключите канал для клиентов",
     "dashboard.readiness.step.replies": "Включите автоматические ответы",
-    "dashboard.readiness.step.inbound": "Отправьте входящее тестовое сообщение",
+    "dashboard.readiness.step.inbound": "Получите реальное сообщение клиента",
     "dashboard.readiness.detail.profileComplete":
       "AI знает описание бизнеса, услуги, график и правила работы.",
     "dashboard.readiness.detail.profileMissing":
@@ -113,9 +114,9 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.detail.repliesIncomplete":
       "Включите автоматические ответы после подготовки канала.",
     "dashboard.readiness.detail.inboundComplete":
-      "Входящее сообщение успешно поступило в LeadVirt.",
+      "Реальное сообщение клиента успешно поступило в LeadVirt.",
     "dashboard.readiness.detail.inboundIncomplete":
-      "Отправьте тестовое сообщение и убедитесь, что оно появилось во входящих.",
+      "Попросите клиента или коллегу написать в подключённый канал и убедитесь, что сообщение появилось во входящих.",
     "dashboard.readiness.detail.needsCheck":
       "LeadVirt не смог подтвердить этот шаг. Откройте его и проверьте состояние.",
     "dashboard.readiness.action.profile": "Заполнить информацию",
@@ -124,7 +125,7 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.action.publish": "Опубликовать знания",
     "dashboard.readiness.action.channel": "Подключить канал",
     "dashboard.readiness.action.replies": "Настроить ответы",
-    "dashboard.readiness.action.inbound": "Отправить тест",
+    "dashboard.readiness.action.inbound": "Проверить реальное сообщение",
     "dashboard.readiness.action.ready": "Открыть входящие",
     "dashboard.readiness.loading": "Проверяем готовность к запуску",
     "dashboard.readiness.error.title": "Не удалось проверить готовность к запуску",
@@ -152,7 +153,7 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.step.publish": "Publica el conocimiento",
     "dashboard.readiness.step.channel": "Conecta un canal de clientes",
     "dashboard.readiness.step.replies": "Activa las respuestas automáticas",
-    "dashboard.readiness.step.inbound": "Envía una prueba entrante",
+    "dashboard.readiness.step.inbound": "Recibe un mensaje real de un cliente",
     "dashboard.readiness.detail.profileComplete":
       "La IA conoce los datos, servicios, horarios y reglas de tu negocio.",
     "dashboard.readiness.detail.profileMissing":
@@ -179,9 +180,9 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.detail.repliesIncomplete":
       "Activa las respuestas automáticas cuando el canal esté listo.",
     "dashboard.readiness.detail.inboundComplete":
-      "Un mensaje entrante llegó correctamente a LeadVirt.",
+      "Un mensaje real de un cliente llegó correctamente a LeadVirt.",
     "dashboard.readiness.detail.inboundIncomplete":
-      "Envía un mensaje de prueba y confirma que aparece en la bandeja de entrada.",
+      "Pide a un cliente o compañero que escriba al canal conectado y confirma que aparece en la bandeja de entrada.",
     "dashboard.readiness.detail.needsCheck":
       "LeadVirt no pudo verificar este paso. Ábrelo para comprobar el estado.",
     "dashboard.readiness.action.profile": "Añadir información",
@@ -190,7 +191,7 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.action.publish": "Publicar conocimiento",
     "dashboard.readiness.action.channel": "Conectar un canal",
     "dashboard.readiness.action.replies": "Configurar respuestas",
-    "dashboard.readiness.action.inbound": "Enviar una prueba",
+    "dashboard.readiness.action.inbound": "Verificar un mensaje real",
     "dashboard.readiness.action.ready": "Abrir bandeja de entrada",
     "dashboard.readiness.loading": "Comprobando la preparación",
     "dashboard.readiness.error.title": "No se pudo comprobar la preparación para el lanzamiento",
@@ -218,7 +219,7 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.step.publish": "Publiez les connaissances",
     "dashboard.readiness.step.channel": "Connectez un canal client",
     "dashboard.readiness.step.replies": "Activez les réponses automatiques",
-    "dashboard.readiness.step.inbound": "Envoyez un test entrant",
+    "dashboard.readiness.step.inbound": "Recevez un vrai message client",
     "dashboard.readiness.detail.profileComplete":
       "L’IA connaît les informations, services, horaires et règles de votre entreprise.",
     "dashboard.readiness.detail.profileMissing":
@@ -244,9 +245,9 @@ export const dashboardReadinessMessages = {
       "Les réponses automatiques sont actives sur un canal connecté.",
     "dashboard.readiness.detail.repliesIncomplete":
       "Activez les réponses automatiques lorsque le canal est prêt.",
-    "dashboard.readiness.detail.inboundComplete": "Un message entrant a bien atteint LeadVirt.",
+    "dashboard.readiness.detail.inboundComplete": "Un vrai message client a bien atteint LeadVirt.",
     "dashboard.readiness.detail.inboundIncomplete":
-      "Envoyez un message test et confirmez sa présence dans la boîte de réception.",
+      "Demandez à un client ou collègue d'écrire sur le canal connecté et vérifiez la boîte de réception.",
     "dashboard.readiness.detail.needsCheck":
       "LeadVirt n’a pas pu vérifier cette étape. Ouvrez-la pour contrôler son état.",
     "dashboard.readiness.action.profile": "Ajouter les informations",
@@ -255,7 +256,7 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.action.publish": "Publier les connaissances",
     "dashboard.readiness.action.channel": "Connecter un canal",
     "dashboard.readiness.action.replies": "Configurer les réponses",
-    "dashboard.readiness.action.inbound": "Envoyer un test",
+    "dashboard.readiness.action.inbound": "Vérifier un vrai message",
     "dashboard.readiness.action.ready": "Ouvrir la boîte de réception",
     "dashboard.readiness.loading": "Vérification de la préparation",
     "dashboard.readiness.error.title": "Impossible de vérifier la préparation au lancement",
@@ -283,7 +284,7 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.step.publish": "Wissen veröffentlichen",
     "dashboard.readiness.step.channel": "Kundenkanal verbinden",
     "dashboard.readiness.step.replies": "Automatische Antworten aktivieren",
-    "dashboard.readiness.step.inbound": "Eingangstest senden",
+    "dashboard.readiness.step.inbound": "Echte Kundennachricht empfangen",
     "dashboard.readiness.detail.profileComplete":
       "Die KI kennt Geschäftsdaten, Leistungen, Öffnungszeiten und Regeln.",
     "dashboard.readiness.detail.profileMissing":
@@ -310,9 +311,9 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.detail.repliesIncomplete":
       "Aktivieren Sie automatische Antworten, sobald der Kanal bereit ist.",
     "dashboard.readiness.detail.inboundComplete":
-      "Eine eingehende Nachricht hat LeadVirt erfolgreich erreicht.",
+      "Eine echte Kundennachricht hat LeadVirt erfolgreich erreicht.",
     "dashboard.readiness.detail.inboundIncomplete":
-      "Senden Sie eine Testnachricht und prüfen Sie den Posteingang.",
+      "Bitten Sie einen Kunden oder Kollegen, den verbundenen Kanal anzuschreiben, und prüfen Sie den Posteingang.",
     "dashboard.readiness.detail.needsCheck":
       "LeadVirt konnte diesen Schritt nicht prüfen. Öffnen Sie ihn und kontrollieren Sie den Status.",
     "dashboard.readiness.action.profile": "Informationen ergänzen",
@@ -321,7 +322,7 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.action.publish": "Wissen veröffentlichen",
     "dashboard.readiness.action.channel": "Kanal verbinden",
     "dashboard.readiness.action.replies": "Antworten einrichten",
-    "dashboard.readiness.action.inbound": "Test senden",
+    "dashboard.readiness.action.inbound": "Echte Nachricht prüfen",
     "dashboard.readiness.action.ready": "Posteingang öffnen",
     "dashboard.readiness.loading": "Startbereitschaft wird geprüft",
     "dashboard.readiness.error.title": "Die Startbereitschaft konnte nicht geprüft werden",
@@ -349,7 +350,7 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.step.publish": "Publique o conhecimento",
     "dashboard.readiness.step.channel": "Conecte um canal de clientes",
     "dashboard.readiness.step.replies": "Ative respostas automáticas",
-    "dashboard.readiness.step.inbound": "Envie um teste de entrada",
+    "dashboard.readiness.step.inbound": "Receba uma mensagem real de cliente",
     "dashboard.readiness.detail.profileComplete":
       "A IA conhece os dados, serviços, horários e regras da empresa.",
     "dashboard.readiness.detail.profileMissing":
@@ -376,9 +377,9 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.detail.repliesIncomplete":
       "Ative as respostas automáticas quando o canal estiver pronto.",
     "dashboard.readiness.detail.inboundComplete":
-      "Uma mensagem de entrada chegou à LeadVirt com sucesso.",
+      "Uma mensagem real de cliente chegou à LeadVirt com sucesso.",
     "dashboard.readiness.detail.inboundIncomplete":
-      "Envie uma mensagem de teste e confirme que ela chegou à caixa de entrada.",
+      "Peça a um cliente ou colega para escrever no canal conectado e confirme na caixa de entrada.",
     "dashboard.readiness.detail.needsCheck":
       "A LeadVirt não conseguiu verificar esta etapa. Abra-a para conferir o estado.",
     "dashboard.readiness.action.profile": "Adicionar informações",
@@ -387,7 +388,7 @@ export const dashboardReadinessMessages = {
     "dashboard.readiness.action.publish": "Publicar conhecimento",
     "dashboard.readiness.action.channel": "Conectar um canal",
     "dashboard.readiness.action.replies": "Configurar respostas",
-    "dashboard.readiness.action.inbound": "Enviar um teste",
+    "dashboard.readiness.action.inbound": "Verificar mensagem real",
     "dashboard.readiness.action.ready": "Abrir caixa de entrada",
     "dashboard.readiness.loading": "Verificando a preparação",
     "dashboard.readiness.error.title": "Não foi possível verificar a preparação para o lançamento",

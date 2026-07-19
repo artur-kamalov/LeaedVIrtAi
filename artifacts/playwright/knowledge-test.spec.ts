@@ -856,6 +856,17 @@ test("redacted mobile result is localized, hides internal links, and does not ov
   const state = await installMocks(page, { runMode: "REDACTED" });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTest(page, "ru");
+  const mobileTestTargetHeights = await page
+    .getByTestId("knowledge-test-playground")
+    .locator('input[aria-label], button[role="combobox"]')
+    .evaluateAll((elements) =>
+      elements
+        .map((element) => element.getBoundingClientRect())
+        .filter(({ height, width }) => height > 0 && width > 0)
+        .map(({ height }) => height),
+    );
+  expect(mobileTestTargetHeights.length).toBeGreaterThanOrEqual(6);
+  expect(Math.min(...mobileTestTargetHeights)).toBeGreaterThanOrEqual(44);
   await page.getByTestId("knowledge-test-question").fill("Нужна ли передача специалисту?");
   await page.getByLabel("Версия знаний").click();
   await page.getByRole("option", { name: "Точная версия черновика 9" }).click();

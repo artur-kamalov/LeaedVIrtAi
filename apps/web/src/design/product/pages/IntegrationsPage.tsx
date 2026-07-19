@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import type { Channel, IntegrationAccount, IntegrationProvider } from "@leadvirt/types";
+import { useSearchParams } from "next/navigation";
+import type {
+  Channel,
+  ConversationDetail,
+  IntegrationAccount,
+  IntegrationProvider,
+} from "@leadvirt/types";
 import {
   Send,
   MessageCircle,
@@ -21,6 +27,7 @@ import {
   LogOut,
   ChevronDown,
   UserPlus,
+  Loader2,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { toast } from "sonner";
@@ -38,6 +45,8 @@ import {
 } from "@/lib/api/integrations";
 import { ApiClientError } from "@/lib/api/client";
 import { listChannels } from "@/lib/api/channels";
+import { listInboxConversations } from "@/lib/api/inbox";
+import { acquisitionPlanIds, type AcquisitionPlanId } from "@/lib/acquisition";
 import { Dropdown, DropdownItem, DropdownSeparator, ConfirmDialog, Modal, Skeleton } from "../ui";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { TranslationKey, TranslationValues } from "@/i18n/messages";
@@ -51,6 +60,24 @@ import { ResourceErrorState } from "../ResourceErrorState";
 type Category = "crm" | "channels" | "calendar" | "commerce" | "developers";
 type IntegrationAvailability = "selfServe" | "request" | "soon";
 type Translate = (key: TranslationKey, values?: TranslationValues) => string;
+
+const TELEGRAM_FIRST_REPLY_POLL_MS = 4_000;
+const TELEGRAM_FIRST_REPLY_TIMEOUT_MS = 60_000;
+
+type TelegramActivationStatus = "idle" | "preparing" | "waiting" | "found" | "timeout" | "error";
+
+type ActivationConversation = ConversationDetail & { isInternalSample?: boolean };
+
+function isRealTelegramConversation(conversation: ActivationConversation) {
+  const isTelegram =
+    conversation.channelType === "TELEGRAM" || conversation.channel?.type === "TELEGRAM";
+  return isTelegram && conversation.isInternalSample !== true;
+}
+
+async function listRealTelegramConversations() {
+  const result = await listInboxConversations({ channel: "TELEGRAM", limit: 50 });
+  return (result.data as ActivationConversation[]).filter(isRealTelegramConversation);
+}
 
 interface Integration {
   id: string;
@@ -718,14 +745,18 @@ function Field({
   label,
   children,
   hint,
+  htmlFor,
 }: {
   label: string;
   children: React.ReactNode;
   hint?: string;
+  htmlFor?: string;
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-sm font-medium text-zinc-300">{label}</label>
+      <label htmlFor={htmlFor} className="block text-sm font-medium text-zinc-300">
+        {label}
+      </label>
       {children}
       {hint && <p className="text-xs text-zinc-500">{hint}</p>}
     </div>
@@ -939,49 +970,182 @@ function PilotReadinessPanel({
   );
 }
 
-function DarkInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={cn(
-        "w-full bg-white/5 border border-white/5 rounded-xl px-4 h-11 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all",
-        props.className,
-      )}
-    />
-  );
-}
+const DarkInput = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+  function DarkInput(props, ref) {
+    return (
+      <input
+        {...props}
+        ref={ref}
+        className={cn(
+          "w-full bg-white/5 border border-white/5 rounded-xl px-4 h-11 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all",
+          props.className,
+        )}
+      />
+    );
+  },
+);
 
 function TelegramConnectModal({
   account,
   open,
   saving,
+  firstRun,
+  selectedPlan,
+  returnFocusRef,
   onOpenChange,
   onConnect,
 }: {
   account?: IntegrationAccount | null;
   open: boolean;
   saving: boolean;
+  firstRun: boolean;
+  selectedPlan: AcquisitionPlanId | null;
+  returnFocusRef: React.RefObject<HTMLElement | null>;
   onOpenChange: (open: boolean) => void;
   onConnect: (botToken: string) => Promise<boolean>;
 }) {
   const { t } = useI18n();
   const [botToken, setBotToken] = useState("");
+  const [activationStatus, setActivationStatus] = useState<TelegramActivationStatus>("idle");
+  const [detectedConversationId, setDetectedConversationId] = useState<string | null>(null);
+  const baselineConversationsRef = React.useRef<Map<string, string | null> | null>(null);
+  const activationStartedAtRef = React.useRef(0);
+  const activationRunRef = React.useRef(0);
+  const tokenInputRef = React.useRef<HTMLInputElement | null>(null);
+  const openBotRef = React.useRef<HTMLAnchorElement | null>(null);
+  const initialFocusDoneRef = React.useRef(false);
   const settings = asRecord(account?.settings);
   const botUsername = stringSetting(settings, "botUsername");
   const connected = account?.status === "CONNECTED";
 
+  const prepareFirstReplyDetection = React.useCallback(async () => {
+    const run = activationRunRef.current + 1;
+    activationRunRef.current = run;
+    baselineConversationsRef.current = null;
+    setDetectedConversationId(null);
+    setActivationStatus("preparing");
+
+    try {
+      const conversations = await listRealTelegramConversations();
+      if (activationRunRef.current !== run) return;
+      baselineConversationsRef.current = new Map(
+        conversations.map((conversation) => [conversation.id, conversation.lastMessageAt ?? null]),
+      );
+      activationStartedAtRef.current = Date.now();
+      setActivationStatus("waiting");
+    } catch {
+      if (activationRunRef.current === run) setActivationStatus("error");
+    }
+  }, []);
+
   useEffect(() => {
-    if (!open) setBotToken("");
-  }, [open]);
+    if (!open) {
+      activationRunRef.current += 1;
+      baselineConversationsRef.current = null;
+      initialFocusDoneRef.current = false;
+      setBotToken("");
+      setDetectedConversationId(null);
+      setActivationStatus("idle");
+      return;
+    }
+    if (firstRun && connected) void prepareFirstReplyDetection();
+  }, [connected, firstRun, open, prepareFirstReplyDetection]);
+
+  useEffect(() => {
+    if (!open || !firstRun || !connected || activationStatus !== "waiting") return;
+
+    const run = activationRunRef.current;
+    let requestInFlight = false;
+
+    async function checkForFirstReply() {
+      if (
+        requestInFlight ||
+        document.visibilityState !== "visible" ||
+        activationRunRef.current !== run
+      ) {
+        return;
+      }
+      if (Date.now() - activationStartedAtRef.current >= TELEGRAM_FIRST_REPLY_TIMEOUT_MS) {
+        setActivationStatus("timeout");
+        return;
+      }
+
+      requestInFlight = true;
+      try {
+        const conversations = await listRealTelegramConversations();
+        if (activationRunRef.current !== run) return;
+        const baseline = baselineConversationsRef.current;
+        const detected = conversations.find(
+          (conversation) =>
+            (conversation.unreadCount ?? 0) > 0 &&
+            (!baseline?.has(conversation.id) ||
+              baseline.get(conversation.id) !== (conversation.lastMessageAt ?? null)),
+        );
+        if (detected) {
+          setDetectedConversationId(detected.id);
+          setActivationStatus("found");
+        }
+      } catch {
+        if (activationRunRef.current === run) setActivationStatus("error");
+      } finally {
+        requestInFlight = false;
+      }
+    }
+
+    const checkWhenVisible = () => {
+      if (document.visibilityState === "visible") void checkForFirstReply();
+    };
+    const timer = window.setInterval(() => void checkForFirstReply(), TELEGRAM_FIRST_REPLY_POLL_MS);
+    window.addEventListener("focus", checkWhenVisible);
+    document.addEventListener("visibilitychange", checkWhenVisible);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", checkWhenVisible);
+      document.removeEventListener("visibilitychange", checkWhenVisible);
+    };
+  }, [activationStatus, connected, firstRun, open]);
+
+  const baselineReady = baselineConversationsRef.current !== null;
+  const botLinkReady = !firstRun || !connected || baselineReady;
+
+  useEffect(() => {
+    if (!open || !firstRun || initialFocusDoneRef.current) return;
+    const target = connected ? openBotRef.current : tokenInputRef.current;
+    if (!target) return;
+    const frame = window.requestAnimationFrame(() => {
+      target.focus();
+      initialFocusDoneRef.current = true;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activationStatus, connected, firstRun, open]);
 
   async function handleConnect() {
     if (await onConnect(botToken.trim())) setBotToken("");
   }
 
+  function retryFirstReplyDetection() {
+    if (!baselineConversationsRef.current) {
+      void prepareFirstReplyDetection();
+      return;
+    }
+    activationRunRef.current += 1;
+    activationStartedAtRef.current = Date.now();
+    setDetectedConversationId(null);
+    setActivationStatus("waiting");
+  }
+
+  const firstReplyParams = new URLSearchParams({ firstRun: "1" });
+  if (selectedPlan) firstReplyParams.set("plan", selectedPlan);
+  const detectedConversationHref = detectedConversationId
+    ? `/app/inbox/${encodeURIComponent(detectedConversationId)}?${firstReplyParams.toString()}`
+    : null;
+
   return (
     <Modal
       open={open}
       onOpenChange={onOpenChange}
+      returnFocusRef={returnFocusRef}
       closeLabel={t("integrations.closeDialog")}
       title={
         connected
@@ -997,18 +1161,20 @@ function TelegramConnectModal({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             {connected ? t("integrations.close") : t("integrations.cancel")}
           </Button>
-          <Button
-            onClick={() => void handleConnect()}
-            disabled={saving || (!connected && !botToken.trim())}
-            data-testid="telegram-connect-submit"
-          >
-            <Zap className="h-4 w-4" />
-            {saving
-              ? t("integrations.telegram.connecting")
-              : connected
-                ? t("integrations.telegram.reconnect")
-                : t("integrations.telegram.connectBot")}
-          </Button>
+          {!firstRun || !connected ? (
+            <Button
+              onClick={() => void handleConnect()}
+              disabled={saving || (!connected && !botToken.trim())}
+              data-testid="telegram-connect-submit"
+            >
+              <Zap className="h-4 w-4" />
+              {saving
+                ? t("integrations.telegram.connecting")
+                : connected
+                  ? t("integrations.telegram.reconnect")
+                  : t("integrations.telegram.connectBot")}
+            </Button>
+          ) : null}
         </>
       }
     >
@@ -1028,49 +1194,162 @@ function TelegramConnectModal({
                 : t("integrations.telegram.create")}
             </p>
           </div>
-          <Button
-            asChild
-            variant={connected && botUsername ? "primary" : "outline"}
-            size="sm"
-            className="min-h-11 w-full shrink-0 sm:w-auto"
-          >
-            <a
-              href={
-                connected && botUsername
-                  ? `https://t.me/${encodeURIComponent(botUsername)}?start=leadvirt`
-                  : "https://t.me/BotFather"
-              }
-              target="_blank"
-              rel="noreferrer"
-              data-testid={connected && botUsername ? "telegram-open-bot" : undefined}
+          {connected && botUsername && !botLinkReady ? (
+            <Button
+              variant="primary"
+              size="sm"
+              className="min-h-11 w-full shrink-0 sm:w-auto"
+              disabled
+              data-testid="telegram-open-bot-preparing"
             >
-              {connected && botUsername ? (
-                <>
-                  <Send className="h-3.5 w-3.5" />
-                  {t("integrations.telegram.openBot")}
-                </>
-              ) : (
-                <>
-                  BotFather
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </>
-              )}
-            </a>
-          </Button>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t("activation.telegram.preparing")}
+            </Button>
+          ) : (
+            <Button
+              asChild
+              variant={connected && botUsername ? "primary" : "outline"}
+              size="sm"
+              className="min-h-11 w-full shrink-0 sm:w-auto"
+            >
+              <a
+                ref={openBotRef}
+                href={
+                  connected && botUsername
+                    ? `https://t.me/${encodeURIComponent(botUsername)}?start=leadvirt`
+                    : "https://t.me/BotFather"
+                }
+                target="_blank"
+                rel="noreferrer"
+                data-testid={connected && botUsername ? "telegram-open-bot" : undefined}
+              >
+                {connected && botUsername ? (
+                  <>
+                    <Send className="h-3.5 w-3.5" />
+                    {firstRun
+                      ? t("activation.telegram.openBot")
+                      : t("integrations.telegram.openBot")}
+                  </>
+                ) : (
+                  <>
+                    BotFather
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </>
+                )}
+              </a>
+            </Button>
+          )}
         </div>
 
-        <Field
-          label={connected ? t("integrations.telegram.newToken") : t("integrations.telegram.token")}
-        >
-          <DarkInput
-            type="password"
-            value={botToken}
-            onChange={(event) => setBotToken(event.target.value)}
-            placeholder={connected ? t("integrations.telegram.keepToken") : "123456789:AA..."}
-            autoComplete="off"
-            data-testid="telegram-bot-token"
-          />
-        </Field>
+        {!firstRun || !connected ? (
+          <Field
+            label={
+              connected ? t("integrations.telegram.newToken") : t("integrations.telegram.token")
+            }
+            htmlFor="telegram-bot-token"
+          >
+            <DarkInput
+              ref={tokenInputRef}
+              id="telegram-bot-token"
+              type="password"
+              value={botToken}
+              onChange={(event) => setBotToken(event.target.value)}
+              placeholder={connected ? t("integrations.telegram.keepToken") : "123456789:AA..."}
+              autoComplete="off"
+              data-testid="telegram-bot-token"
+            />
+          </Field>
+        ) : null}
+
+        {firstRun && connected ? (
+          <div
+            className="space-y-4 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] p-4"
+            data-testid="telegram-first-reply-flow"
+          >
+            <div>
+              <p className="text-sm font-semibold text-zinc-100">
+                {t("activation.telegram.title")}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-zinc-400">
+                {t("activation.telegram.description")}
+              </p>
+            </div>
+
+            <div
+              role={activationStatus === "error" ? "alert" : "status"}
+              aria-live="polite"
+              data-status={activationStatus}
+              data-testid="telegram-first-reply-status"
+              className="flex min-h-16 items-start gap-3 rounded-lg border border-white/10 bg-black/20 p-3"
+            >
+              {activationStatus === "found" ? (
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-300">
+                  <Check className="h-4 w-4" aria-hidden="true" />
+                </span>
+              ) : (
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/5 text-zinc-300">
+                  <RefreshCw
+                    className={cn(
+                      "h-4 w-4",
+                      (activationStatus === "idle" ||
+                        activationStatus === "preparing" ||
+                        activationStatus === "waiting") &&
+                        "animate-spin",
+                    )}
+                    aria-hidden="true"
+                  />
+                </span>
+              )}
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-zinc-100">
+                  {activationStatus === "found"
+                    ? t("activation.telegram.found")
+                    : activationStatus === "timeout"
+                      ? t("activation.telegram.timeout")
+                      : activationStatus === "error"
+                        ? t("activation.telegram.error")
+                        : activationStatus === "waiting"
+                          ? t("activation.telegram.waiting")
+                          : t("activation.telegram.preparing")}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-zinc-400">
+                  {activationStatus === "found"
+                    ? t("activation.telegram.foundDetail")
+                    : activationStatus === "timeout"
+                      ? t("activation.telegram.timeoutDetail")
+                      : activationStatus === "error"
+                        ? t("activation.telegram.errorDetail")
+                        : activationStatus === "waiting"
+                          ? t("activation.telegram.waitingDetail")
+                          : t("activation.telegram.description")}
+                </p>
+              </div>
+            </div>
+
+            {detectedConversationHref ? (
+              <Button asChild className="min-h-11 w-full sm:w-auto">
+                <Link
+                  href={detectedConversationHref}
+                  data-testid="telegram-first-reply-open-conversation"
+                >
+                  <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                  {t("activation.telegram.openConversation")}
+                </Link>
+              </Button>
+            ) : activationStatus === "timeout" || activationStatus === "error" ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 w-full sm:w-auto"
+                onClick={retryFirstReplyDetection}
+                data-testid="telegram-first-reply-retry"
+              >
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                {t("activation.telegram.retry")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="space-y-3 border-t border-white/5 pt-4">
           {[
@@ -1096,6 +1375,9 @@ function IntegrationSettingsModal({
   account,
   open,
   saving,
+  telegramFirstRun,
+  selectedPlan,
+  returnFocusRef,
   sampleBusy,
   canRequest,
   requestSent,
@@ -1110,6 +1392,9 @@ function IntegrationSettingsModal({
   account?: IntegrationAccount | null;
   open: boolean;
   saving: boolean;
+  telegramFirstRun: boolean;
+  selectedPlan: AcquisitionPlanId | null;
+  returnFocusRef: React.RefObject<HTMLElement | null>;
   sampleBusy: boolean;
   canRequest: boolean;
   requestSent: boolean;
@@ -1129,6 +1414,9 @@ function IntegrationSettingsModal({
         account={account}
         open={open}
         saving={saving}
+        firstRun={telegramFirstRun}
+        selectedPlan={selectedPlan}
+        returnFocusRef={returnFocusRef}
         onOpenChange={onOpenChange}
         onConnect={onConnectTelegram}
       />
@@ -1149,6 +1437,7 @@ function IntegrationSettingsModal({
       key={integration.id}
       open={open}
       onOpenChange={onOpenChange}
+      returnFocusRef={returnFocusRef}
       closeLabel={t("integrations.closeDialog")}
       title={t("integrations.settingsTitle", { name: integration.name })}
       description={
@@ -1539,6 +1828,8 @@ function IntegrationCard({
                   variant="outline"
                   size="sm"
                   className="min-h-11 w-full scroll-mt-20 scroll-mb-24 whitespace-normal rounded-full px-3 py-2 text-xs"
+                  data-testid={`integration-configure-${integration.id}`}
+                  aria-label={`${availabilityStatus}: ${integration.name}`}
                   onClick={onConfigure}
                 >
                   {availabilityStatus}
@@ -1557,6 +1848,7 @@ function IntegrationCard({
                         variant="outline"
                         size="sm"
                         className="min-h-11 scroll-mb-24 rounded-full px-3 text-xs"
+                        data-testid={`integration-configure-${integration.id}`}
                       >
                         {canManage ? t("integrations.configure") : t("integrations.testConnection")}
                       </Button>
@@ -1603,6 +1895,7 @@ function IntegrationCard({
                 variant="primary"
                 size="sm"
                 className="min-h-11 w-full scroll-mb-24 rounded-full px-4 text-xs"
+                data-testid={`integration-configure-${integration.id}`}
                 onClick={onToggle}
                 disabled={pending || !canManage}
               >
@@ -1710,10 +2003,11 @@ function ApiCard({
                     {row.value || row.empty}
                   </span>
                   <button
+                    type="button"
                     aria-label={t("integrations.api.copyLabel", { label: row.label })}
                     disabled={!row.value}
                     onClick={() => handleCopy(row.id, row.value)}
-                    className="shrink-0 text-zinc-500 transition-colors hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40 max-sm:h-11 max-sm:w-11"
                     title={t("integrations.copy")}
                   >
                     {copied === row.id ? (
@@ -1770,6 +2064,13 @@ export function IntegrationsPage() {
   const { formatNumber, t } = useI18n();
   const permissions = useProductPermissions();
   const { demo } = useProductMode();
+  const searchParams = useSearchParams();
+  const telegramFirstRun =
+    !demo && searchParams.get("setup") === "telegram" && searchParams.get("firstRun") === "1";
+  const requestedPlan = searchParams.get("plan");
+  const firstRunPlan = acquisitionPlanIds.includes(requestedPlan as AcquisitionPlanId)
+    ? (requestedPlan as AcquisitionPlanId)
+    : null;
   const [activeCategory, setActiveCategory] = useState<"all" | Category>("all");
   const [accounts, setAccounts] = useState<IntegrationAccount[]>([]);
   const [accountsLoaded, setAccountsLoaded] = useState(false);
@@ -1798,6 +2099,38 @@ export function IntegrationsPage() {
     Set<IntegrationProvider>
   >(() => new Set());
   const [settingsIntegrationId, setSettingsIntegrationId] = useState<string | null>(null);
+  const settingsReturnFocusRef = React.useRef<HTMLElement | null>(null);
+  const firstRunAutoOpenRef = React.useRef(false);
+
+  useEffect(() => {
+    if (!settingsIntegrationId) return;
+    const currentTrigger = document.querySelector<HTMLElement>(
+      `[data-testid="integration-configure-${settingsIntegrationId}"]`,
+    );
+    if (currentTrigger) settingsReturnFocusRef.current = currentTrigger;
+  }, [connectedMap, settingsIntegrationId]);
+
+  useEffect(() => {
+    if (!telegramFirstRun) {
+      firstRunAutoOpenRef.current = false;
+      return;
+    }
+    if (
+      firstRunAutoOpenRef.current ||
+      !accountsLoaded ||
+      !channelsLoaded ||
+      !permissions.canManageIntegrations
+    ) {
+      return;
+    }
+
+    firstRunAutoOpenRef.current = true;
+    setActiveCategory("channels");
+    settingsReturnFocusRef.current = document.querySelector<HTMLElement>(
+      '[data-testid="integration-configure-telegram"]',
+    );
+    setSettingsIntegrationId("telegram");
+  }, [accountsLoaded, channelsLoaded, permissions.canManageIntegrations, telegramFirstRun]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1992,6 +2325,9 @@ export function IntegrationsPage() {
     if (integration && isSelfServeIntegration(integration) && !permissions.canManageIntegrations) {
       return;
     }
+    settingsReturnFocusRef.current =
+      document.querySelector<HTMLElement>(`[data-testid="integration-configure-${id}"]`) ??
+      (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setSettingsIntegrationId(id);
   }
 
@@ -2159,6 +2495,8 @@ export function IntegrationsPage() {
           {AVAILABLE_CATEGORIES.map((category) => (
             <button
               key={category.id}
+              type="button"
+              aria-pressed={activeCategory === category.id}
               onClick={() => setActiveCategory(category.id)}
               className={cn(
                 "min-h-11 shrink-0 rounded-full border px-4 py-1.5 text-xs font-medium transition-all duration-200",
@@ -2271,6 +2609,9 @@ export function IntegrationsPage() {
           integration={settingsIntegration}
           account={settingsAccount}
           open={settingsIntegrationId !== null}
+          telegramFirstRun={telegramFirstRun}
+          selectedPlan={firstRunPlan}
+          returnFocusRef={settingsReturnFocusRef}
           saving={
             pendingId === settingsIntegrationId ||
             (settingsIntegration
@@ -2289,7 +2630,9 @@ export function IntegrationsPage() {
             settingsIntegration ? contactRequiredProviders.has(settingsIntegration.provider) : false
           }
           onOpenChange={(open) => {
-            if (!open) setSettingsIntegrationId(null);
+            if (!open) {
+              setSettingsIntegrationId(null);
+            }
           }}
           onSendSample={() => void sendSample("webhook")}
           onConnectTelegram={connectTelegramBot}

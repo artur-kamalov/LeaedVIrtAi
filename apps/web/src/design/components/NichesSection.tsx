@@ -193,7 +193,7 @@ export const NichesSection = () => {
                   )}>
                     {niche.title}
                   </h3>
-                  <AnimatePresence>
+                  <AnimatePresence initial={false}>
                     {isActive && (
                       <motion.p 
                         initial={{ opacity: 0, height: 0 }}

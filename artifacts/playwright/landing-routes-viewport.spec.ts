@@ -61,6 +61,9 @@ for (const viewport of viewports) {
       await expect
         .poll(async () => Math.round((await target.boundingBox())?.y ?? -1), { timeout: 10_000 })
         .toBe(80);
+      await page.waitForLoadState("networkidle");
+      await page.waitForTimeout(500);
+      expect(Math.round((await target.boundingBox())?.y ?? -1)).toBe(80);
       await expect(page).toHaveURL(`${webBase}${destination}`);
       await expectNoHorizontalOverflow(page);
     }

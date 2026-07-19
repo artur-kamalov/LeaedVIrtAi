@@ -32,7 +32,15 @@ test("demo product shell restores the saved theme after hydration", async ({ pag
 
   await page.goto(`${webBase}/demo`, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByTestId("product-shell")).toHaveClass(/theme-light/);
+  const productShell = page.getByTestId("product-shell");
+  await expect(productShell).toHaveClass(/theme-light/);
+  await expect(productShell.locator("header")).toHaveCSS(
+    "background-color",
+    "rgba(244, 244, 245, 0.96)",
+  );
+  await expect(
+    page.getByTestId("dashboard-stat-grid").locator('[class*="bg-zinc-900/70"]').first(),
+  ).toHaveCSS("background-color", "rgba(255, 255, 255, 0.78)");
   expect(hydrationErrors).toEqual([]);
 });
 

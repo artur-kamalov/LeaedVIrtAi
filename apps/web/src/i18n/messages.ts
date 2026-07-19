@@ -32,6 +32,7 @@ import {
   dashboardReadinessMessages,
   type DashboardReadinessTranslationKey,
 } from "./dashboard-readiness-messages";
+import { activationMessages, type ActivationTranslationKey } from "./activation-messages";
 
 const ru = {
   "language.label": "Язык",
@@ -453,7 +454,8 @@ export type TranslationKey =
   | IntegrationTranslationKey
   | ResourceTranslationKey
   | BusinessProfileTranslationKey
-  | DashboardReadinessTranslationKey;
+  | DashboardReadinessTranslationKey
+  | ActivationTranslationKey;
 export type TranslationValues = Record<string, string | number>;
 
 const en: Record<BaseTranslationKey, string> = {
@@ -875,6 +877,7 @@ export const messages = {
     ...settingsMessages.en,
     ...businessProfileMessages.en,
     ...dashboardReadinessMessages.en,
+    ...activationMessages.en,
   },
   es: {
     ...es,
@@ -890,6 +893,7 @@ export const messages = {
     ...settingsMessages.es,
     ...businessProfileMessages.es,
     ...dashboardReadinessMessages.es,
+    ...activationMessages.es,
   },
   fr: {
     ...fr,
@@ -905,6 +909,7 @@ export const messages = {
     ...settingsMessages.fr,
     ...businessProfileMessages.fr,
     ...dashboardReadinessMessages.fr,
+    ...activationMessages.fr,
   },
   de: {
     ...de,
@@ -920,6 +925,7 @@ export const messages = {
     ...settingsMessages.de,
     ...businessProfileMessages.de,
     ...dashboardReadinessMessages.de,
+    ...activationMessages.de,
   },
   pt: {
     ...pt,
@@ -935,6 +941,7 @@ export const messages = {
     ...settingsMessages.pt,
     ...businessProfileMessages.pt,
     ...dashboardReadinessMessages.pt,
+    ...activationMessages.pt,
   },
   ru: {
     ...ru,
@@ -950,5 +957,6 @@ export const messages = {
     ...settingsMessages.ru,
     ...businessProfileMessages.ru,
     ...dashboardReadinessMessages.ru,
+    ...activationMessages.ru,
   },
 } as const;

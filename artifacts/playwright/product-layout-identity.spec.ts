@@ -535,7 +535,7 @@ test("product shell distinguishes failed reads from empty workspace state", asyn
   recoverNotifications = true;
   await notificationError.getByRole("button").click();
   await expect(notificationError).toBeHidden();
-  await expect(page.getByText("Recovered activity")).toBeVisible();
+  await expect(page.getByText("Lead created", { exact: true })).toBeVisible();
 
   await page.keyboard.press("Escape");
   recoverTenant = true;
@@ -586,8 +586,12 @@ test("product shell global search opens Inbox with a prefilled query", async ({ 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${webBase}/app`, { waitUntil: "domcontentloaded" });
 
-  await page.getByLabel("Глобальный поиск").fill("API Lead");
-  await page.getByLabel("Глобальный поиск").press("Enter");
+  const globalSearch = page.getByLabel("Глобальный поиск");
+  const globalSearchBox = await globalSearch.boundingBox();
+  expect(globalSearchBox).not.toBeNull();
+  expect(globalSearchBox!.height).toBeGreaterThanOrEqual(36);
+  await globalSearch.fill("API Lead");
+  await globalSearch.press("Enter");
 
   await expect(page).toHaveURL(/\/app\/inbox\?q=API(?:%20|\+)Lead$/, { timeout: 15_000 });
   await expect(page.getByLabel("Поиск в диалогах")).toHaveValue("API Lead");

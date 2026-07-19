@@ -75,7 +75,7 @@ const MAX_RUN_POLLS = 80;
 const ACTIVE_RUN_STORAGE_KEY = "leadvirt:knowledge-v2:active-test-run";
 
 const inputClass =
-  "h-10 w-full min-w-0 rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/15 aria-invalid:border-rose-500/60";
+  "h-10 w-full min-w-0 rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/15 aria-invalid:border-rose-500/60 max-sm:min-h-11";
 const textareaClass = cn(inputClass, "h-auto min-h-28 resize-y py-2.5");
 
 const channels: ChannelType[] = [

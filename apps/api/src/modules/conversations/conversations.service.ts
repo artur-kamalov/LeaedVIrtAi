@@ -16,6 +16,7 @@ import type {
 import { Prisma } from "@leadvirt/db";
 import { resolveAiBusinessIdentity } from "@leadvirt/knowledge";
 import { positiveInt } from "../../common/pagination.js";
+import { internalSampleConversationIds } from "../../common/internal-sample.js";
 import type { RequestContext } from "../../common/request-context.js";
 import { RuntimeQueueService } from "../ai/runtime-queue.service.js";
 import { projectChannelSettings } from "../channels/channel-settings.js";
@@ -120,7 +121,7 @@ export class ConversationsService {
 
     const page = positiveInt(query.page, 1, 100);
     const limit = positiveInt(query.limit, 20, 100);
-    const [total, rows] = await Promise.all([
+    const [total, rows, sampleConversationIds] = await Promise.all([
       this.prisma.conversation.count({ where }),
       this.prisma.conversation.findMany({
         where,
@@ -133,10 +134,13 @@ export class ConversationsService {
         skip: (page - 1) * limit,
         take: limit,
       }),
+      this.loadInternalSampleConversationIds(context.tenantId),
     ]);
 
     return {
-      data: rows.map((row) => this.mapConversationPreview(row)),
+      data: rows.map((row) =>
+        this.mapConversationPreview(row, sampleConversationIds.has(row.id)),
+      ),
       pagination: {
         page,
         limit,
@@ -147,8 +151,11 @@ export class ConversationsService {
   }
 
   async get(context: RequestContext, id: string): Promise<ConversationDetail> {
-    const conversation = await this.loadConversation(context.tenantId, id);
-    return this.mapConversationDetail(conversation);
+    const [conversation, sampleConversationIds] = await Promise.all([
+      this.loadConversation(context.tenantId, id),
+      this.loadInternalSampleConversationIds(context.tenantId),
+    ]);
+    return this.mapConversationDetail(conversation, sampleConversationIds.has(id));
   }
 
   async draftAiReply(context: RequestContext, id: string): Promise<AiDraftReply> {
@@ -381,7 +388,10 @@ export class ConversationsService {
     return conversation;
   }
 
-  private mapConversationPreview(conversation: ConversationWithPreview): ConversationDetail {
+  private mapConversationPreview(
+    conversation: ConversationWithPreview,
+    isInternalSample: boolean,
+  ): ConversationDetail {
     return {
       id: conversation.id,
       tenantId: conversation.tenantId,
@@ -399,12 +409,16 @@ export class ConversationsService {
         conversation.status !== "CLOSED" && conversation.messages[0]?.direction === "INBOUND"
           ? 1
           : 0,
+      isInternalSample,
       messages: [],
       events: [],
     };
   }
 
-  private mapConversationDetail(conversation: ConversationWithDetail): ConversationDetail {
+  private mapConversationDetail(
+    conversation: ConversationWithDetail,
+    isInternalSample: boolean,
+  ): ConversationDetail {
     return {
       id: conversation.id,
       tenantId: conversation.tenantId,
@@ -422,6 +436,7 @@ export class ConversationsService {
         conversation.status !== "CLOSED" && conversation.messages.at(-1)?.direction === "INBOUND"
           ? 1
           : 0,
+      isInternalSample,
       messages: conversation.messages.map((message) => this.mapMessage(message)),
       events:
         conversation.lead?.events.map((event) => ({
@@ -501,6 +516,14 @@ export class ConversationsService {
       automaticRepliesPublicationEtag: channel.automaticRepliesPublicationEtag,
       automaticRepliesActivatedAt: channel.automaticRepliesActivatedAt?.toISOString() ?? null,
     };
+  }
+
+  private async loadInternalSampleConversationIds(tenantId: string) {
+    const logs = await this.prisma.auditLog.findMany({
+      where: { tenantId, action: "integration.sample_inbound" },
+      select: { payload: true },
+    });
+    return internalSampleConversationIds(logs);
   }
 
   private async fencePendingAiReply(

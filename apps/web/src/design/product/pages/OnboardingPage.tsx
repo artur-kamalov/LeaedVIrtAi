@@ -896,7 +896,7 @@ function StepLaunch({
   scenario: string | null;
   crm: string | null;
   companyName: string;
-  nextAction: "billing" | "knowledge" | "dashboard";
+  nextAction: "telegram" | "billing" | "knowledge" | "dashboard";
   onBack: () => void;
   onLaunch: () => void;
   onRestart?: () => void;
@@ -924,11 +924,13 @@ function StepLaunch({
     return availability === "available" ? label : `${label} · ${t(availabilityKeys[availability])}`;
   });
   const actionLabel =
-    nextAction === "billing"
-      ? t("onboarding.continue.billing")
-      : nextAction === "knowledge"
-        ? t("onboarding.continue.knowledge")
-        : t("onboarding.launch");
+    nextAction === "telegram"
+      ? t("activation.onboarding.connectTelegram")
+      : nextAction === "billing"
+        ? t("onboarding.continue.billing")
+        : nextAction === "knowledge"
+          ? t("onboarding.continue.knowledge")
+          : t("onboarding.launch");
 
   const summaryItems = [
     { label: t("onboarding.summary.business"), value: btLabel },
@@ -1350,6 +1352,12 @@ export function OnboardingPage({
       go("dashboard");
       return;
     }
+    if (selectedChannels.includes("telegram")) {
+      const params = new URLSearchParams({ setup: "telegram", firstRun: "1" });
+      if (selectedPlan) params.set("plan", selectedPlan);
+      router.push(`/app/integrations?${params.toString()}`);
+      return;
+    }
     if (selectedPlan) {
       router.push(`/app/billing?plan=${encodeURIComponent(selectedPlan)}`);
       return;
@@ -1401,7 +1409,15 @@ export function OnboardingPage({
             scenario={scenario}
             crm={crm}
             companyName={companyInfo.name}
-            nextAction={mode === "demo" ? "dashboard" : selectedPlan ? "billing" : "knowledge"}
+            nextAction={
+              mode === "demo"
+                ? "dashboard"
+                : selectedChannels.includes("telegram")
+                  ? "telegram"
+                  : selectedPlan
+                    ? "billing"
+                    : "knowledge"
+            }
             onBack={handleBack}
             onLaunch={() => void handleLaunch()}
             onRestart={mode === "demo" ? () => void handleRestart() : undefined}
@@ -1647,9 +1663,11 @@ export function OnboardingPage({
                   ? t("onboarding.saving")
                   : mode === "demo"
                     ? t("onboarding.launch")
-                    : selectedPlan
-                      ? t("onboarding.continue.billing")
-                      : t("onboarding.continue.knowledge")}
+                    : selectedChannels.includes("telegram")
+                      ? t("activation.onboarding.connectTelegram")
+                      : selectedPlan
+                        ? t("onboarding.continue.billing")
+                        : t("onboarding.continue.knowledge")}
                 {!saving ? <ChevronRight className="w-5 h-5" aria-hidden="true" /> : null}
               </Button>
             </div>

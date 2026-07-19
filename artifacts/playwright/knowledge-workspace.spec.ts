@@ -957,6 +957,17 @@ test("capability controls keep published state separate and update the draft wit
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(draft.locator('[data-capability-type="GENERAL_FAQ"]')).toBeVisible();
+  const mobileCapabilityTargets = row.locator('button[role="combobox"], button[role="switch"]');
+  const mobileCapabilitySizes = await mobileCapabilityTargets.evaluateAll((elements) =>
+    elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { height: rect.height, width: rect.width };
+    }),
+  );
+  expect(mobileCapabilitySizes).toHaveLength(2);
+  expect(mobileCapabilitySizes.every(({ height, width }) => height >= 44 && width >= 44)).toBe(
+    true,
+  );
   await expectNoHorizontalPageOverflow(page);
   await page.screenshot({
     path: "artifacts/playwright/knowledge-capabilities-mobile.png",

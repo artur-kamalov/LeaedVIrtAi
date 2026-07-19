@@ -785,11 +785,24 @@ test("website source stays an unpublished draft and revision exclusion uses ETag
 }) => {
   await authenticate(page);
   const state = await installMocks(page);
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${webBase}/app/knowledge?view=sources`, { waitUntil: "domcontentloaded" });
 
   await expect(page.getByTestId("knowledge-sources")).toBeVisible({
     timeout: 15_000,
   });
+  const mobileSourceTargetHeights = await page
+    .getByTestId("knowledge-sources")
+    .locator('input[aria-label], button[role="combobox"]')
+    .evaluateAll((elements) =>
+      elements
+        .map((element) => element.getBoundingClientRect())
+        .filter(({ height, width }) => height > 0 && width > 0)
+        .map(({ height }) => height),
+  );
+  expect(mobileSourceTargetHeights.length).toBeGreaterThanOrEqual(3);
+  expect(Math.min(...mobileSourceTargetHeights)).toBeGreaterThanOrEqual(44);
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(page.getByRole("heading", { name: "Sources", exact: true })).toBeVisible();
   await expect(page.getByText("Draft ready").first()).toBeVisible();
   await expect(page.getByText(/does not mean it is published/i)).toBeVisible();

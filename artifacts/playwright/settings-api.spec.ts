@@ -102,22 +102,9 @@ async function installSettingsProfileDependencies(page: Page) {
   await page.route("**/api/settings/billing", async (route) => {
     await route.fulfill({ json: { data: { billingMode: "manual", apiKeys: [] } } });
   });
-  await page.route("**/api/settings/notifications", async (route) => {
-    await route.fulfill({
-      json: {
-        data: {
-          new_lead: true,
-          no_reply: true,
-          booking: true,
-          daily: false,
-          tg_summary: true,
-        },
-      },
-    });
-  });
 }
 
-test("notification switches use their visible localized labels as accessible names", async ({
+test("notifications are absent and the legacy deep link falls back to Profile", async ({
   page,
 }) => {
   await installSettingsProfileDependencies(page);
@@ -125,51 +112,42 @@ test("notification switches use their visible localized labels as accessible nam
     await route.fulfill({ json: accountSettings() });
   });
 
-  const state: Record<string, boolean> = {
-    new_lead: true,
-    no_reply: true,
-    booking: true,
-    daily: false,
-    tg_summary: true,
-  };
-  const patches: Record<string, boolean>[] = [];
+  let notificationRequests = 0;
   await page.route("**/api/settings/notifications", async (route) => {
-    if (route.request().method() === "PATCH") {
-      const patch = route.request().postDataJSON() as Record<string, boolean>;
-      patches.push(patch);
-      Object.assign(state, patch);
-    }
-    await route.fulfill({ json: { data: state } });
+    notificationRequests += 1;
+    await route.fulfill({ json: { data: {} } });
   });
 
   await page.goto(`${webBase}/app/settings?tab=notifications`, { waitUntil: "networkidle" });
 
-  const controls = [
-    ["new_lead", "settings.notifications.newLead"],
-    ["no_reply", "settings.notifications.noReply"],
-    ["booking", "settings.notifications.booking"],
-    ["daily", "settings.notifications.daily"],
-    ["tg_summary", "settings.notifications.telegram"],
-  ] as const;
+  await expect(page.getByTestId("settings-profile-editor")).toBeVisible();
+  await expect(
+    page.getByRole("main").getByRole("button", {
+      name: messages.ru["settings.tab.notifications"],
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("switch")).toHaveCount(0);
+  expect(notificationRequests).toBe(0);
+});
 
-  for (const [id, labelKey] of controls) {
+test("contact fields use their visible localized labels as accessible names", async ({ page }) => {
+  await installSettingsProfileDependencies(page);
+  await page.route("**/api/settings/account", async (route) => {
+    await route.fulfill({ json: accountSettings() });
+  });
+
+  await page.goto(`${webBase}/app/settings`, { waitUntil: "networkidle" });
+
+  for (const [testId, labelKey] of [
+    ["settings-account-email", "settings.profile.email"],
+    ["settings-profile-phone", "settings.profile.phone"],
+    ["settings-profile-website", "settings.profile.website"],
+  ] as const) {
     const label = messages.ru[labelKey];
-    const labelId = `settings-notification-${id}-label`;
-    const notificationSwitch = page.getByRole("switch", { name: label, exact: true });
-
-    await expect(page.locator(`#${labelId}`)).toHaveText(label);
-    await expect(notificationSwitch).toHaveAttribute("aria-labelledby", labelId);
-    await notificationSwitch.click();
-    await expect.poll(() => patches.some((patch) => id in patch)).toBe(true);
+    await expect(page.getByTestId(testId)).toHaveAccessibleName(label);
+    await expect(page.getByLabel(label, { exact: true })).toHaveCount(1);
   }
-
-  expect(patches).toEqual([
-    { new_lead: false },
-    { no_reply: false },
-    { booking: false },
-    { daily: true },
-    { tg_summary: false },
-  ]);
 });
 
 test("settings page renders account controls without exposing technical-only settings", async ({
@@ -184,7 +162,6 @@ test("settings page renders account controls without exposing technical-only set
   });
   let invitedEmail = "";
   let removedMemberId = "";
-  let notificationPatch: Record<string, boolean> = {};
   let apiKeyListRequests = 0;
   let apiKeyCreateRequests = 0;
   let passwordPatch: { currentPassword?: string; newPassword?: string } = {};
@@ -427,37 +404,6 @@ test("settings page renders account controls without exposing technical-only set
     await route.fulfill({ json: { data: { id: "session-other", revoked: true, current: false } } });
   });
 
-  await page.route("**/api/settings/notifications", async (route) => {
-    if (route.request().method() === "PATCH") {
-      notificationPatch = route.request().postDataJSON() as Record<string, boolean>;
-      await route.fulfill({
-        json: {
-          data: {
-            new_lead: true,
-            no_reply: false,
-            booking: true,
-            daily: false,
-            tg_summary: true,
-            ...notificationPatch,
-          },
-        },
-      });
-      return;
-    }
-
-    await route.fulfill({
-      json: {
-        data: {
-          new_lead: true,
-          no_reply: false,
-          booking: true,
-          daily: false,
-          tg_summary: true,
-        },
-      },
-    });
-  });
-
   await page.route("**/api/settings/billing", async (route) => {
     await route.fulfill({
       json: {
@@ -541,7 +487,18 @@ test("settings page renders account controls without exposing technical-only set
   expect(accountPatch).not.toHaveProperty("logoDataUrl");
   await expect(page.getByTestId("settings-business-profile-name")).toHaveText("API Studio");
 
-  await page.getByRole("button", { name: /Команда и роли/ }).click();
+  const teamSection = page.getByRole("main").getByRole("button", {
+    name: "Команда и роли",
+    exact: true,
+  });
+  await teamSection.click();
+  await expect(teamSection).toHaveAttribute("aria-current", "page");
+  await expect(
+    page
+      .getByRole("main")
+      .getByRole("navigation", { name: messages.ru["settings.title"] })
+      .locator('button[aria-current="page"]'),
+  ).toHaveCount(1);
   await expect(page.getByTestId("settings-team-member-membership-owner")).toContainText(
     "API Owner",
   );
@@ -562,8 +519,13 @@ test("settings page renders account controls without exposing technical-only set
   await expect(inviteMember).toBeEnabled();
 
   await inviteMember.click();
-  await page.getByPlaceholder("name@company.ru").fill("new-agent@example.com");
-  await page.getByPlaceholder("Имя участника").fill("New Agent");
+  await page
+    .getByLabel(messages.ru["settings.profile.email"], { exact: true })
+    .fill("new-agent@example.com");
+  await page.getByLabel(messages.ru["settings.team.name"], { exact: true }).fill("New Agent");
+  await expect(
+    page.getByRole("combobox", { name: messages.ru["settings.team.role"] }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Добавить" }).click();
   await expect.poll(() => invitedEmail).toBe("new-agent@example.com");
   await expect(page.getByText("New Agent")).toBeVisible();
@@ -572,13 +534,6 @@ test("settings page renders account controls without exposing technical-only set
   await page.getByRole("menuitem").last().click();
   await page.getByRole("button", { name: "Удалить" }).click();
   await expect.poll(() => removedMemberId).toBe("membership-api");
-
-  await page
-    .getByRole("main")
-    .getByRole("button", { name: /Уведомления/ })
-    .click();
-  await page.getByRole("switch").first().click();
-  await expect.poll(() => notificationPatch.new_lead).toBe(false);
 
   await page
     .getByRole("main")
@@ -800,20 +755,6 @@ test("owner API-key deep link falls back to profile without loading legacy keys"
     await route.fulfill({ json: { data: [] } });
   });
 
-  await page.route("**/api/settings/notifications", async (route) => {
-    await route.fulfill({
-      json: {
-        data: {
-          new_lead: true,
-          no_reply: true,
-          booking: true,
-          daily: false,
-          tg_summary: true,
-        },
-      },
-    });
-  });
-
   await page.goto(`${webBase}/app/settings?tab=api`, { waitUntil: "networkidle" });
 
   await expect(page.getByTestId("settings-profile-editor")).toBeVisible();
@@ -840,13 +781,6 @@ test("email-code account gets passwordless security guidance without infrastruct
   });
   await page.route("**/api/settings/team**", async (route) => {
     await route.fulfill({ json: { data: [] } });
-  });
-  await page.route("**/api/settings/notifications", async (route) => {
-    await route.fulfill({
-      json: {
-        data: { new_lead: true, no_reply: true, booking: true, daily: false, tg_summary: true },
-      },
-    });
   });
   await page.route("**/api/settings/security", async (route) => {
     await route.fulfill({
@@ -992,20 +926,6 @@ test("non-admin member cannot see or deep-link into API-key cleanup", async ({ p
     await route.fulfill({ json: { data: { billingMode: "manual", apiKeys: [] } } });
   });
 
-  await page.route("**/api/settings/notifications", async (route) => {
-    await route.fulfill({
-      json: {
-        data: {
-          new_lead: true,
-          no_reply: true,
-          booking: true,
-          daily: false,
-          tg_summary: true,
-        },
-      },
-    });
-  });
-
   await page.route("**/api/settings/api-keys", async (route) => {
     apiKeyListRequests += 1;
     await route.fulfill({
@@ -1085,20 +1005,6 @@ test("settings account initial failure stays explicit and recovers on retry", as
     await route.fulfill({ json: { data: { billingMode: "manual", apiKeys: [] } } });
   });
 
-  await page.route("**/api/settings/notifications", async (route) => {
-    await route.fulfill({
-      json: {
-        data: {
-          new_lead: true,
-          no_reply: true,
-          booking: true,
-          daily: false,
-          tg_summary: true,
-        },
-      },
-    });
-  });
-
   await page.goto(`${webBase}/app/settings`, { waitUntil: "networkidle" });
 
   const loadError = page.getByTestId("settings-account-load-error");
@@ -1157,20 +1063,6 @@ test("temporary password users are routed to Security and clear the warning afte
 
   await page.route("**/api/settings/billing", async (route) => {
     await route.fulfill({ json: { data: { billingMode: "manual", apiKeys: [] } } });
-  });
-
-  await page.route("**/api/settings/notifications", async (route) => {
-    await route.fulfill({
-      json: {
-        data: {
-          new_lead: true,
-          no_reply: true,
-          booking: true,
-          daily: false,
-          tg_summary: true,
-        },
-      },
-    });
   });
 
   await page.route("**/api/settings/security", async (route) => {

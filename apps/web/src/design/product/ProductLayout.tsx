@@ -684,7 +684,7 @@ export function ProductLayout({
                     value={globalSearch}
                     onChange={(event) => setGlobalSearch(event.target.value)}
                     placeholder={t("product.search.placeholder")}
-                    className="bg-transparent text-sm outline-none placeholder:text-zinc-600 w-full"
+                    className="h-full w-full bg-transparent text-sm outline-none placeholder:text-zinc-600"
                   />
                 </form>
                 <LanguageSwitcher compact className="hidden sm:inline-flex" />

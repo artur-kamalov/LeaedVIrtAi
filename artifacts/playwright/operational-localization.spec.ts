@@ -220,7 +220,7 @@ test("Inbox, Conversation, and Pipeline render all six operational locales", asy
     await expect(
       page
         .getByTestId("inbox-lead-summary")
-        .getByRole("button", { name: messages[locale]["ops.inbox.openConversation"], exact: true }),
+        .getByRole("link", { name: messages[locale]["ops.inbox.openConversation"], exact: true }),
     ).toBeVisible();
     await expect(page.getByText(expectedRelativeTime(locale), { exact: true }).first()).toBeVisible();
     await expect(page.getByText(messages[locale]["ops.common.service"], { exact: true })).toBeVisible();
@@ -270,7 +270,7 @@ test("localized supported operational controls keep their API actions wired", as
   await expect(
     page
       .getByTestId("inbox-lead-summary")
-      .getByRole("button", { name: messages.en["ops.inbox.openConversation"], exact: true }),
+      .getByRole("link", { name: messages.en["ops.inbox.openConversation"], exact: true }),
   ).toBeVisible();
 
   await page.goto(`${webBase}/app/inbox/${conversationId}`, { waitUntil: "domcontentloaded" });

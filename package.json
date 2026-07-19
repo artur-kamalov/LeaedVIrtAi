@@ -29,6 +29,7 @@
     "qa:telegram:managed": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/telegram-managed-connection-smoke.ts",
     "qa:telegram:replay-fence": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/telegram-webhook-replay-fence-smoke.ts",
     "qa:telegram:lifecycle-security": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/telegram-lifecycle-security-smoke.ts",
+    "qa:activation-evidence": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/internal-sample-evidence-smoke.ts",
     "qa:channels:provisioning": "node artifacts/scripts/channel-provisioning.mjs",
     "provision:webhook-channel": "node artifacts/scripts/provision-webhook-channel.mjs",
     "qa:auth:guard": "node artifacts/scripts/auth-temporary-password-guard.mjs",

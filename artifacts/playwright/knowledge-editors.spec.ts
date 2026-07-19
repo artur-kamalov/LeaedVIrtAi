@@ -579,6 +579,41 @@ async function openAdvancedEditors(page: Page) {
   await expect(advanced).toHaveAttribute("open", "");
 }
 
+test("mobile Knowledge editor search and filter controls keep 44px targets", async ({ page }) => {
+  await authenticate(page);
+  await installEditorMocks(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${webBase}/app/knowledge?view=business`, { waitUntil: "domcontentloaded" });
+  await openAdvancedEditors(page);
+  const facts = page.getByTestId("business-facts-editor");
+  await expect(facts).toBeVisible({ timeout: 15_000 });
+
+  const factTargetHeights = await facts
+    .locator('input[aria-label], button[role="combobox"]')
+    .evaluateAll((elements) =>
+      elements
+        .map((element) => element.getBoundingClientRect())
+        .filter(({ height, width }) => height > 0 && width > 0)
+        .map(({ height }) => height),
+    );
+  expect(factTargetHeights.length).toBeGreaterThanOrEqual(3);
+  expect(Math.min(...factTargetHeights)).toBeGreaterThanOrEqual(44);
+
+  await page.goto(`${webBase}/app/knowledge?view=guidance`, { waitUntil: "domcontentloaded" });
+  const guidance = page.getByTestId("knowledge-guidance-editor");
+  await expect(guidance).toBeVisible({ timeout: 15_000 });
+  const guidanceTargetHeights = await guidance
+    .locator('input, button[role="combobox"]')
+    .evaluateAll((elements) =>
+      elements
+        .map((element) => element.getBoundingClientRect())
+        .filter(({ height, width }) => height > 0 && width > 0)
+        .map(({ height }) => height),
+    );
+  expect(guidanceTargetHeights.length).toBeGreaterThanOrEqual(3);
+  expect(Math.min(...guidanceTargetHeights)).toBeGreaterThanOrEqual(44);
+});
+
 test("Business facts preserve manual provenance through create, verify, conflict reload, and scoped price edit", async ({
   page,
 }) => {

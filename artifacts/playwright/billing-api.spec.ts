@@ -315,7 +315,10 @@ test("billing route renders API-backed plan and usage inside copied settings UI"
   await expect(page.getByText("Для сетей, клиник, e-commerce и холдингов")).toBeVisible();
   await expect(page.getByText("от 120 000 ₽")).toBeVisible();
 
-  await page.getByTestId("billing-plan-CORPORATE").getByRole("button", { name: "Выбрать" }).click();
+  await page
+    .getByTestId("billing-plan-CORPORATE")
+    .getByRole("button", { name: "Выбрать тариф Корпоративный" })
+    .click();
   await expect(page.getByRole("heading", { name: "Тариф «Профессиональный»" })).toBeVisible();
   await expect(page.getByTestId("billing-plan-selection")).toContainText(
     "Выбран тариф «Корпоративный»",
@@ -522,7 +525,11 @@ test("billing shows a truthful no-subscription state", async ({ page }) => {
   await expect(page.getByText("AI recommendations and insights", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Workflow A/B tests", { exact: true })).toHaveCount(0);
   await expect(page.getByText("SLA and availability guarantees", { exact: true })).toHaveCount(0);
-  await page.getByTestId("billing-plan-START").getByRole("button", { name: "Choose" }).click();
+  await expect(page.getByRole("button", { name: /^Choose .+ plan$/ })).toHaveCount(4);
+  await page
+    .getByTestId("billing-plan-START")
+    .getByRole("button", { name: "Choose Start plan" })
+    .click();
 
   await expect(page.getByText("No active subscription")).toBeVisible();
   await expect(page.getByTestId("billing-plan-selection")).toContainText("Start selected");
