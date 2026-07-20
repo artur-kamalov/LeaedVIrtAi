@@ -1,5 +1,18 @@
 # Decision Log
 
+## 2026-07-20: Isolate Master Budet Customer Session Throttling
+
+Decision: The canonical shared edge gives the four exact Master Budet customer web/mobile refresh and logout POST routes a direct-client-IP bucket separate from OTP. It runs at `60r/m` with `burst=20` and returns stable no-store JSON `429 CUSTOMER_AUTH_RATE_LIMITED` with `Retry-After: 1`.
+
+Context: Refresh rotation and logout perform security-sensitive session lookups even when a request is invalid. Sharing their capacity with OTP would let routine traffic or retries behind one NAT block login, while a generic `/api/` limiter would charge unrelated endpoints and strict-routing misses.
+
+Consequences:
+
+- The key uses `$request_method:$uri`: query strings keep the exact route, while non-POST, mixed-case, trailing-slash, and nearby paths get an empty key and do not consume session capacity.
+- The HTTP map hash bucket is fixed at `128`; smaller defaults cannot hold the longest exact route key and fail `nginx -t`.
+- Exact locations, the route-aware map, the dedicated zone, and the dedicated no-store handler must remain coupled. CI mutation probes and the pre-copy semantic verifier reject missing, relaxed, duplicated, stale, widened, or generic-proxy policy.
+- Backend rate limits remain defense in depth. This edge change is prepared but not live until it is independently committed and deployed; distributed source abuse still needs upstream controls.
+
 ## 2026-07-20: Throttle Master Budet Customer Phone Auth Before Proxying
 
 Decision: The canonical shared edge applies one direct-client-IP bucket to POST requests on the three exact Master Budet customer OTP routes: request, web verify, and mobile verify. The bucket runs at `30r/m` with `burst=10` and returns stable no-store JSON `429 CUSTOMER_AUTH_RATE_LIMITED` with `Retry-After: 2`.

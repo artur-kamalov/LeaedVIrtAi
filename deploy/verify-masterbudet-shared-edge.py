@@ -80,6 +80,10 @@ server_end = configuration.find("\n  server {", server_marker_index)
 require(server_start >= 0 and server_end > server_start, "apex HTTPS server block is malformed")
 
 server_block = configuration[server_start:server_end]
+require(
+    configuration.count("map_hash_bucket_size 128;") == 1,
+    "map hash bucket size must be exactly 128 and globally unique",
+)
 zone = "limit_req_zone $binary_remote_addr zone=masterbudet_customer_lookup:10m rate=12r/m;"
 require(zone in configuration, "client-IP lookup rate zone is missing")
 upload_map = "map $request_method $masterbudet_public_upload_key {"
@@ -117,6 +121,32 @@ require(
 require(
     configuration.count("limit_req zone=masterbudet_customer_phone_auth") == 3,
     "customer auth limiter must occur only on the three exact OTP routes",
+)
+session_map_header = 'map "$request_method:$uri" $masterbudet_customer_session_auth_key'
+session_map = extract_unique_block(configuration, session_map_header)
+require(
+    normalized_directives(session_map)
+    == [
+        'default "";',
+        "POST:/api/v1/auth/customer/session/refresh/web $binary_remote_addr;",
+        "POST:/api/v1/auth/customer/session/refresh/mobile $binary_remote_addr;",
+        "POST:/api/v1/auth/customer/session/logout/web $binary_remote_addr;",
+        "POST:/api/v1/auth/customer/session/logout/mobile $binary_remote_addr;",
+    ],
+    "customer session key map must use normalized URI and charge only POST on the four exact routes",
+)
+session_zone = (
+    "limit_req_zone $masterbudet_customer_session_auth_key "
+    "zone=masterbudet_customer_session_auth:10m rate=60r/m;"
+)
+require(configuration.count(session_zone) == 1, "customer session rate zone is not unique")
+require(
+    configuration.count("zone=masterbudet_customer_session_auth") == 5,
+    "customer session zone must have one definition and four exact-route uses",
+)
+require(
+    configuration.count("limit_req zone=masterbudet_customer_session_auth") == 4,
+    "customer session limiter must occur only on the four exact session routes",
 )
 require(
     "error_page 429 = @masterbudet_customer_lookup_rate_limited;" in server_block,
@@ -193,6 +223,28 @@ require(
 require(
     configuration.count("@masterbudet_customer_phone_auth_rate_limited") == 4,
     "customer auth 429 handler must have one location and exactly three route references",
+)
+session_handler_header = "location @masterbudet_customer_session_auth_rate_limited"
+session_handler = extract_unique_block(server_block, session_handler_header)
+session_rate_response = (
+    "return 429 "
+    "'{\"statusCode\":429,\"code\":\"CUSTOMER_AUTH_RATE_LIMITED\","
+    "\"message\":\"Too many authentication attempts. Try again shortly.\","
+    "\"retryAfterSeconds\":1}';"
+)
+require(
+    normalized_directives(session_handler)
+    == [
+        "default_type application/json;",
+        'add_header Cache-Control "no-store" always;',
+        "add_header Retry-After 1 always;",
+        session_rate_response,
+    ],
+    "customer session 429 handler must contain only the stable no-store JSON response and Retry-After contract",
+)
+require(
+    configuration.count("@masterbudet_customer_session_auth_rate_limited") == 5,
+    "customer session 429 handler must have one location and exactly four route references",
 )
 upload_size_handler_marker = "    location @masterbudet_public_upload_too_large {"
 require(configuration.count(upload_size_handler_marker) == 1, "public upload 413 handler is not unique")
@@ -283,6 +335,50 @@ require(
     "only the three case-sensitive, trailing-slash-sensitive exact OTP locations are allowed",
 )
 
+session_routes = (
+    "/api/v1/auth/customer/session/refresh/web",
+    "/api/v1/auth/customer/session/refresh/mobile",
+    "/api/v1/auth/customer/session/logout/web",
+    "/api/v1/auth/customer/session/logout/mobile",
+)
+session_directives = [
+    "limit_req zone=masterbudet_customer_session_auth burst=20 nodelay;",
+    "limit_req_status 429;",
+    "error_page 429 = @masterbudet_customer_session_auth_rate_limited;",
+    "proxy_pass $masterbudet_backend;",
+    "proxy_http_version 1.1;",
+    "proxy_set_header Host $host;",
+    "proxy_set_header X-Real-IP $remote_addr;",
+    "proxy_set_header X-Forwarded-For $remote_addr;",
+    "proxy_set_header X-Forwarded-Proto https;",
+]
+for route in session_routes:
+    header = f"location = {route}"
+    require(
+        configuration.count(f"{header} {{") == 1,
+        f"exact customer session route is not globally unique: {route}",
+    )
+    block = extract_unique_block(server_block, header)
+    start = server_block.find(f"    {header} {{")
+    require(
+        0 <= start < generic_api_index,
+        f"exact customer session route follows generic proxy: {route}",
+    )
+    require(
+        normalized_directives(block) == session_directives,
+        f"exact customer session route has non-canonical directives: {route}",
+    )
+
+explicit_session_locations = re.findall(
+    r"(?m)^[ \t]*location[ \t]+([^\n{]*?/api/v1/auth/customer/session[^\n{]*)[ \t]*\{",
+    configuration,
+)
+require(
+    sorted(item.strip() for item in explicit_session_locations)
+    == sorted(f"= {route}" for route in session_routes),
+    "only the four case-sensitive, trailing-slash-sensitive exact session locations are allowed",
+)
+
 upload_location = "    location = /api/v1/uploads/order-photos {"
 require(configuration.count(upload_location) == 1, "public upload location is not unique")
 upload_start = server_block.find(upload_location)
@@ -344,8 +440,11 @@ generic_api_block = server_block[generic_api_index:generic_api_end]
 require(
     "masterbudet_public_upload" not in generic_api_block
     and "client_max_body_size 6m;" not in generic_api_block
-    and "masterbudet_customer_phone_auth" not in generic_api_block,
+    and "masterbudet_customer_phone_auth" not in generic_api_block
+    and "masterbudet_customer_session_auth" not in generic_api_block,
     "public upload or customer auth policy leaked into the generic Master Budet API proxy",
 )
 
-print("Master Budet shared-edge lookup, public upload, and customer auth throttles verified.")
+print(
+    "Master Budet shared-edge lookup, public upload, phone-auth, and session-auth throttles verified."
+)
