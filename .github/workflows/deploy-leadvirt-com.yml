@@ -531,6 +531,33 @@ jobs:
             echo "Deployment env is not a readable regular file." >&2
             exit 1
           fi
+          key_canonicalizer="$release_dir/artifacts/scripts/knowledge-artifact-key-canonicalize.mjs"
+          if [ ! -f "$key_canonicalizer" ] || [ -L "$key_canonicalizer" ] || [ ! -r "$key_canonicalizer" ]; then
+            echo "Knowledge artifact key canonicalizer is not a readable regular file." >&2
+            exit 1
+          fi
+          deploy_env_directory="$(readlink -f "$(dirname "$DEPLOY_ENV_FILE")")"
+          deploy_env_name="$(basename "$DEPLOY_ENV_FILE")"
+          if [ -z "$deploy_env_directory" ] || [ "$deploy_env_name" = "." ] || [ "$deploy_env_name" = ".." ]; then
+            echo "Deployment env path cannot be canonicalized safely." >&2
+            exit 1
+          fi
+          docker run --rm \
+            --network none \
+            --read-only \
+            --cap-drop ALL \
+            --cap-add CHOWN \
+            --cap-add DAC_OVERRIDE \
+            --security-opt no-new-privileges \
+            --pids-limit 64 \
+            --memory 128m \
+            --cpus 0.5 \
+            --user 0:0 \
+            --mount "type=bind,src=$key_canonicalizer,dst=/canonicalizer.mjs,readonly" \
+            --mount "type=bind,src=$deploy_env_directory,dst=/run/leadvirt-secrets" \
+            node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d \
+            node /canonicalizer.mjs "/run/leadvirt-secrets/$deploy_env_name"
+          echo "DEPLOY_PREPARE: knowledge-artifact-key-canonical"
           docker run --rm \
             --network none \
             --read-only \

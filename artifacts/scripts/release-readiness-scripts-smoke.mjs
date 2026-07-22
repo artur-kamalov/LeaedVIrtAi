@@ -322,6 +322,14 @@ try {
     "artifacts/scripts/business-import-production-ready.mjs",
   );
   const businessImportProductionReady = read(businessImportProductionReadyPath);
+  const artifactKeyCanonicalizerPath = join(
+    repoRoot,
+    "artifacts/scripts/knowledge-artifact-key-canonicalize.mjs",
+  );
+  const artifactKeyCanonicalizer = read(artifactKeyCanonicalizerPath);
+  const knowledgeStagingReady = read(
+    join(repoRoot, "artifacts/scripts/knowledge-v2-staging-ready.mjs"),
+  );
   const businessImportProductionReadySyntax = spawnSync(
     process.execPath,
     ["--check", businessImportProductionReadyPath],
@@ -330,6 +338,75 @@ try {
   assert(
     businessImportProductionReadySyntax.status === 0,
     `Business Import production readiness syntax failed: ${businessImportProductionReadySyntax.stderr}`,
+  );
+  const artifactKeyCanonicalizerSyntax = spawnSync(
+    process.execPath,
+    ["--check", artifactKeyCanonicalizerPath],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+  assert(
+    artifactKeyCanonicalizerSyntax.status === 0,
+    `Knowledge artifact key canonicalizer syntax failed: ${artifactKeyCanonicalizerSyntax.stderr}`,
+  );
+  const artifactKeyFixture = join(tempDir, "artifact-key.env");
+  const canonicalArtifactKey = Buffer.alloc(32, 0x2a).toString("base64");
+  const base64Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const canonicalFinalIndex = base64Alphabet.indexOf(canonicalArtifactKey[42]);
+  const nonCanonicalArtifactKey = `${canonicalArtifactKey.slice(0, 42)}${base64Alphabet[canonicalFinalIndex + 1]}=`;
+  assert(
+    Buffer.from(nonCanonicalArtifactKey, "base64").toString("base64") === canonicalArtifactKey,
+    "Expected a byte-equivalent non-canonical artifact key fixture.",
+  );
+  writeFileSync(
+    artifactKeyFixture,
+    `UNCHANGED=value\nKNOWLEDGE_ARTIFACT_ENCRYPTION_KEY='${nonCanonicalArtifactKey}'\n`,
+    { mode: 0o640 },
+  );
+  const canonicalizedArtifactKey = runNode(
+    "artifacts/scripts/knowledge-artifact-key-canonicalize.mjs",
+    {},
+    [artifactKeyFixture],
+  );
+  const canonicalizedArtifactEnv = read(artifactKeyFixture);
+  assert(
+    canonicalizedArtifactKey.status === 0 &&
+      canonicalizedArtifactEnv.includes(`UNCHANGED=value\n`) &&
+      canonicalizedArtifactEnv.includes(
+        `KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY='${canonicalArtifactKey}'\n`,
+      ) &&
+      !canonicalizedArtifactKey.stdout.includes(canonicalArtifactKey) &&
+      !canonicalizedArtifactKey.stdout.includes(nonCanonicalArtifactKey),
+    `Expected atomic byte-preserving artifact key canonicalization: ${canonicalizedArtifactKey.stderr}`,
+  );
+  const repeatedArtifactKey = runNode(
+    "artifacts/scripts/knowledge-artifact-key-canonicalize.mjs",
+    {},
+    [artifactKeyFixture],
+  );
+  assert(
+    repeatedArtifactKey.status === 0 && read(artifactKeyFixture) === canonicalizedArtifactEnv,
+    "Expected artifact key canonicalization to be idempotent.",
+  );
+  const invalidArtifactKeyFixture = join(tempDir, "invalid-artifact-key.env");
+  writeFileSync(invalidArtifactKeyFixture, "KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY=invalid\n", {
+    mode: 0o640,
+  });
+  const invalidArtifactKey = runNode(
+    "artifacts/scripts/knowledge-artifact-key-canonicalize.mjs",
+    {},
+    [invalidArtifactKeyFixture],
+  );
+  assert(
+    invalidArtifactKey.status !== 0 &&
+      read(invalidArtifactKeyFixture) === "KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY=invalid\n" &&
+      artifactKeyCanonicalizer.includes("await temporaryHandle.sync()") &&
+      artifactKeyCanonicalizer.includes(
+        "await temporaryHandle.chown(metadata.uid, metadata.gid)",
+      ) &&
+      knowledgeStagingReady.includes(
+        'artifactEncryptionKeyBytes.toString("base64") !== artifactEncryptionKey',
+      ),
+    "Expected malformed keys to remain unchanged and all readiness paths to require canonical base64.",
   );
   assert(
     stagingEnvTemplate.includes("NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED=true") &&
@@ -810,6 +887,14 @@ try {
       deployWorkflow.includes(
         '[ ! -f "$DEPLOY_ENV_FILE" ] || [ -L "$DEPLOY_ENV_FILE" ] || [ ! -r "$DEPLOY_ENV_FILE" ]',
       ) &&
+      deployWorkflow.includes(
+        'key_canonicalizer="$release_dir/artifacts/scripts/knowledge-artifact-key-canonicalize.mjs"',
+      ) &&
+      deployWorkflow.includes("--cap-add CHOWN \\") &&
+      deployWorkflow.includes("--cap-add DAC_OVERRIDE \\") &&
+      deployWorkflow.includes("src=$key_canonicalizer,dst=/canonicalizer.mjs,readonly") &&
+      deployWorkflow.includes("src=$deploy_env_directory,dst=/run/leadvirt-secrets") &&
+      deployWorkflow.includes('node /canonicalizer.mjs "/run/leadvirt-secrets/$deploy_env_name"') &&
       deployWorkflow.includes("docker run --rm \\") &&
       deployWorkflow.includes("--network none \\") &&
       deployWorkflow.includes("--read-only \\") &&
@@ -834,7 +919,9 @@ try {
     deployWorkflow,
     [
       'printf \'%s\\n\' "$release_id" > "$release_dir/.leadvirt-image-tag"',
-      "docker run --rm \\",
+      'key_canonicalizer="$release_dir/artifacts/scripts/knowledge-artifact-key-canonicalize.mjs"',
+      'node /canonicalizer.mjs "/run/leadvirt-secrets/$deploy_env_name"',
+      "DEPLOY_PREPARE: knowledge-artifact-key-canonical",
       "node /validator.mjs /run/secrets/leadvirt.env",
       'bash "$release_dir/artifacts/scripts/deployment-journal.sh" install-service',
     ],

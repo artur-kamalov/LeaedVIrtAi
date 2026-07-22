@@ -160,8 +160,14 @@ if (!Number.isInteger(dimensions) || dimensions <= 0 || dimensions > 65_536) {
 if (!isAbsolute((env.KNOWLEDGE_OBJECT_STORE_PATH ?? "").trim())) {
   missing.push("KNOWLEDGE_OBJECT_STORE_PATH (absolute)");
 }
-if (!/^[A-Za-z0-9+/]{43}=$/u.test((env.KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY ?? "").trim())) {
-  missing.push("KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY (32-byte base64)");
+const artifactEncryptionKey = (env.KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY ?? "").trim();
+const artifactEncryptionKeyBytes = Buffer.from(artifactEncryptionKey, "base64");
+if (
+  !/^[A-Za-z0-9+/]{43}=$/u.test(artifactEncryptionKey) ||
+  artifactEncryptionKeyBytes.byteLength !== 32 ||
+  artifactEncryptionKeyBytes.toString("base64") !== artifactEncryptionKey
+) {
+  missing.push("KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY (canonical 32-byte base64)");
 }
 if (!(env.KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY_ID ?? "").trim()) {
   missing.push("KNOWLEDGE_ARTIFACT_ENCRYPTION_KEY_ID");

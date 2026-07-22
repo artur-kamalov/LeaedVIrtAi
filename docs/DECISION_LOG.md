@@ -1,5 +1,18 @@
 # Decision Log
 
+## 2026-07-22: Canonicalize The Legacy Artifact Key Without Rotation
+
+Decision: Before strict production readiness, deployment canonicalizes the existing artifact encryption key's base64 text only when it decodes to exactly 32 bytes. The decoded key bytes and key ID do not change. Missing, structurally invalid, duplicate, or unreadable assignments fail closed instead of generating or rotating a key.
+
+Context: The first CSV rollout deploy passed the legacy regex-only staging check but the candidate API rejected the key because re-encoding was not canonical. The release aborted before drain and restored the previous production state.
+
+Consequences:
+
+- The secret env file is replaced atomically with its original mode and owner, file and directory data are synced, and no key material is printed.
+- The canonicalizer runs in a pinned, networkless, read-only container with write access only to the mounted secret directory and only the capabilities required for atomic owner-preserving replacement.
+- The normal staging validator now enforces the same canonical 32-byte base64 contract as application runtime and candidate rollout readiness.
+- This migration cannot repair an absent or malformed key and never creates a new cryptographic key automatically.
+
 ## 2026-07-22: Enable CSV Business Import On LeadVirt.com
 
 Decision: The production Compose release enables Business Import in the web, API, and worker for the server-owned CSV catalog. It explicitly keeps XLSX sandbox approval and the optional PDF/OCR parser disabled. Scanner approval, `clamav:3310`, and the absolute encrypted artifact path are recovery-safe Compose literals; encryption key material remains only in the production secret file.
