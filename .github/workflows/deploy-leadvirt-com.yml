@@ -1022,6 +1022,20 @@ jobs:
             --name "$candidate_web_container" \
             web >/dev/null
 
+          for candidate_container in "$candidate_api_container" "$candidate_worker_container"; do
+            if ! docker exec "$candidate_container" \
+              node /app/artifacts/scripts/business-import-production-ready.mjs; then
+              echo "Candidate $candidate_container does not have the exact CSV-only Business Import rollout." >&2
+              exit 1
+            fi
+          done
+          if ! docker exec "$candidate_web_container" \
+            node -e "process.exit(process.env.NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED==='true'?0:1)"; then
+            echo "Candidate web does not have Business Import enabled at build time." >&2
+            exit 1
+          fi
+          echo "DEPLOY_GATE: business-import-csv-rollout-enabled"
+
           if [ "$business_import_parser_enabled" = "1" ]; then
             for attempt in $(seq 1 30); do
               if docker exec "$candidate_parser_container" python -c "import json,urllib.request; payload=json.load(urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=2)); raise SystemExit(0 if payload.get('ready') is True and payload.get('version') == 'poppler-tesseract-v1' and payload.get('contractVersion') == 'leadvirt.pdf-extraction.v1' else 1)"; then

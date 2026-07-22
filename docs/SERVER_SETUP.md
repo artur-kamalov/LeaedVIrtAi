@@ -170,6 +170,8 @@ Recovery uses the same deployment lock as the workflow. A `precommit` journal re
 
 The Business Import parser is optional. It is built, preflighted, started, and health-checked only when both `BUSINESS_IMPORT_ENABLED=true` and `BUSINESS_IMPORT_PARSER_APPROVED=true`. The journal records that decision. A committed deployment with either flag false stops and removes an old parser container while API, worker, AI, and channel services deploy without a parser image or endpoint.
 
+LeadVirt.com intentionally enables the CSV Business Import core in the production web, API, and worker while pinning XLSX and the parser off. Before traffic drain, candidate deployment validates the exact rollout state, writable encrypted artifact storage and key configuration, and a real clean ClamAV scan. Journal recovery inherits these committed Compose values rather than transient workflow overrides.
+
 Inspect or retry recovery with:
 
 ```bash

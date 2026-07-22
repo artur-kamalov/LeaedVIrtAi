@@ -1,5 +1,18 @@
 # Decision Log
 
+## 2026-07-22: Enable CSV Business Import On LeadVirt.com
+
+Decision: The production Compose release enables Business Import in the web, API, and worker for the server-owned CSV catalog. It explicitly keeps XLSX sandbox approval and the optional PDF/OCR parser disabled. Scanner approval, `clamav:3310`, and the absolute encrypted artifact path are recovery-safe Compose literals; encryption key material remains only in the production secret file.
+
+Context: The CSV release path has passed lifecycle, review, correction, projection, capacity, and UI gates and now needs live product testing. Transient workflow environment overrides would be lost during journal recovery, so rollout state must travel with the committed release.
+
+Consequences:
+
+- Before traffic drain, both candidate runtimes must validate exact CSV-only flags, a writable artifact store, a canonical 32-byte artifact key and key ID, and a real benign ClamAV `INSTREAM` result.
+- The candidate web container must prove that the public build flag is enabled. Any failed prerequisite aborts the release while the prior stack remains live.
+- Journal recovery and normal promotion use the same committed rollout state. Emergency disable requires reverting the Compose literals and deploying that revert.
+- XLSX, PDF/OCR, and generic JSON remain unavailable. Safe reverse-diff import revert also remains unfinished.
+
 ## 2026-07-21: Keep Structured Import Release A CSV-Only
 
 Decision: Release A exposes only the LeadVirt services CSV contract in the server-owned format catalog and upload UI. The deterministic XLSX parser remains rollout-gated, and PDF remains disabled until field mapping, evidence review, parser security, and capacity are proven. Generic JSON is not an upload format.

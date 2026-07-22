@@ -8,7 +8,7 @@ x-leadvirt-app: &leadvirt-app
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?set NEXT_PUBLIC_APP_URL}
       NEXT_PUBLIC_WEB_URL: ${NEXT_PUBLIC_WEB_URL:?set NEXT_PUBLIC_WEB_URL}
       NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-false}
-      NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED: ${NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED:-false}
+      NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED: "true"
   restart: unless-stopped
 
 x-leadvirt-runtime: &leadvirt-runtime
@@ -110,8 +110,15 @@ services:
     stop_grace_period: 30s
     environment:
       API_DEPLOYMENT_PREFLIGHT: "false"
+      BUSINESS_IMPORT_ENABLED: "true"
+      BUSINESS_IMPORT_XLSX_SANDBOX_APPROVED: "false"
+      BUSINESS_IMPORT_PARSER_APPROVED: "false"
       BUSINESS_IMPORT_PARSER_URL: ${BUSINESS_IMPORT_PARSER_URL:-}
       BUSINESS_IMPORT_PARSER_VERSION: ${BUSINESS_IMPORT_PARSER_VERSION:-unconfigured}
+      KNOWLEDGE_FILE_SCANNER_APPROVED: "true"
+      KNOWLEDGE_FILE_SCANNER_HOST: clamav
+      KNOWLEDGE_FILE_SCANNER_PORT: "3310"
+      KNOWLEDGE_OBJECT_STORE_PATH: /var/lib/leadvirt/knowledge-artifacts
     volumes:
       - knowledge_artifacts:/var/lib/leadvirt/knowledge-artifacts
     depends_on:
@@ -142,8 +149,15 @@ services:
     stop_grace_period: 2m
     environment:
       WORKER_DEPLOYMENT_PAUSED: ${WORKER_DEPLOYMENT_PAUSED:-false}
+      BUSINESS_IMPORT_ENABLED: "true"
+      BUSINESS_IMPORT_XLSX_SANDBOX_APPROVED: "false"
+      BUSINESS_IMPORT_PARSER_APPROVED: "false"
       BUSINESS_IMPORT_PARSER_URL: ${BUSINESS_IMPORT_PARSER_URL:-}
       BUSINESS_IMPORT_PARSER_VERSION: ${BUSINESS_IMPORT_PARSER_VERSION:-unconfigured}
+      KNOWLEDGE_FILE_SCANNER_APPROVED: "true"
+      KNOWLEDGE_FILE_SCANNER_HOST: clamav
+      KNOWLEDGE_FILE_SCANNER_PORT: "3310"
+      KNOWLEDGE_OBJECT_STORE_PATH: /var/lib/leadvirt/knowledge-artifacts
     volumes:
       - knowledge_artifacts:/var/lib/leadvirt/knowledge-artifacts
     depends_on:

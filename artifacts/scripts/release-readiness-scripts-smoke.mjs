@@ -317,12 +317,28 @@ try {
   const deployWorkflow = read(join(repoRoot, ".github/workflows/deploy-leadvirt-com.yml"));
   const deploymentJournal = read(join(repoRoot, "artifacts/scripts/deployment-journal.sh"));
   const stagingEnvTemplate = read(join(repoRoot, "deploy/env.staging.example"));
+  const businessImportProductionReadyPath = join(
+    repoRoot,
+    "artifacts/scripts/business-import-production-ready.mjs",
+  );
+  const businessImportProductionReady = read(businessImportProductionReadyPath);
+  const businessImportProductionReadySyntax = spawnSync(
+    process.execPath,
+    ["--check", businessImportProductionReadyPath],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
   assert(
-    stagingEnvTemplate.includes("BUSINESS_IMPORT_ENABLED=false") &&
+    businessImportProductionReadySyntax.status === 0,
+    `Business Import production readiness syntax failed: ${businessImportProductionReadySyntax.stderr}`,
+  );
+  assert(
+    stagingEnvTemplate.includes("NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED=true") &&
+      stagingEnvTemplate.includes("BUSINESS_IMPORT_ENABLED=true") &&
+      stagingEnvTemplate.includes("BUSINESS_IMPORT_XLSX_SANDBOX_APPROVED=false") &&
       stagingEnvTemplate.includes("BUSINESS_IMPORT_PARSER_APPROVED=false") &&
       stagingEnvTemplate.includes("BUSINESS_IMPORT_PARSER_URL=\n") &&
       stagingEnvTemplate.includes("BUSINESS_IMPORT_PARSER_VERSION=unconfigured"),
-    "Expected the production template to keep business import and parser deployment disabled.",
+    "Expected the production template to enable CSV imports while keeping XLSX and the parser disabled.",
   );
   const bash = findBash();
   assert(bash, "Expected Bash for deployment journal validation.");
@@ -633,6 +649,10 @@ try {
     stagingCompose.indexOf("  business-import-parser:"),
     stagingCompose.indexOf("  migrate:"),
   );
+  const apiService = stagingCompose.slice(
+    stagingCompose.indexOf("  api:"),
+    stagingCompose.indexOf("  worker:"),
+  );
   const workerService = stagingCompose.slice(
     stagingCompose.indexOf("  worker:"),
     stagingCompose.indexOf("  web:"),
@@ -681,6 +701,36 @@ try {
         "BUSINESS_IMPORT_PARSER_VERSION: ${BUSINESS_IMPORT_PARSER_VERSION:-unconfigured}",
       ),
     "Expected core worker readiness to be independent from the optional parser container.",
+  );
+  const csvRolloutEnvironment = [
+    'BUSINESS_IMPORT_ENABLED: "true"',
+    'BUSINESS_IMPORT_XLSX_SANDBOX_APPROVED: "false"',
+    'BUSINESS_IMPORT_PARSER_APPROVED: "false"',
+    'KNOWLEDGE_FILE_SCANNER_APPROVED: "true"',
+    "KNOWLEDGE_FILE_SCANNER_HOST: clamav",
+    'KNOWLEDGE_FILE_SCANNER_PORT: "3310"',
+    "KNOWLEDGE_OBJECT_STORE_PATH: /var/lib/leadvirt/knowledge-artifacts",
+  ];
+  assert(
+    publicAppAnchor.includes('NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED: "true"') &&
+      [apiService, workerService].every((service) =>
+        csvRolloutEnvironment.every((entry) => service.includes(entry)),
+      ) &&
+      deployStepScript.includes("DEPLOY_GATE: business-import-csv-rollout-enabled") &&
+      deployStepScript.includes("NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED==='true'") &&
+      deployStepScript.includes(
+        "node /app/artifacts/scripts/business-import-production-ready.mjs",
+      ) &&
+      businessImportProductionReady.includes('BUSINESS_IMPORT_ENABLED: "true"') &&
+      businessImportProductionReady.includes('BUSINESS_IMPORT_XLSX_SANDBOX_APPROVED: "false"') &&
+      businessImportProductionReady.includes('BUSINESS_IMPORT_PARSER_APPROVED: "false"') &&
+      businessImportProductionReady.includes("BUSINESS_IMPORT_OBJECT_STORE_UNAVAILABLE") &&
+      businessImportProductionReady.includes("BUSINESS_IMPORT_OBJECT_STORE_PROBE_FAILED") &&
+      businessImportProductionReady.includes("await handle.sync()") &&
+      businessImportProductionReady.includes("BUSINESS_IMPORT_ENCRYPTION_KEY_INVALID") &&
+      businessImportProductionReady.includes("BUSINESS_IMPORT_SCANNER_UNAVAILABLE") &&
+      businessImportProductionReady.includes('Buffer.from("zINSTREAM\\0", "utf8")'),
+    "Expected an exact, candidate-verified CSV-only Business Import production rollout.",
   );
   assert(
     authStagingReadiness.includes('emailOtpFlag === "true"') &&
@@ -832,6 +882,7 @@ try {
       '--name "$candidate_worker_container"',
       "-e WORKER_DEPLOYMENT_PAUSED=true",
       '--name "$candidate_web_container"',
+      "DEPLOY_GATE: business-import-csv-rollout-enabled",
       "Candidate business import parser did not become ready with the expected contract.",
       "deploymentPreflight===true",
       "Paused candidate worker preflight did not become ready.",
