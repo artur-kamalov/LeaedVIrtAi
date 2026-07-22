@@ -239,9 +239,71 @@ if is_true "${LEADVIRT_SKIP_REBUILD:-false}"; then
   exit 0
 fi
 
+parser_enabled="$(python3 - "$ENV_FILE" <<'PY'
+import sys
+from pathlib import Path
+
+keys = {"BUSINESS_IMPORT_ENABLED", "BUSINESS_IMPORT_PARSER_APPROVED"}
+values = {}
+for raw_line in Path(sys.argv[1]).read_text().splitlines():
+    line = raw_line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    key = key.strip()
+    if key not in keys:
+        continue
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    values[key] = value.strip().lower()
+
+truthy = {"1", "true", "yes", "on"}
+falsey = {"", "0", "false", "no", "off"}
+for key in keys:
+    value = values.get(key, "false")
+    if value not in truthy | falsey:
+        raise SystemExit(f"Invalid boolean value for {key}.")
+
+enabled = all(values.get(key, "false") in truthy for key in keys)
+print("1" if enabled else "0")
+PY
+)"
+
+parser_url=""
+parser_version="unconfigured"
+parser_profiles=""
+if [ "$parser_enabled" = "1" ]; then
+  parser_url="http://business-import-parser:8080"
+  parser_version="poppler-tesseract-v1"
+  parser_profiles="business-import-parser"
+fi
+
+release_compose() {
+  BUSINESS_IMPORT_PARSER_URL="$parser_url" \
+  BUSINESS_IMPORT_PARSER_VERSION="$parser_version" \
+  COMPOSE_PROFILES="$parser_profiles" \
+    docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.staging.yml "$@"
+}
+
 cd "$RELEASE_ROOT"
-docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.staging.yml up -d --build --force-recreate api worker web nginx
-docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.staging.yml exec -T nginx nginx -t
+if [ "$parser_enabled" = "1" ]; then
+  release_compose up -d --build --force-recreate business-import-parser api worker web nginx
+  attempts=0
+  until release_compose exec -T business-import-parser python -c "import json,urllib.request; payload=json.load(urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=2)); raise SystemExit(0 if payload.get('ready') is True and payload.get('version') == 'poppler-tesseract-v1' and payload.get('contractVersion') == 'leadvirt.pdf-extraction.v1' else 1)"; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 30 ]; then
+      echo "Business import parser did not become ready with the expected contract." >&2
+      exit 1
+    fi
+    sleep 2
+  done
+else
+  release_compose stop business-import-parser
+  release_compose rm -f business-import-parser
+  release_compose up -d --build --force-recreate api worker web nginx
+fi
+release_compose exec -T nginx nginx -t
 curl -fsS "https://$PRIMARY_DOMAIN/health"
 
 echo "HTTPS enabled for $PRIMARY_DOMAIN."

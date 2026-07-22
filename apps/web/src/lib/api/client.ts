@@ -142,17 +142,19 @@ export async function apiDirectUpload<T>(input: {
   headers: { Authorization: string; "Content-Type": string; "Content-Length": string };
   body: Blob;
   signal?: AbortSignal;
+  expectedPath?: string;
 }): Promise<ApiClientResponse<T>> {
   const target = new URL(input.url);
   const api = new URL(apiBaseUrl());
-  const expectedPrefix = `${api.pathname.replace(/\/$/u, "")}/knowledge/v2/file-uploads/`;
-  if (
-    target.origin !== api.origin ||
-    !target.pathname.startsWith(expectedPrefix) ||
-    !target.pathname.endsWith("/content") ||
-    target.search ||
-    target.hash
-  ) {
+  const apiPath = api.pathname.replace(/\/$/u, "");
+  const expectedPath = input.expectedPath
+    ? `${apiPath}${input.expectedPath.startsWith("/") ? input.expectedPath : `/${input.expectedPath}`}`
+    : null;
+  const expectedPrefix = `${apiPath}/knowledge/v2/file-uploads/`;
+  const pathAllowed = expectedPath
+    ? target.pathname === expectedPath
+    : target.pathname.startsWith(expectedPrefix) && target.pathname.endsWith("/content");
+  if (target.origin !== api.origin || !pathAllowed || target.search || target.hash) {
     throw new ApiClientError(
       "The upload address returned by the server is invalid.",
       500,
@@ -201,4 +203,13 @@ export async function apiDataResponse<T>(path: string, init: RequestInit = {}) {
 
 export function jsonBody(body: unknown): Pick<RequestInit, "body"> {
   return { body: JSON.stringify(body) };
+}
+
+export function createIdempotencyKey(namespace: string) {
+  if (!globalThis.crypto?.getRandomValues) {
+    throw new Error("Secure random values are unavailable.");
+  }
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(24));
+  const random = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${namespace}:${Date.now().toString(36)}:${random}`;
 }

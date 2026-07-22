@@ -15,9 +15,16 @@ export class WorkerJobTimeoutError extends Error {
   }
 }
 
-export function workerJobTimeoutMs() {
+export function workerJobTimeoutMs(queueName?: LeadVirtQueueName) {
   const value = Number(process.env.WORKER_JOB_TIMEOUT_MS ?? "30000");
-  return Number.isFinite(value) && value > 0 ? value : 30000;
+  const base = Number.isFinite(value) && value > 0 ? value : 30000;
+  if (queueName !== "business.import") return base;
+  const parserTimeout = Number(process.env.BUSINESS_IMPORT_PARSER_TIMEOUT_MS ?? "300000");
+  const boundedParserTimeout =
+    Number.isFinite(parserTimeout) && parserTimeout >= 1_000
+      ? Math.min(parserTimeout, 600_000)
+      : 300_000;
+  return Math.max(base, boundedParserTimeout + 60_000);
 }
 
 function stringDataField(data: LeadVirtJobData | undefined, key: string) {
@@ -62,7 +69,7 @@ async function claimRuntimeInbox(queueName: LeadVirtQueueName, job: Job<LeadVirt
   const consumerName = `worker.${queueName}.${job.name}.v1`;
   const now = new Date();
   const lockId = `${consumerName}:${randomUUID()}`;
-  const lockExpiresAt = new Date(now.getTime() + workerJobTimeoutMs() + 5000);
+  const lockExpiresAt = new Date(now.getTime() + workerJobTimeoutMs(queueName) + 5000);
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -116,6 +123,74 @@ async function claimRuntimeInbox(queueName: LeadVirtQueueName, job: Job<LeadVirt
                     completedAt: now,
                   },
                 });
+              }
+            } else if (envelope.queueName === "business.import") {
+              const importId = envelope.data.importId;
+              const generation = envelope.data.generation;
+              if (
+                typeof importId === "string" &&
+                typeof generation === "number" &&
+                Number.isInteger(generation)
+              ) {
+                if (envelope.jobName === "project") {
+                  const applicationId = envelope.data.applicationId;
+                  const businessRevisionId = envelope.data.businessRevisionId;
+                  const businessRevision = envelope.data.businessRevision;
+                  if (
+                    typeof applicationId === "string" &&
+                    typeof businessRevisionId === "string" &&
+                    typeof businessRevision === "number" &&
+                    Number.isInteger(businessRevision)
+                  ) {
+                    const delayed = await tx.businessImportApplication.updateMany({
+                      where: {
+                        id: applicationId,
+                        tenantId: runtime.tenantId,
+                        importId,
+                        businessRevisionId,
+                        resultingInformationRevision: businessRevision,
+                        projectionOutboxId: runtime.eventId,
+                        projectionOutboxDedupeKey: envelope.jobId,
+                        projectionReceiptHash: null,
+                        state: { in: ["COMMITTED", "PROJECTING", "PROJECTION_DELAYED"] },
+                      },
+                      data: { state: "PROJECTION_DELAYED" },
+                    });
+                    if (delayed.count === 1) {
+                      await tx.businessImport.updateMany({
+                        where: {
+                          id: importId,
+                          tenantId: runtime.tenantId,
+                          generation,
+                          state: { in: ["PROJECTING", "PROJECTION_DELAYED"] },
+                        },
+                        data: {
+                          state: "PROJECTION_DELAYED",
+                          failureCode: "BUSINESS_INFORMATION_PROJECTION_RUNTIME_EVENT_EXPIRED",
+                          failureStage: "PROJECTION",
+                          retryable: false,
+                          etag: { increment: 1 },
+                        },
+                      });
+                    }
+                  }
+                } else {
+                  await tx.businessImport.updateMany({
+                    where: {
+                      id: importId,
+                      tenantId: runtime.tenantId,
+                      generation,
+                      state: { in: ["UPLOADED", "SCANNING", "PARSING", "EXTRACTING"] },
+                    },
+                    data: {
+                      state: "FAILED_RETRYABLE",
+                      failureCode: "BUSINESS_IMPORT_RUNTIME_EVENT_EXPIRED",
+                      failureStage: "QUEUE",
+                      retryable: true,
+                      etag: { increment: 1 },
+                    },
+                  });
+                }
               }
             } else if (envelope.queueName === "knowledge.ingest") {
               const knowledgeJobId = envelope.data.knowledgeJobId;
@@ -232,10 +307,15 @@ async function claimRuntimeInbox(queueName: LeadVirtQueueName, job: Job<LeadVirt
   throw new Error("Runtime inbox claim failed.");
 }
 
-async function waitForRuntimeInbox(consumerName: string, eventId: string, lockExpiresAt: Date) {
+async function waitForRuntimeInbox(
+  queueName: LeadVirtQueueName,
+  consumerName: string,
+  eventId: string,
+  lockExpiresAt: Date,
+) {
   const deadline = Math.min(
     lockExpiresAt.getTime() + 1000,
-    Date.now() + workerJobTimeoutMs() + 10_000,
+    Date.now() + workerJobTimeoutMs(queueName) + 10_000,
   );
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -333,6 +413,25 @@ function safeDataSummary(data: LeadVirtJobData | undefined, queueName: LeadVirtQ
         data.generation > 0
           ? data.generation
           : null,
+    };
+  }
+  if (queueName === "business.import") {
+    return {
+      tenantId: stringDataField(data, "tenantId") ?? null,
+      sourceId: stringDataField(data, "sourceId") ?? null,
+      importId: stringDataField(data, "importId") ?? null,
+      applicationId: stringDataField(data, "applicationId") ?? null,
+      businessRevisionId: stringDataField(data, "businessRevisionId") ?? null,
+      businessRevision:
+        typeof data.businessRevision === "number" && Number.isInteger(data.businessRevision)
+          ? data.businessRevision
+          : null,
+      operation: stringDataField(data, "operation") ?? null,
+      generation:
+        typeof data.generation === "number" && Number.isInteger(data.generation)
+          ? data.generation
+          : null,
+      runtimeEventId: stringDataField(data, "runtimeEventId") ?? null,
     };
   }
   return {
@@ -453,6 +552,89 @@ async function fenceTimedOutKnowledgeJob(job: Job<LeadVirtJobData>) {
   });
 }
 
+async function fenceTimedOutBusinessImportJob(job: Job<LeadVirtJobData>) {
+  const tenantId = stringDataField(job.data, "tenantId");
+  if (job.name === "project-revision") return;
+  const importId = stringDataField(job.data, "importId");
+  const sourceId = stringDataField(job.data, "sourceId");
+  const generation = job.data.generation;
+  if (
+    !tenantId ||
+    !importId ||
+    !sourceId ||
+    typeof generation !== "number" ||
+    !Number.isInteger(generation) ||
+    generation < 1
+  )
+    return;
+  if (job.name === "project") {
+    const applicationId = stringDataField(job.data, "applicationId");
+    const businessRevisionId = stringDataField(job.data, "businessRevisionId");
+    const runtimeEventId = stringDataField(job.data, "runtimeEventId");
+    const businessRevision = job.data.businessRevision;
+    if (
+      !applicationId ||
+      !businessRevisionId ||
+      !runtimeEventId ||
+      typeof businessRevision !== "number" ||
+      !Number.isInteger(businessRevision) ||
+      businessRevision < 1
+    )
+      return;
+    await prisma.$transaction(async (tx) => {
+      const delayed = await tx.businessImportApplication.updateMany({
+        where: {
+          id: applicationId,
+          tenantId,
+          sourceId,
+          importId,
+          businessRevisionId,
+          resultingInformationRevision: businessRevision,
+          projectionOutboxId: runtimeEventId,
+          projectionOutboxDedupeKey: `business-import-project:${applicationId}:${businessRevision}`,
+          projectionReceiptHash: null,
+          state: { in: ["COMMITTED", "PROJECTING", "PROJECTION_DELAYED"] },
+        },
+        data: { state: "PROJECTION_DELAYED" },
+      });
+      if (delayed.count !== 1) return;
+      await tx.businessImport.updateMany({
+        where: {
+          id: importId,
+          tenantId,
+          sourceId,
+          generation,
+          state: { in: ["PROJECTING", "PROJECTION_DELAYED"] },
+        },
+        data: {
+          state: "PROJECTION_DELAYED",
+          failureCode: "BUSINESS_INFORMATION_PROJECTION_INTERRUPTED",
+          failureStage: "PROJECTION",
+          retryable: false,
+          etag: { increment: 1 },
+        },
+      });
+    });
+    return;
+  }
+  await prisma.businessImport.updateMany({
+    where: {
+      id: importId,
+      tenantId,
+      sourceId,
+      generation,
+      state: { in: ["SCANNING", "PARSING", "EXTRACTING"] },
+    },
+    data: {
+      state: "FAILED_RETRYABLE",
+      failureCode: "BUSINESS_IMPORT_PROCESSING_INTERRUPTED",
+      failureStage: "PROCESSING",
+      retryable: true,
+      etag: { increment: 1 },
+    },
+  });
+}
+
 export function isFinalAttempt(
   job: Pick<Job<LeadVirtJobData>, "attemptsMade" | "opts"> | undefined,
   error?: unknown,
@@ -519,6 +701,7 @@ export async function processLeadVirtJobWithReliability(
       if (inbox.status === "replayed") return inbox.result;
       if (inbox.status === "busy") {
         const waited = await waitForRuntimeInbox(
+          queueName,
           `worker.${queueName}.${job.name}.v1`,
           runtimeEvent(job.data)?.eventId ?? "",
           inbox.lockExpiresAt,
@@ -532,8 +715,12 @@ export async function processLeadVirtJobWithReliability(
       try {
         const result = await withWorkerJobTimeout(
           (signal) => Promise.resolve(processor(queueName, job, signal)),
-          workerJobTimeoutMs(),
-          queueName === "knowledge.ingest" ? () => fenceTimedOutKnowledgeJob(job) : undefined,
+          workerJobTimeoutMs(queueName),
+          queueName === "knowledge.ingest"
+            ? () => fenceTimedOutKnowledgeJob(job)
+            : queueName === "business.import"
+              ? () => fenceTimedOutBusinessImportJob(job)
+              : undefined,
         );
         recordWorkerJob({
           queue: queueName,
@@ -640,6 +827,97 @@ export async function captureDeadLetterJob(
             },
           });
         }
+      });
+    }
+  }
+
+  if (queueName === "business.import" && job?.name === "project") {
+    const importId = stringDataField(job.data, "importId");
+    const sourceId = stringDataField(job.data, "sourceId");
+    const applicationId = stringDataField(job.data, "applicationId");
+    const businessRevisionId = stringDataField(job.data, "businessRevisionId");
+    const runtimeEventId = stringDataField(job.data, "runtimeEventId");
+    const businessRevision = job.data.businessRevision;
+    const generation = job.data.generation;
+    if (
+      importId &&
+      sourceId &&
+      applicationId &&
+      businessRevisionId &&
+      runtimeEventId &&
+      typeof businessRevision === "number" &&
+      Number.isInteger(businessRevision) &&
+      typeof generation === "number" &&
+      Number.isInteger(generation)
+    ) {
+      await prisma.$transaction(async (tx) => {
+        const delayed = await tx.businessImportApplication.updateMany({
+          where: {
+            id: applicationId,
+            tenantId,
+            sourceId,
+            importId,
+            businessRevisionId,
+            resultingInformationRevision: businessRevision,
+            projectionOutboxId: runtimeEventId,
+            projectionOutboxDedupeKey: `business-import-project:${applicationId}:${businessRevision}`,
+            projectionReceiptHash: null,
+            state: { in: ["COMMITTED", "PROJECTING", "PROJECTION_DELAYED"] },
+          },
+          data: { state: "PROJECTION_DELAYED" },
+        });
+        if (delayed.count !== 1) return;
+        await tx.businessImport.updateMany({
+          where: {
+            id: importId,
+            tenantId,
+            sourceId,
+            generation,
+            state: { in: ["PROJECTING", "PROJECTION_DELAYED"] },
+          },
+          data: {
+            state: "PROJECTION_DELAYED",
+            failureCode: "BUSINESS_INFORMATION_PROJECTION_DEAD_LETTER",
+            failureStage: "PROJECTION",
+            retryable: false,
+            etag: { increment: 1 },
+          },
+        });
+      });
+    }
+  }
+
+  if (queueName === "business.import" && job?.name === "project-revision") {
+    const businessRevisionId = stringDataField(job.data, "businessRevisionId");
+    const runtimeEventId = stringDataField(job.data, "runtimeEventId");
+    const businessRevision = job.data.businessRevision;
+    if (
+      businessRevisionId &&
+      runtimeEventId &&
+      typeof businessRevision === "number" &&
+      Number.isInteger(businessRevision)
+    ) {
+      const state = await prisma.businessInformationState.findUnique({ where: { tenantId } });
+      await prisma.auditLog.create({
+        data: {
+          tenantId,
+          actorUserId: null,
+          action: "business_information.projection_delayed",
+          entityType: "BusinessInformationRevision",
+          entityId: businessRevisionId,
+          payload: {
+            businessRevisionId,
+            businessRevision,
+            runtimeEventId,
+            failureCode: "BUSINESS_INFORMATION_PROJECTION_DEAD_LETTER",
+            currentRevisionId: state?.currentRevisionId ?? null,
+            currentRevision: state?.revision ?? null,
+            lastProjectedRevisionId: state?.lastProjectedRevisionId ?? null,
+            lastProjectedRevision: state?.lastProjectedRevision ?? null,
+            receiptCreated: false,
+            publicationChanged: false,
+          },
+        },
       });
     }
   }

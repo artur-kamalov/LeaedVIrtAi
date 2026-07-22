@@ -18,6 +18,7 @@
     "qa:snapshot-authorization-race": "tsx prisma/knowledge-v2-snapshot-authorization-race-smoke.ts",
     "qa:capability-snapshot-migration": "tsx ../../artifacts/scripts/knowledge-v2-capability-snapshot-migration-smoke.ts",
     "qa:validation-history-migration": "tsx prisma/knowledge-v2-validation-history-migration-smoke.ts",
+    "qa:business-import-migration": "tsx prisma/business-information-import-migration-smoke.ts",
     "qa:tenant-context": "tsx prisma/tenant-transaction-context-smoke.ts"
   },
   "dependencies": {

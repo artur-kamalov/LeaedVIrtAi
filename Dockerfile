@@ -11,11 +11,13 @@ ARG NEXT_PUBLIC_API_URL=http://localhost:4001/api
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3001
 ARG NEXT_PUBLIC_WEB_URL=http://localhost:3001
 ARG NEXT_PUBLIC_DEMO_MODE=false
+ARG NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED=false
 
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 ENV NEXT_PUBLIC_WEB_URL=${NEXT_PUBLIC_WEB_URL}
 ENV NEXT_PUBLIC_DEMO_MODE=${NEXT_PUBLIC_DEMO_MODE}
+ENV NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED=${NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED}
 ENV NODE_ENV=production
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json eslint.config.mjs ./
@@ -23,6 +25,7 @@ COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/ai/package.json packages/ai/package.json
+COPY packages/business-import/package.json packages/business-import/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/integrations/package.json packages/integrations/package.json

@@ -13,7 +13,11 @@ export {
   type RedisReadinessProbeOptions,
 } from "./redis.js";
 
-export type RuntimeQueueName = "ai.reply" | "channels.sendMessage" | "knowledge.ingest";
+export type RuntimeQueueName =
+  | "ai.reply"
+  | "business.import"
+  | "channels.sendMessage"
+  | "knowledge.ingest";
 
 export type KnowledgeSourceJobOperation = "IMPORT" | "SYNC" | "RECONCILE" | "DELETE";
 
@@ -26,6 +30,42 @@ export interface KnowledgeSourceJobData {
   requestedByUserId: string;
   requestedAt: string;
 }
+
+export interface BusinessImportParseJobData {
+  tenantId: string;
+  sourceId: string;
+  importId: string;
+  generation: number;
+  operation: "PARSE";
+  requestedByUserId: string;
+  requestedAt: string;
+}
+
+export interface BusinessInformationProjectionJobData {
+  tenantId: string;
+  sourceId: string;
+  importId: string;
+  applicationId: string;
+  businessRevisionId: string;
+  businessRevision: number;
+  generation: number;
+  requestedByUserId: string;
+  requestedAt: string;
+}
+
+export interface BusinessInformationRevisionProjectionJobData {
+  tenantId: string;
+  businessRevisionId: string;
+  businessRevision: number;
+  generation: number;
+  requestedByUserId: string;
+  requestedAt: string;
+}
+
+export type BusinessImportJobData =
+  | BusinessImportParseJobData
+  | BusinessInformationProjectionJobData
+  | BusinessInformationRevisionProjectionJobData;
 
 export interface RuntimeQueueEnvelope {
   queueName: RuntimeQueueName;
@@ -482,6 +522,14 @@ function validDatabaseId(value: unknown): value is string {
   return typeof value === "string" && /^c[a-z0-9]{24}$/u.test(value);
 }
 
+function validImportId(value: unknown): value is string {
+  return (
+    validDatabaseId(value) ||
+    (typeof value === "string" &&
+      /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu.test(value))
+  );
+}
+
 function record(value: Prisma.JsonValue | null | undefined): Record<string, Prisma.JsonValue> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, Prisma.JsonValue>)
@@ -526,11 +574,104 @@ function assertOpaqueAiReplyEnvelope(envelope: RuntimeQueueEnvelope) {
   }
 }
 
+const persistedBusinessImportParseDataKeys = new Set([
+  "tenantId",
+  "sourceId",
+  "importId",
+  "generation",
+  "operation",
+  "requestedByUserId",
+  "requestedAt",
+]);
+
+const persistedBusinessInformationProjectionDataKeys = new Set([
+  "tenantId",
+  "sourceId",
+  "importId",
+  "applicationId",
+  "businessRevisionId",
+  "businessRevision",
+  "generation",
+  "requestedByUserId",
+  "requestedAt",
+]);
+
+const persistedBusinessInformationRevisionProjectionDataKeys = new Set([
+  "tenantId",
+  "businessRevisionId",
+  "businessRevision",
+  "generation",
+  "requestedByUserId",
+  "requestedAt",
+]);
+
+function validIsoTimestamp(value: unknown) {
+  return (
+    typeof value === "string" &&
+    Number.isFinite(Date.parse(value)) &&
+    new Date(value).toISOString() === value
+  );
+}
+
+function assertOpaqueBusinessImportEnvelope(envelope: RuntimeQueueEnvelope) {
+  const data = envelope.data;
+  const sharedIsValid =
+    validDatabaseId(data.tenantId) &&
+    validDatabaseId(data.requestedByUserId) &&
+    typeof data.generation === "number" &&
+    Number.isInteger(data.generation) &&
+    data.generation > 0 &&
+    validIsoTimestamp(data.requestedAt);
+  const parseIsValid =
+    envelope.jobName === "parse" &&
+    Object.keys(data).length === persistedBusinessImportParseDataKeys.size &&
+    Object.keys(data).every((key) => persistedBusinessImportParseDataKeys.has(key)) &&
+    sharedIsValid &&
+    validImportId(data.sourceId) &&
+    validImportId(data.importId) &&
+    data.operation === "PARSE" &&
+    typeof data.importId === "string" &&
+    typeof data.generation === "number" &&
+    envelope.jobId === `business-import:${data.importId}:${data.generation}`;
+  const projectIsValid =
+    envelope.jobName === "project" &&
+    Object.keys(data).length === persistedBusinessInformationProjectionDataKeys.size &&
+    Object.keys(data).every((key) => persistedBusinessInformationProjectionDataKeys.has(key)) &&
+    sharedIsValid &&
+    validImportId(data.sourceId) &&
+    validImportId(data.importId) &&
+    validImportId(data.applicationId) &&
+    validImportId(data.businessRevisionId) &&
+    typeof data.businessRevision === "number" &&
+    Number.isInteger(data.businessRevision) &&
+    data.businessRevision > 0 &&
+    envelope.jobId ===
+      `business-import-project:${data.applicationId}:${data.businessRevision}`;
+  const revisionProjectIsValid =
+    envelope.jobName === "project-revision" &&
+    Object.keys(data).length === persistedBusinessInformationRevisionProjectionDataKeys.size &&
+    Object.keys(data).every((key) =>
+      persistedBusinessInformationRevisionProjectionDataKeys.has(key),
+    ) &&
+    sharedIsValid &&
+    validImportId(data.businessRevisionId) &&
+    typeof data.businessRevision === "number" &&
+    Number.isInteger(data.businessRevision) &&
+    data.businessRevision > 0 &&
+    data.generation === data.businessRevision &&
+    envelope.jobId ===
+      `business-information-project:${data.businessRevisionId}:${data.businessRevision}`;
+  if (!parseIsValid && !projectIsValid && !revisionProjectIsValid) {
+    throw new Error("Runtime business.import payload must contain only opaque persisted references.");
+  }
+}
+
 export function parseRuntimeQueueEnvelope(payload: Prisma.JsonValue | null): RuntimeQueueEnvelope {
   const value = record(payload);
   const queueName = requiredString(value.queueName, "queueName");
   if (
     queueName !== "ai.reply" &&
+    queueName !== "business.import" &&
     queueName !== "channels.sendMessage" &&
     queueName !== "knowledge.ingest"
   ) {
@@ -546,6 +687,7 @@ export function parseRuntimeQueueEnvelope(payload: Prisma.JsonValue | null): Run
     backoffMs: positiveInteger(value.backoffMs, 1000),
   };
   if (envelope.queueName === "ai.reply") assertOpaqueAiReplyEnvelope(envelope);
+  if (envelope.queueName === "business.import") assertOpaqueBusinessImportEnvelope(envelope);
   return envelope;
 }
 
@@ -589,6 +731,35 @@ export async function createRuntimeQueueEvent(
       input.dedupeKey !== input.envelope.jobId
     ) {
       throw new Error("Runtime ai.reply event metadata does not match its opaque references.");
+    }
+  }
+  if (input.envelope.queueName === "business.import") {
+    assertOpaqueBusinessImportEnvelope(input.envelope);
+    const data = input.envelope.data;
+    const parseMetadataMatches =
+      input.envelope.jobName === "parse" &&
+      input.eventType === "business.import.parse.requested" &&
+      input.aggregateId === data.importId &&
+      input.aggregateVersion === data.generation;
+    const projectionMetadataMatches =
+      input.envelope.jobName === "project" &&
+      input.eventType === "business.import.project.requested" &&
+      input.aggregateId === data.businessRevisionId &&
+      input.aggregateVersion === data.businessRevision;
+    const revisionProjectionMetadataMatches =
+      input.envelope.jobName === "project-revision" &&
+      input.eventType === "business.information.project.requested" &&
+      input.aggregateId === data.businessRevisionId &&
+      input.aggregateVersion === data.businessRevision;
+    if (
+      (!parseMetadataMatches &&
+        !projectionMetadataMatches &&
+        !revisionProjectionMetadataMatches) ||
+      input.envelope.data.tenantId !== input.tenantId ||
+      input.generation !== input.envelope.data.generation ||
+      input.dedupeKey !== input.envelope.jobId
+    ) {
+      throw new Error("Runtime business.import event metadata does not match its opaque references.");
     }
   }
   const payload = input.envelope as unknown as Prisma.InputJsonObject;
@@ -1039,6 +1210,110 @@ export class RuntimeOutboxDispatcher {
               ...(operation === "DELETE" ? {} : { status: "FAILED" as const }),
               lastErrorCode: "KNOWLEDGE_DEPENDENCY_RUNTIME_EVENT_UNDELIVERABLE",
               lastErrorAt: new Date(),
+            },
+          });
+        }
+      } else if (event.eventType === "business.import.parse.requested") {
+        const importId = data.importId;
+        const generation = data.generation;
+        if (
+          typeof importId === "string" &&
+          typeof generation === "number" &&
+          Number.isInteger(generation)
+        ) {
+          await tx.businessImport.updateMany({
+            where: {
+              id: importId,
+              tenantId: event.tenantId,
+              generation,
+              state: { in: ["UPLOADED", "SCANNING", "PARSING", "EXTRACTING"] },
+            },
+            data: {
+              state: "FAILED_RETRYABLE",
+              failureCode: "BUSINESS_IMPORT_QUEUE_UNDELIVERABLE",
+              failureStage: "QUEUE",
+              retryable: true,
+              etag: { increment: 1 },
+            },
+          });
+        }
+      } else if (event.eventType === "business.import.project.requested") {
+        const importId = data.importId;
+        const applicationId = data.applicationId;
+        const businessRevisionId = data.businessRevisionId;
+        const businessRevision = data.businessRevision;
+        const generation = data.generation;
+        if (
+          typeof importId === "string" &&
+          typeof applicationId === "string" &&
+          typeof businessRevisionId === "string" &&
+          typeof businessRevision === "number" &&
+          Number.isInteger(businessRevision) &&
+          typeof generation === "number" &&
+          Number.isInteger(generation)
+        ) {
+          const delayed = await tx.businessImportApplication.updateMany({
+            where: {
+              id: applicationId,
+              tenantId: event.tenantId,
+              importId,
+              businessRevisionId,
+              resultingInformationRevision: businessRevision,
+              projectionOutboxId: event.id,
+              projectionOutboxDedupeKey: event.dedupeKey,
+              projectionReceiptHash: null,
+              state: { in: ["COMMITTED", "PROJECTING", "PROJECTION_DELAYED"] },
+            },
+            data: { state: "PROJECTION_DELAYED" },
+          });
+          if (delayed.count === 1) {
+            await tx.businessImport.updateMany({
+              where: {
+                id: importId,
+                tenantId: event.tenantId,
+                generation,
+                state: { in: ["PROJECTING", "PROJECTION_DELAYED"] },
+              },
+              data: {
+                state: "PROJECTION_DELAYED",
+                failureCode: "BUSINESS_INFORMATION_PROJECTION_QUEUE_UNDELIVERABLE",
+                failureStage: "PROJECTION",
+                retryable: false,
+                etag: { increment: 1 },
+              },
+            });
+          }
+        }
+      } else if (event.eventType === "business.information.project.requested") {
+        const businessRevisionId = data.businessRevisionId;
+        const businessRevision = data.businessRevision;
+        if (
+          typeof businessRevisionId === "string" &&
+          typeof businessRevision === "number" &&
+          Number.isInteger(businessRevision)
+        ) {
+          const state = await tx.businessInformationState.findUnique({
+            where: { tenantId: event.tenantId },
+          });
+          await tx.auditLog.create({
+            data: {
+              tenantId: event.tenantId,
+              actorUserId: null,
+              action: "business_information.projection_delayed",
+              entityType: "BusinessInformationRevision",
+              entityId: businessRevisionId,
+              payload: {
+                businessRevisionId,
+                businessRevision,
+                runtimeEventId: event.id,
+                failureCode: "BUSINESS_INFORMATION_PROJECTION_QUEUE_UNDELIVERABLE",
+                currentRevisionId: state?.currentRevisionId ?? null,
+                currentRevision: state?.revision ?? null,
+                lastProjectedRevisionId: state?.lastProjectedRevisionId ?? null,
+                lastProjectedRevision: state?.lastProjectedRevision ?? null,
+                receiptCreated: false,
+                publicationChanged: false,
+              },
             },
           });
         }

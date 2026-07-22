@@ -124,6 +124,10 @@ function stateForPath(pathname: string): Pick<NavState, "route" | "params"> {
   if (pathname === "/app/automations") return { route: "automation", params: {} };
   if (pathname === "/app/analytics") return { route: "analytics", params: {} };
   if (pathname === "/app/knowledge") return { route: "knowledge", params: {} };
+  if (pathname.startsWith("/app/knowledge/imports/")) {
+    const importId = decodeURIComponent(pathname.slice("/app/knowledge/imports/".length) || "");
+    return { route: "knowledge", params: { importId } };
+  }
   if (pathname === "/app/audit") return { route: "audit", params: {} };
   if (pathname === "/app/integrations") return { route: "integrations", params: {} };
   if (pathname === "/app/billing") return { route: "billing", params: {} };

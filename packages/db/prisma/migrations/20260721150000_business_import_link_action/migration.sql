@@ -1,0 +1,1 @@
+ALTER TYPE "BusinessImportCandidateAction" ADD VALUE IF NOT EXISTS 'LINK' AFTER 'UPDATE';

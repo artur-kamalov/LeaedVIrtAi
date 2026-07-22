@@ -1,21 +1,29 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import type {
   BusinessProfileData,
   BusinessProfileScheduleDay,
   BusinessProfileServiceItem,
   BusinessProfileView,
+  BusinessImportPage,
+  BusinessImportView,
 } from "@leadvirt/types";
 import {
   AlertCircle,
   Building2,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   Clock3,
+  FileSpreadsheet,
+  FileUp,
+  History,
   Plus,
   RefreshCw,
   Save,
+  ShieldCheck,
   Trash2,
   UserRoundCheck,
 } from "lucide-react";
@@ -23,11 +31,19 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { localizeDemoBusinessProfile } from "@/i18n/demo-seed-messages";
 import type { TranslationKey } from "@/i18n/messages";
 import { getBusinessProfile, updateBusinessProfile } from "@/lib/api/business-profile";
+import { listBusinessImports } from "@/lib/api/business-imports";
 import { ApiClientError } from "@/lib/api/client";
+import { businessImportEnabled } from "@/lib/features";
 import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/utils";
-import { LoadingOverlay, Select, StatusBadge } from "../ui";
+import { useProductPermissions } from "../CurrentUser";
+import { LoadingOverlay, Modal, Select, StatusBadge } from "../ui";
 import { useProductMode } from "../ProductMode";
+import { BusinessImportUploadDialog } from "./imports/BusinessImportUploadDialog";
+import {
+  businessImportStateKeys,
+  businessImportStateTone,
+} from "./imports/businessImportPresentation";
 
 type Day = BusinessProfileScheduleDay["day"];
 
@@ -203,8 +219,10 @@ export function BusinessProfileEditor({
   canEdit: boolean;
   onChanged: () => void;
 }) {
-  const { locale, t } = useI18n();
+  const { formatDate, formatNumber, locale, t } = useI18n();
   const { demo } = useProductMode();
+  const permissions = useProductPermissions();
+  const router = useRouter();
   const [view, setView] = React.useState<BusinessProfileView | null>(null);
   const [draft, setDraft] = React.useState<BusinessProfileData | null>(null);
   const [baseline, setBaseline] = React.useState<BusinessProfileData | null>(null);
@@ -215,11 +233,26 @@ export function BusinessProfileEditor({
   const [conflict, setConflict] = React.useState(false);
   const [savedNotice, setSavedNotice] = React.useState(false);
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
+  const [importOpen, setImportOpen] = React.useState(false);
+  const [importGateOpen, setImportGateOpen] = React.useState(false);
+  const [importGateBusy, setImportGateBusy] = React.useState(false);
+  const [importHistoryOpen, setImportHistoryOpen] = React.useState(false);
+  const [importHistory, setImportHistory] = React.useState<BusinessImportView[] | null>(null);
+  const [importHistoryCursor, setImportHistoryCursor] = React.useState<string | null>(null);
+  const [importHistoryLoading, setImportHistoryLoading] = React.useState(false);
+  const [importHistoryError, setImportHistoryError] = React.useState<ApiClientError | null>(null);
+  const [pendingApprovalImports, setPendingApprovalImports] =
+    React.useState<BusinessImportPage | null>(null);
+  const [pendingApprovalError, setPendingApprovalError] = React.useState(false);
   const mounted = React.useRef(false);
   const requestSequence = React.useRef(0);
+  const historyRequestSequence = React.useRef(0);
+  const pendingApprovalRequestSequence = React.useRef(0);
+  const pendingApprovalRequest = React.useRef<Promise<BusinessImportPage> | null>(null);
   const saveAttempt = React.useRef<{ signature: string; key: string } | null>(null);
   const translate = React.useRef(t);
   const demoLocalization = React.useRef({ demo, locale });
+  const canApproveImports = permissions.role === "OWNER" || permissions.role === "ADMIN";
 
   React.useEffect(() => {
     translate.current = t;
@@ -270,13 +303,75 @@ export function BusinessProfileEditor({
     }
   }, []);
 
+  const loadImportHistory = React.useCallback(
+    async (append = false) => {
+      const sequence = ++historyRequestSequence.current;
+      setImportHistoryLoading(true);
+      setImportHistoryError(null);
+      try {
+        const page = await listBusinessImports({
+          limit: 10,
+          ...(append && importHistoryCursor ? { cursor: importHistoryCursor } : {}),
+        });
+        if (!mounted.current || sequence !== historyRequestSequence.current) return;
+        setImportHistory((current) => {
+          if (!append || !current) return page.items;
+          return Array.from(
+            new Map([...current, ...page.items].map((item) => [item.id, item])).values(),
+          );
+        });
+        setImportHistoryCursor(page.nextCursor);
+      } catch (caught) {
+        if (!mounted.current || sequence !== historyRequestSequence.current) return;
+        setImportHistoryError(
+          caught instanceof ApiClientError
+            ? caught
+            : new ApiClientError(t("businessImport.history.error"), 500, "HTTP_ERROR", true),
+        );
+      } finally {
+        if (mounted.current && sequence === historyRequestSequence.current) {
+          setImportHistoryLoading(false);
+        }
+      }
+    },
+    [importHistoryCursor, t],
+  );
+
+  const loadPendingApprovalImports = React.useCallback(async () => {
+    const sequence = ++pendingApprovalRequestSequence.current;
+    if (!businessImportEnabled || demo || !canApproveImports) {
+      setPendingApprovalImports(null);
+      setPendingApprovalError(false);
+      return;
+    }
+    try {
+      const request =
+        pendingApprovalRequest.current ??
+        listBusinessImports({ limit: 100, state: "AWAITING_APPROVAL" });
+      pendingApprovalRequest.current = request;
+      const page = await request;
+      if (!mounted.current || sequence !== pendingApprovalRequestSequence.current) return;
+      setPendingApprovalImports(page);
+      setPendingApprovalError(false);
+    } catch {
+      if (!mounted.current || sequence !== pendingApprovalRequestSequence.current) return;
+      setPendingApprovalImports(null);
+      setPendingApprovalError(true);
+    } finally {
+      pendingApprovalRequest.current = null;
+    }
+  }, [canApproveImports, demo]);
+
   React.useEffect(() => {
     mounted.current = true;
     void loadProfile();
+    void loadPendingApprovalImports();
     return () => {
       mounted.current = false;
+      historyRequestSequence.current += 1;
+      pendingApprovalRequestSequence.current += 1;
     };
-  }, [loadProfile]);
+  }, [loadPendingApprovalImports, loadProfile]);
 
   React.useEffect(() => {
     if (!demo || dirty) return;
@@ -403,8 +498,8 @@ export function BusinessProfileEditor({
     return errors;
   }
 
-  async function save() {
-    if (!draft || !baseline || !view || !canEdit || saving || conflict) return;
+  async function save(): Promise<boolean> {
+    if (!draft || !baseline || !view || !canEdit || saving || conflict) return false;
     const nextProfile = profileForSave(draft);
     const profilePatch = changedProfilePatch(nextProfile, profileForSave(baseline));
     setDraft(nextProfile);
@@ -417,7 +512,7 @@ export function BusinessProfileEditor({
           .querySelector<HTMLElement>("[data-testid='business-profile-form'] [aria-invalid='true']")
           ?.focus();
       });
-      return;
+      return false;
     }
 
     if (Object.keys(profilePatch).length === 0) {
@@ -426,7 +521,7 @@ export function BusinessProfileEditor({
       setSavedNotice(false);
       setFieldErrors({});
       saveAttempt.current = null;
-      return;
+      return true;
     }
 
     const signature = JSON.stringify(profilePatch);
@@ -451,8 +546,9 @@ export function BusinessProfileEditor({
       setFieldErrors({});
       saveAttempt.current = null;
       onChanged();
+      return true;
     } catch (caught) {
-      if (!mounted.current) return;
+      if (!mounted.current) return false;
       const error =
         caught instanceof ApiClientError
           ? caught
@@ -470,6 +566,7 @@ export function BusinessProfileEditor({
         if (Object.keys(serverErrors).length > 0) setFieldErrors(serverErrors);
         setSaveError({ message: error.message, requestId: error.requestId });
       }
+      return false;
     } finally {
       if (mounted.current) setSaving(false);
     }
@@ -517,13 +614,19 @@ export function BusinessProfileEditor({
   const serviceNotesConflict = !hasStructuredServices && draft.servicesCatalog.trim().length > 0;
   const scheduleNotesConflict = !hasWorkingDays && draft.hours.trim().length > 0;
   const needsProfileAttention = !hasStructuredServices || !hasWorkingDays;
+  const pendingApprovalImport = pendingApprovalImports?.items[0];
+  const pendingApprovalCount = pendingApprovalImports
+    ? `${formatNumber(pendingApprovalImports.items.length)}${pendingApprovalImports.nextCursor ? "+" : ""}`
+    : null;
 
   function focusServices() {
     if (draft.services.length === 0) addService();
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         document
-          .querySelector<HTMLInputElement>('[data-testid^="business-profile-service-"][data-testid$="-name"]')
+          .querySelector<HTMLInputElement>(
+            '[data-testid^="business-profile-service-"][data-testid$="-name"]',
+          )
           ?.focus();
       });
     });
@@ -533,6 +636,37 @@ export function BusinessProfileEditor({
     document
       .querySelector<HTMLElement>('[data-testid="business-profile-schedule"]')
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function requestImport() {
+    if (!businessImportEnabled || !canEdit || saving || conflict) return;
+    if (dirty) setImportGateOpen(true);
+    else setImportOpen(true);
+  }
+
+  function openImportHistory() {
+    if (!businessImportEnabled || demo) return;
+    setImportHistoryOpen(true);
+    if (!importHistory && !importHistoryLoading) void loadImportHistory(false);
+  }
+
+  async function saveAndImport() {
+    if (importGateBusy) return;
+    setImportGateBusy(true);
+    const saved = await save();
+    setImportGateBusy(false);
+    if (!saved) return;
+    setImportGateOpen(false);
+    setImportOpen(true);
+  }
+
+  function discardAndImport() {
+    setDraft(baseline);
+    setFieldErrors({});
+    setSaveError(null);
+    setSavedNotice(false);
+    setImportGateOpen(false);
+    setImportOpen(true);
   }
 
   return (
@@ -552,7 +686,32 @@ export function BusinessProfileEditor({
             </p>
           </div>
         </div>
-        <div className="shrink-0">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {businessImportEnabled && !demo ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={openImportHistory}
+              data-testid="business-profile-import-history"
+            >
+              <History className="h-4 w-4" />
+              {t("businessImport.entry.history")}
+            </Button>
+          ) : null}
+          {businessImportEnabled && canEdit ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={saving || conflict}
+              onClick={requestImport}
+              data-testid="business-profile-import-file"
+            >
+              <FileUp className="h-4 w-4" />
+              {t("businessImport.entry.importFile")}
+            </Button>
+          ) : null}
           {saving ? (
             <StatusBadge status="info">{t("businessProfile.status.saving")}</StatusBadge>
           ) : dirty ? (
@@ -579,6 +738,56 @@ export function BusinessProfileEditor({
         </div>
       ) : null}
 
+      {pendingApprovalImport && pendingApprovalCount ? (
+        <div
+          className="mx-4 mb-5 flex flex-col gap-3 rounded-md border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 sm:mx-5 sm:flex-row sm:items-center sm:justify-between"
+          data-testid="business-profile-pending-import-approvals"
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-amber-200">
+                {t("businessProfile.importApprovalQueue.title", {
+                  count: pendingApprovalCount,
+                })}
+              </p>
+              <p className="mt-0.5 text-xs leading-5 text-amber-100/70">
+                {t("businessProfile.importApprovalQueue.description")}
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() =>
+              router.push(`/app/knowledge/imports/${encodeURIComponent(pendingApprovalImport.id)}`)
+            }
+            data-testid="business-profile-review-import-approvals"
+          >
+            {t("businessProfile.importApprovalQueue.action")}
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      ) : null}
+      {pendingApprovalError && businessImportEnabled && canApproveImports && !demo ? (
+        <div
+          className="mx-4 mb-5 flex flex-col gap-3 border-y border-rose-500/20 bg-rose-500/[0.06] px-4 py-3 sm:mx-5 sm:flex-row sm:items-center"
+          role="alert"
+          data-testid="business-profile-import-approval-error"
+        >
+          <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+          <p className="min-w-0 flex-1 text-sm text-rose-200">
+            {t("businessProfile.importApprovalQueue.error")}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => void loadPendingApprovalImports()}>
+            <RefreshCw className="h-4 w-4" />
+            {t("businessImport.common.tryAgain")}
+          </Button>
+        </div>
+      ) : null}
+
       {needsProfileAttention ? (
         <div
           className="mx-4 mb-5 rounded-md border border-amber-500/25 bg-amber-500/[0.08] px-4 py-4 sm:mx-5"
@@ -594,9 +803,7 @@ export function BusinessProfileEditor({
                 {t("businessProfile.attention.description")}
               </p>
               <ul className="mt-2 space-y-1 text-xs text-amber-100/75">
-                {!hasStructuredServices ? (
-                  <li>{t("businessProfile.attention.services")}</li>
-                ) : null}
+                {!hasStructuredServices ? <li>{t("businessProfile.attention.services")}</li> : null}
                 {!hasWorkingDays ? <li>{t("businessProfile.attention.schedule")}</li> : null}
               </ul>
               {canEdit ? (
@@ -773,16 +980,30 @@ export function BusinessProfileEditor({
             title={t("businessProfile.services.title")}
             description={t("businessProfile.services.description")}
             action={
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                data-testid="business-profile-add-service"
-                onClick={addService}
-              >
-                <Plus className="h-4 w-4" />
-                {t("businessProfile.services.add")}
-              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                {businessImportEnabled && canEdit ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    data-testid="business-profile-import-services"
+                    onClick={requestImport}
+                  >
+                    <FileUp className="h-4 w-4" />
+                    {t("businessImport.entry.importPriceList")}
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  data-testid="business-profile-add-service"
+                  onClick={addService}
+                >
+                  <Plus className="h-4 w-4" />
+                  {t("businessProfile.services.add")}
+                </Button>
+              </div>
             }
           >
             <div className="min-w-0" data-testid="business-profile-services">
@@ -1127,6 +1348,155 @@ export function BusinessProfileEditor({
           ) : null}
         </div>
       </form>
+
+      {businessImportEnabled ? (
+        <>
+          <Modal
+            open={importHistoryOpen}
+            onOpenChange={setImportHistoryOpen}
+            title={t("businessImport.history.title")}
+            description={t("businessImport.history.description")}
+            closeLabel={t("businessImport.common.close")}
+            className="max-w-2xl rounded-lg"
+            footer={
+              <>
+                <Button
+                  variant="outline"
+                  disabled={importHistoryLoading}
+                  onClick={() => void loadImportHistory(false)}
+                  data-testid="business-import-history-refresh"
+                >
+                  <RefreshCw className={cn("h-4 w-4", importHistoryLoading && "animate-spin")} />
+                  {t("businessImport.common.refresh")}
+                </Button>
+                <Button onClick={() => setImportHistoryOpen(false)}>
+                  {t("businessImport.common.close")}
+                </Button>
+              </>
+            }
+          >
+            <div className="min-h-28" data-testid="business-import-history-dialog">
+              {importHistoryError && importHistory ? (
+                <div
+                  className="mb-3 border-y border-rose-500/20 bg-rose-500/[0.07] px-4 py-3 text-sm text-rose-200"
+                  role="alert"
+                >
+                  {importHistoryError.message}
+                </div>
+              ) : null}
+              {importHistoryLoading && !importHistory ? (
+                <div className="flex min-h-28 items-center justify-center gap-2 text-sm text-zinc-400">
+                  <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
+                  {t("businessImport.history.loading")}
+                </div>
+              ) : importHistoryError && !importHistory ? (
+                <div
+                  className="rounded-md border border-rose-500/20 bg-rose-500/[0.07] px-4 py-3 text-sm text-rose-200"
+                  role="alert"
+                >
+                  {importHistoryError.message}
+                </div>
+              ) : importHistory?.length ? (
+                <div>
+                  <div className="divide-y divide-white/10 border-y border-white/10">
+                    {importHistory.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="flex min-h-16 w-full min-w-0 flex-wrap items-center gap-3 px-1 py-3 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400/60"
+                        onClick={() => {
+                          setImportHistoryOpen(false);
+                          router.push(`/app/knowledge/imports/${encodeURIComponent(item.id)}`);
+                        }}
+                        data-testid={`business-import-history-item-${item.id}`}
+                      >
+                        <FileSpreadsheet className="h-4 w-4 shrink-0 text-zinc-500" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block break-words text-sm font-medium text-zinc-200">
+                            {item.sourceName || item.originalFilename}
+                          </span>
+                          <span className="mt-1 block break-all text-xs text-zinc-500">
+                            {item.originalFilename} |{" "}
+                            {formatDate(item.createdAt, { dateStyle: "medium" })}
+                          </span>
+                        </span>
+                        <span className="order-2 basis-full pl-7 sm:order-none sm:basis-auto sm:pl-0">
+                          <StatusBadge status={businessImportStateTone(item.state)}>
+                            {t(businessImportStateKeys[item.state])}
+                          </StatusBadge>
+                        </span>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600" />
+                      </button>
+                    ))}
+                  </div>
+                  {importHistoryCursor ? (
+                    <div className="mt-3 flex justify-center">
+                      <Button
+                        variant="outline"
+                        disabled={importHistoryLoading}
+                        onClick={() => void loadImportHistory(true)}
+                        data-testid="business-import-history-load-more"
+                      >
+                        {importHistoryLoading ? (
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4" />
+                        )}
+                        {t("businessImport.history.loadMore")}
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="flex min-h-28 items-center justify-center text-sm text-zinc-500">
+                  {t("businessImport.history.empty")}
+                </div>
+              )}
+            </div>
+          </Modal>
+          <Modal
+            open={importGateOpen}
+            onOpenChange={(open) => {
+              if (!importGateBusy) setImportGateOpen(open);
+            }}
+            title={t("businessImport.unsaved.title")}
+            description={t("businessImport.unsaved.description")}
+            closeLabel={t("businessImport.common.close")}
+            className="max-w-lg rounded-lg"
+            footer={
+              <>
+                <Button
+                  variant="outline"
+                  disabled={importGateBusy}
+                  onClick={discardAndImport}
+                  data-testid="business-import-discard-and-open"
+                >
+                  {t("businessImport.unsaved.discard")}
+                </Button>
+                <Button
+                  disabled={importGateBusy}
+                  onClick={() => void saveAndImport()}
+                  data-testid="business-import-save-and-open"
+                >
+                  {importGateBusy ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  {t("businessImport.unsaved.save")}
+                </Button>
+              </>
+            }
+          />
+          <BusinessImportUploadDialog
+            open={importOpen}
+            onOpenChange={setImportOpen}
+            onCreated={(importId) =>
+              router.push(`/app/knowledge/imports/${encodeURIComponent(importId)}`)
+            }
+          />
+        </>
+      ) : null}
     </section>
   );
 }
@@ -1167,7 +1537,11 @@ function FormSection({
           data-testid={testId ? `${testId}-summary` : undefined}
         >
           <span className="min-w-0">
-            <span role="heading" aria-level={3} className="block text-sm font-semibold text-zinc-200">
+            <span
+              role="heading"
+              aria-level={3}
+              className="block text-sm font-semibold text-zinc-200"
+            >
               {title}
             </span>
             <span className="mt-1 block max-w-3xl text-sm text-zinc-600">{description}</span>

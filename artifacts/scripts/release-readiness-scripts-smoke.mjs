@@ -6,6 +6,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -61,11 +62,17 @@ function shellFunctionBody(source, name) {
 }
 
 function workflowRunBlock(source, stepName) {
-  const marker = `      - name: ${stepName}\n        run: |\n`;
+  const marker = `      - name: ${stepName}\n`;
   const start = source.indexOf(marker);
   assert(start >= 0, `Expected workflow step ${stepName}.`);
-  const contentStart = start + marker.length;
-  const nextStep = source.indexOf("\n      - name:", contentStart);
+  const nextStep = source.indexOf("\n      - name:", start + marker.length);
+  const runMarker = "        run: |\n";
+  const runStart = source.indexOf(runMarker, start + marker.length);
+  assert(
+    runStart >= 0 && (nextStep < 0 || runStart < nextStep),
+    `Expected workflow run block ${stepName}.`,
+  );
+  const contentStart = runStart + runMarker.length;
   const contentEnd = nextStep >= 0 ? nextStep : source.length;
   return source
     .slice(contentStart, contentEnd)
@@ -309,6 +316,14 @@ try {
 
   const deployWorkflow = read(join(repoRoot, ".github/workflows/deploy-leadvirt-com.yml"));
   const deploymentJournal = read(join(repoRoot, "artifacts/scripts/deployment-journal.sh"));
+  const stagingEnvTemplate = read(join(repoRoot, "deploy/env.staging.example"));
+  assert(
+    stagingEnvTemplate.includes("BUSINESS_IMPORT_ENABLED=false") &&
+      stagingEnvTemplate.includes("BUSINESS_IMPORT_PARSER_APPROVED=false") &&
+      stagingEnvTemplate.includes("BUSINESS_IMPORT_PARSER_URL=\n") &&
+      stagingEnvTemplate.includes("BUSINESS_IMPORT_PARSER_VERSION=unconfigured"),
+    "Expected the production template to keep business import and parser deployment disabled.",
+  );
   const bash = findBash();
   assert(bash, "Expected Bash for deployment journal validation.");
   const journalScriptPath = join(repoRoot, "artifacts/scripts/deployment-journal.sh");
@@ -440,6 +455,7 @@ try {
     const releaseDir = join(journalRoot, "releases", releaseId);
     const fakeBin = join(tempDir, "deployment-journal-bin");
     const fakeDocker = join(fakeBin, "docker");
+    const fakeDockerLog = join(tempDir, "deployment-journal-docker.log");
     const journalEnvFile = join(journalRoot, "secrets", ".env");
     mkdirSync(join(releaseDir, "deploy"), { recursive: true });
     mkdirSync(fakeBin, { recursive: true });
@@ -449,6 +465,7 @@ try {
     writeFileSync(join(releaseDir, ".leadvirt-compose-project"), "deploy\n");
     writeFileSync(join(releaseDir, "deploy", "docker-compose.staging.yml"), "services: {}\n");
     writeFileSync(journalEnvFile, "POSTGRES_PASSWORD=contract-only\n");
+    writeFileSync(fakeDockerLog, "");
     writeFileSync(
       fakeDocker,
       [
@@ -456,7 +473,17 @@ try {
         'case "${1:-}" in',
         "  info) exit 0 ;;",
         '  ps) [ "${FAKE_DOCKER_PS_FAILURE:-0}" = "1" ] && exit 92; exit 0 ;;',
-        '  image) [ "${2:-}" = "ls" ] && exit 0; exit 91 ;;',
+        "  image)",
+        '    if [ "${2:-}" = "ls" ]; then',
+        '      [ -z "${FAKE_DOCKER_IMAGE_TAG:-}" ] || printf \'%s %s\\n\' "${3:-}" "$FAKE_DOCKER_IMAGE_TAG"',
+        "      exit 0",
+        "    fi",
+        '    if [ "${2:-}" = "rm" ]; then',
+        '      printf \'%s\\n\' "${3:-}" >> "$FAKE_DOCKER_LOG"',
+        "      exit 0",
+        "    fi",
+        "    exit 91",
+        "    ;;",
         "  *) exit 91 ;;",
         "esac",
         "",
@@ -484,10 +511,14 @@ try {
       JOURNAL_PREVIOUS_WORKER_RUNNING: "0",
       JOURNAL_PREVIOUS_WEB_CONTAINER: "",
       JOURNAL_PREVIOUS_WEB_RUNNING: "0",
+      JOURNAL_PREVIOUS_BUSINESS_IMPORT_PARSER_CONTAINER: "",
+      JOURNAL_PREVIOUS_BUSINESS_IMPORT_PARSER_RUNNING: "0",
+      JOURNAL_BUSINESS_IMPORT_PARSER_ENABLED: "0",
       JOURNAL_PREVIOUS_NGINX_CONTAINER: "",
       JOURNAL_PREVIOUS_NGINX_RUNNING: "0",
+      FAKE_DOCKER_LOG: fakeDockerLog,
     };
-    const writeJournal = () =>
+    const writeJournal = (phase = "precommit", extraEnvironment = {}) =>
       spawnSync(
         bash,
         [
@@ -497,9 +528,13 @@ try {
           fakeBin,
           journalScriptPath,
           "write",
-          "precommit",
+          phase,
         ],
-        { cwd: repoRoot, env: journalWriteEnvironment, encoding: "utf8" },
+        {
+          cwd: repoRoot,
+          env: { ...journalWriteEnvironment, ...extraEnvironment },
+          encoding: "utf8",
+        },
       );
     const firstJournalWrite = writeJournal();
     assert(
@@ -509,7 +544,10 @@ try {
     const writtenJournal = read(join(journalRoot, ".deployment-journal.v1"));
     assert(
       writtenJournal.includes("phase precommit\n") &&
-        writtenJournal.includes(`release_id ${releaseId}\n`),
+        writtenJournal.includes(`release_id ${releaseId}\n`) &&
+        writtenJournal.includes("business_import_parser_enabled 0\n") &&
+        writtenJournal.includes("previous_business_import_parser_container \n") &&
+        writtenJournal.includes("previous_business_import_parser_running 0\n"),
       "Expected a durable precommit journal with the exact attempt identity.",
     );
     const duplicateJournalWrite = writeJournal();
@@ -519,6 +557,24 @@ try {
         read(join(journalRoot, ".deployment-journal.v1")) === writtenJournal,
       "Expected an unresolved journal to fence a second deployment attempt without changing evidence.",
     );
+    symlinkSync(releaseDir, join(journalRoot, "current"), "dir");
+    const changedParserGateCommit = writeJournal("committed", {
+      JOURNAL_BUSINESS_IMPORT_PARSER_ENABLED: "1",
+    });
+    assert(
+      changedParserGateCommit.status !== 0 &&
+        changedParserGateCommit.stderr.includes(
+          "Committed journal identity differs from precommit.",
+        ) &&
+        read(join(journalRoot, ".deployment-journal.v1")) === writtenJournal,
+      "Expected the durable parser deployment decision to be immutable across commit.",
+    );
+    const committedJournalWrite = writeJournal("committed");
+    assert(
+      committedJournalWrite.status === 0 &&
+        read(join(journalRoot, ".deployment-journal.v1")).includes("phase committed\n"),
+      `Expected an exact precommit-to-committed transition: ${committedJournalWrite.stderr}`,
+    );
     const staleReleaseId = "bbbbbbbbbbbb-attempt-Zy98Xw";
     const staleReleaseDir = join(journalRoot, "releases", staleReleaseId);
     mkdirSync(join(staleReleaseDir, "deploy"), { recursive: true });
@@ -526,6 +582,7 @@ try {
     writeFileSync(join(staleReleaseDir, ".leadvirt-image-tag"), `${staleReleaseId}\n`);
     writeFileSync(join(staleReleaseDir, ".leadvirt-compose-project"), "deploy\n");
     writeFileSync(join(staleReleaseDir, "deploy", "docker-compose.staging.yml"), "services: {}\n");
+    journalWriteEnvironment.FAKE_DOCKER_IMAGE_TAG = staleReleaseId;
     const pruneJournal = (extraEnvironment = {}) =>
       spawnSync(
         bash,
@@ -553,7 +610,9 @@ try {
     assert(
       provenUnreferencedPrune.status === 0 &&
         !existsSync(staleReleaseDir) &&
-        existsSync(releaseDir),
+        existsSync(releaseDir) &&
+        read(fakeDockerLog) ===
+          `leadvirt-app:${staleReleaseId}\nleadvirt-business-import-parser:${staleReleaseId}\n`,
       `Expected only the proven-unreferenced release to be pruned: ${provenUnreferencedPrune.stderr}`,
     );
   }
@@ -570,6 +629,14 @@ try {
     stagingCompose.indexOf("  web:"),
     stagingCompose.indexOf("  nginx:"),
   );
+  const parserService = stagingCompose.slice(
+    stagingCompose.indexOf("  business-import-parser:"),
+    stagingCompose.indexOf("  migrate:"),
+  );
+  const workerService = stagingCompose.slice(
+    stagingCompose.indexOf("  worker:"),
+    stagingCompose.indexOf("  web:"),
+  );
   const workerMain = read(join(repoRoot, "apps/worker/src/main.ts"));
   const workerMetricsServer = read(
     join(repoRoot, "apps/worker/src/observability/metrics-server.ts"),
@@ -582,6 +649,7 @@ try {
   const authStagingReadiness = read(join(repoRoot, "artifacts/scripts/auth-staging-ready.mjs"));
   const apiWriterFiles = [
     "apps/api/src/modules/ai/runtime-queue.service.ts",
+    "apps/api/src/modules/business-profile/business-import-queue.service.ts",
     "apps/api/src/modules/integrations/integration-requests.service.ts",
     "apps/api/src/modules/knowledge/knowledge-publication-dispatcher.service.ts",
     "apps/api/src/modules/knowledge/knowledge-source-queue.service.ts",
@@ -594,6 +662,25 @@ try {
     authStagingReadiness.includes('"INTEGRATION_REQUEST_EMAIL"') &&
       authStagingReadiness.includes("managed integration requests fail closed"),
     "Expected strict auth readiness to validate the managed-integration operator recipient.",
+  );
+
+  assert(
+    parserService.includes(
+      "image: leadvirt-business-import-parser:${LEADVIRT_IMAGE_TAG:-staging}",
+    ) &&
+      parserService.includes("restart: unless-stopped") &&
+      parserService.includes("profiles:\n      - business-import-parser") &&
+      parserService.includes("read_only: true") &&
+      !parserService.includes("env_file:"),
+    "Expected a release-tagged, restartable parser without application secrets.",
+  );
+  assert(
+    !workerService.includes("business-import-parser:\n        condition:") &&
+      workerService.includes("BUSINESS_IMPORT_PARSER_URL: ${BUSINESS_IMPORT_PARSER_URL:-}") &&
+      workerService.includes(
+        "BUSINESS_IMPORT_PARSER_VERSION: ${BUSINESS_IMPORT_PARSER_VERSION:-unconfigured}",
+      ),
+    "Expected core worker readiness to be independent from the optional parser container.",
   );
   assert(
     authStagingReadiness.includes('emailOtpFlag === "true"') &&
@@ -630,6 +717,37 @@ try {
       "corepack pnpm exec playwright test artifacts/playwright/inbox-live-refresh.spec.ts --reporter=line --workers=1",
     ],
     "Expected the matching Chromium binary before live Inbox acceptance",
+  );
+
+  const parserImageSmoke = workflowRunBlock(deployWorkflow, "Verify business import parser image");
+  const parserImageSmokeSyntax = spawnSync(bash, ["-n", "-s"], {
+    input: parserImageSmoke,
+    encoding: "utf8",
+  });
+  assert(
+    parserImageSmokeSyntax.status === 0 &&
+      parserImageSmoke.includes(
+        'if [ "$BUSINESS_IMPORT_ENABLED" != "true" ] || [ "$BUSINESS_IMPORT_PARSER_APPROVED" != "true" ]; then',
+      ) &&
+      deployWorkflow.includes('BUSINESS_IMPORT_PARSER_APPROVED: "true"') &&
+      parserImageSmoke.includes(
+        "docker build --tag leadvirt-business-import-parser:ci deploy/business-import-parser",
+      ) &&
+      parserImageSmoke.includes("--read-only \\") &&
+      parserImageSmoke.includes("--cap-drop ALL \\") &&
+      parserImageSmoke.includes("--security-opt no-new-privileges \\") &&
+      parserImageSmoke.includes("--pids-limit 64 \\") &&
+      parserImageSmoke.includes("--memory 768m \\") &&
+      parserImageSmoke.includes("payload.get('version') == 'poppler-tesseract-v1'") &&
+      parserImageSmoke.includes("payload.get('contractVersion') == 'leadvirt.pdf-extraction.v1'") &&
+      parserImageSmoke.includes(
+        'docker exec -i "$parser_container" python - < deploy/business-import-parser/runtime_smoke.py',
+      ) &&
+      parserImageSmoke.includes("PRIVATE_SERVICE_SENTINEL_7843") &&
+      parserImageSmoke.includes("SERVICE PRICE 25 EUR") &&
+      parserImageSmoke.includes("Business import parser leaked extracted content") &&
+      parserImageSmoke.includes('trap \'docker rm -f "$parser_container"'),
+    `Expected CI to build and health-check the hardened parser image contract: ${parserImageSmokeSyntax.stderr}`,
   );
 
   assert(
@@ -697,6 +815,8 @@ try {
     [
       "release_compose config --quiet",
       "release_compose build migrate",
+      'business_import_parser_enabled="$(release_compose run --rm --no-deps -T api node -e',
+      "release_compose build business-import-parser",
       "release_compose up -d --no-recreate postgres redis qdrant clamav",
       "wait_for_stateful_dependencies",
       'telegram_bot_api_base="$(release_compose run --rm --no-deps -T api printenv',
@@ -704,18 +824,23 @@ try {
       "assert_previous_containers_unchanged",
       "persist_deployment_journal precommit",
       'deployment_phase="rollback"',
+      '--name "$candidate_parser_container"',
+      "business-import-parser >/dev/null",
       '--name "$candidate_api_container"',
       "-e API_DEPLOYMENT_PREFLIGHT=true",
+      'candidate_worker_parser_args=(-e "BUSINESS_IMPORT_PARSER_URL=http://$candidate_parser_container:8080")',
       '--name "$candidate_worker_container"',
       "-e WORKER_DEPLOYMENT_PAUSED=true",
       '--name "$candidate_web_container"',
+      "Candidate business import parser did not become ready with the expected contract.",
       "deploymentPreflight===true",
       "Paused candidate worker preflight did not become ready.",
+      "Candidate worker cannot reach the candidate business import parser contract.",
       "Candidate web preflight did not become ready.",
       "release_compose run --rm --no-deps -T nginx nginx -t",
       "remove_candidate_preflights",
       "assert_previous_containers_unchanged",
-      "DEPLOY_GATE: isolated-candidate-api-worker-and-web-ready",
+      "DEPLOY_GATE: isolated-candidate-api-worker-and-web-ready parser-enabled=",
       'docker stop --time 120 "${previous_writer_container_ids[@]}"',
       "DEPLOY_GATE: exact-prior-writers-drained",
       'docker stop --time 30 "${previous_nginx_container_ids[@]}"',
@@ -733,16 +858,19 @@ try {
       "\n          REMOTE\n",
       'grep -Fx "DEPLOY_REMOTE_COMPLETE:$GITHUB_SHA:$remote_completion_token" "$remote_deploy_log"',
     ],
-    "Expected three-service preflight, candidate-only commit, and runner-confirmed remote completion",
+    "Expected optional parser and core app preflight before candidate-only commit and remote completion",
   );
 
   assertOrdered(
     rollforwardBody,
     [
       "remove_candidate_preflights",
-      "stop_project_services api worker nginx",
+      "stop_project_services api worker business-import-parser nginx",
       "wait_stateful_dependencies",
       "--exit-code-from migrate migrate",
+      "journal_compose up -d --no-deps --no-build --force-recreate business-import-parser",
+      "wait_parser_container_health",
+      "remove_project_service_containers business-import-parser",
       "journal_compose_paused_worker up -d --no-deps --no-build --force-recreate api worker web",
       "deploymentPreflight===false",
       "x.v.ready&&!x.v.active&&x.v.deploymentPaused",
@@ -760,6 +888,14 @@ try {
     "Expected durable migration-first roll-forward to prove the candidate before reopening nginx",
   );
   assert(
+    rollforwardBody.includes('if [ "$journal_business_import_parser_enabled" = "1" ]; then') &&
+      rollforwardBody.includes("remove_project_service_containers business-import-parser") &&
+      deploymentJournal.includes('BUSINESS_IMPORT_PARSER_URL="$parser_url"') &&
+      deploymentJournal.includes('parser_url=""') &&
+      deploymentJournal.includes('parser_version="unconfigured"'),
+    "Expected committed recovery to start and prove only an enabled parser, or remove every disabled canonical parser container.",
+  );
+  assert(
     (deploymentJournal.match(/--exit-code-from migrate/g) ?? []).length === 1 &&
       !rollforwardBody.includes("docker start") &&
       !deployExecution
@@ -775,7 +911,8 @@ try {
       "verify_prior_identity",
       'set_container_running "$nginx_id" 0',
       "restore_previous_current",
-      "for service in api worker web",
+      "for service in business-import-parser api worker web",
+      "wait_parser_container_health",
       "wait_container_http",
       '"http://127.0.0.1:4002/health/ready"',
       'set_container_running "$nginx_id" "${journal[previous_nginx_running]}"',
@@ -856,6 +993,7 @@ try {
   assert(
     deployWorkflow.includes("trap handle_deployment_exit EXIT") &&
       !deployWorkflow.includes("--use-aliases") &&
+      deployWorkflow.includes('--name "$candidate_parser_container"') &&
       deployWorkflow.includes(
         'release_compose run -d --no-deps \\\n            --name "$candidate_api_container"',
       ) &&
@@ -863,7 +1001,7 @@ try {
         'release_compose run -d --no-deps \\\n            --name "$candidate_web_container"',
       ) &&
       deployWorkflow.includes(
-        'for candidate_container in "$candidate_api_container" "$candidate_worker_container" "$candidate_web_container"; do',
+        'for candidate_container in "$candidate_parser_container" "$candidate_api_container" "$candidate_worker_container" "$candidate_web_container"; do',
       ) &&
       deployWorkflow.includes('previous_container_by_service[$service]="$candidate_container"') &&
       deployWorkflow.includes(
@@ -875,6 +1013,45 @@ try {
       deploymentJournal.includes("journal retained and nginx held stopped") &&
       deployWorkflow.includes('exit "$original_status"'),
     "Expected alias-isolated candidate preflights and trapped failures to use the durable startup reconciler.",
+  );
+  assert(
+    deployWorkflow.includes("business_import_parser_enabled=0") &&
+      deployWorkflow.includes('business_import_parser_url=""') &&
+      deployWorkflow.includes('business_import_parser_version="unconfigured"') &&
+      deployExecution.includes(
+        "parse('BUSINESS_IMPORT_ENABLED')&&parse('BUSINESS_IMPORT_PARSER_APPROVED')?'1':'0'",
+      ) &&
+      deployExecution.includes('if [ "$business_import_parser_enabled" = "1" ]; then') &&
+      deployExecution.includes("candidate_worker_parser_args=()") &&
+      deployExecution.includes('"${candidate_worker_parser_args[@]}"') &&
+      !deployExecution.includes(
+        '-e BUSINESS_IMPORT_PARSER_URL="http://$candidate_parser_container:8080"',
+      ),
+    "Expected disabled deployment to skip parser build, candidate, health, and worker URL while preserving core preflight.",
+  );
+  assert(
+    deployWorkflow.includes(
+      "for service in api worker web business-import-parser nginx postgres redis qdrant clamav",
+    ) &&
+      deployWorkflow.includes("api|worker|web|business-import-parser|nginx") &&
+      deployWorkflow.includes(
+        'JOURNAL_PREVIOUS_BUSINESS_IMPORT_PARSER_CONTAINER="${previous_container_by_service[business-import-parser]:-}"',
+      ) &&
+      deployWorkflow.includes(
+        'JOURNAL_PREVIOUS_BUSINESS_IMPORT_PARSER_RUNNING="$previous_business_import_parser_running"',
+      ) &&
+      deployWorkflow.includes(
+        'JOURNAL_BUSINESS_IMPORT_PARSER_ENABLED="$business_import_parser_enabled"',
+      ) &&
+      deploymentJournal.includes(
+        "tracked_release_services=(api worker web business-import-parser nginx)",
+      ) &&
+      deploymentJournal.includes("business_import_parser_enabled %s") &&
+      deploymentJournal.includes(
+        "release_image_repositories=(leadvirt-app leadvirt-business-import-parser)",
+      ) &&
+      deploymentJournal.includes('image_tag_is_referenced "$repository" "$tag"'),
+    "Expected the parser to share exact release ownership and image-retention accounting.",
   );
   assertOrdered(
     deploymentJournal,
@@ -915,7 +1092,10 @@ try {
       deploymentJournal.includes('container_ids="$(docker ps -aq --no-trunc)" || return 0') &&
       deploymentJournal.includes('container_image="$(docker inspect') &&
       deploymentJournal.includes('release_listing="$(') &&
-      deploymentJournal.includes('image_listing="$(docker image ls leadvirt-app') &&
+      deploymentJournal.includes('for repository in "${release_image_repositories[@]}"; do') &&
+      deploymentJournal.includes(
+        "docker image ls \"$repository\" --format '{{.Repository}} {{.Tag}}'",
+      ) &&
       deploymentJournal.includes("Release ownership changed during pruning.") &&
       !deployWorkflow.includes("tail -n +6") &&
       !deployWorkflow.includes("xargs -r rm -rf"),
@@ -930,7 +1110,9 @@ try {
   assert(
     deployStepScript.includes("http://127.0.0.1:4001/api/auth/email-otp/config") &&
       deployStepScript.includes("x.ok&&x.v.data?.enabled===true") &&
-      deployStepScript.includes("Candidate API email OTP authentication is not enabled and ready.") &&
+      deployStepScript.includes(
+        "Candidate API email OTP authentication is not enabled and ready.",
+      ) &&
       deployStepScript.includes("http://127.0.0.1:4001/api/auth/telegram/config") &&
       deployStepScript.includes(
         "x.ok&&x.v.data?.enabled===false&&x.v.data?.botId===null&&x.v.data?.botUsername===null",
@@ -947,7 +1129,7 @@ try {
       "http://127.0.0.1:4001/api/auth/email-otp/config",
       "http://127.0.0.1:4001/api/auth/telegram/config",
       "DEPLOY_GATE: candidate-email-otp-enabled-and-telegram-auth-disabled",
-      "DEPLOY_GATE: isolated-candidate-api-worker-and-web-ready",
+      "DEPLOY_GATE: isolated-candidate-api-worker-and-web-ready parser-enabled=",
       "DEPLOY_GATE: exact-prior-writers-drained",
     ],
     "Expected candidate auth checks before draining the prior release",

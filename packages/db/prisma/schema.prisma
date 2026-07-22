@@ -793,6 +793,186 @@ enum RuntimeInboxStatus {
   FAILED
 }
 
+enum BusinessInformationRevisionOrigin {
+  LEGACY_BACKFILL
+  MANUAL
+  IMPORT
+  REVERT
+  SYSTEM
+}
+
+enum BusinessInformationAuthority {
+  LEGACY_BACKFILL
+  MANUAL
+  IMPORTED
+  SYSTEM
+}
+
+enum BusinessInformationResourceType {
+  BUSINESS_IDENTITY
+  OFFERING
+  OFFERING_PRICE
+  OFFERING_DURATION
+}
+
+enum BusinessOfferingKind {
+  SERVICE
+  PRODUCT
+  MENU_ITEM
+}
+
+enum BusinessOfferingPriceType {
+  FIXED
+  FROM
+  RANGE
+  FREE
+  ON_REQUEST
+}
+
+enum BusinessImportSourceStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum BusinessImportPurpose {
+  SERVICES
+  BUSINESS_INFORMATION
+}
+
+enum BusinessImportFormat {
+  CSV
+  XLSX
+  PDF
+}
+
+enum BusinessImportArtifactMalwareStatus {
+  PENDING
+  CLEAN
+  DETECTED
+  SCAN_FAILED
+}
+
+enum BusinessImportMimeValidationStatus {
+  PENDING
+  VALID
+  INVALID
+}
+
+enum BusinessImportArtifactDeletionState {
+  RETAINED
+  TOMBSTONED
+  DELETING
+  DELETED
+  FAILED
+}
+
+enum BusinessImportObjectKind {
+  STAGING
+  RAW_ARTIFACT
+  PARSED_MANIFEST
+  EVIDENCE_EXCERPT
+  APPLICATION_PREVIEW
+  REVISION_DELTA
+}
+
+enum BusinessImportState {
+  CREATED
+  UPLOADING
+  UPLOADED
+  SCANNING
+  PARSING
+  MAPPING_REQUIRED
+  EXTRACTING
+  READY_FOR_REVIEW
+  AWAITING_APPROVAL
+  APPLYING
+  PROJECTING
+  APPLIED
+  PARTIALLY_APPLIED
+  PROJECTION_DELAYED
+  CLOSED_WITH_REMAINDER
+  FAILED_RETRYABLE
+  FAILED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum BusinessImportTargetCategory {
+  BUSINESS_IDENTITY
+  OFFERINGS
+  LOCATIONS
+  HOURS
+  FAQ
+  POLICIES
+  PROMOTIONS
+  HANDOFF_RULES
+}
+
+enum BusinessImportCandidateAction {
+  ADD
+  UPDATE
+  LINK
+  UNCHANGED
+  CONFLICT
+  INVALID
+  MISSING
+  ARCHIVE
+}
+
+enum BusinessImportCandidateDecision {
+  PENDING
+  ACCEPTED
+  EDITED
+  SUBMITTED_FOR_APPROVAL
+  REJECTED
+  STALE
+  APPLIED
+}
+
+enum BusinessImportConfidenceBand {
+  CONFIRMED_FORMAT
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum BusinessImportRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  PROHIBITED
+}
+
+enum BusinessImportApprovalState {
+  PENDING
+  APPROVED
+  REJECTED
+  INVALIDATED
+}
+
+enum BusinessImportApplicationKind {
+  APPLY
+  REVERT
+}
+
+enum BusinessImportApplicationState {
+  COMMITTED
+  PROJECTING
+  READY
+  PROJECTION_DELAYED
+  REVERTED
+  SUPERSEDED
+}
+
+enum BusinessImportQuotaStatus {
+  RESERVED
+  CONSUMED
+  RELEASED
+  EXPIRED
+}
+
 model Tenant {
   id           String       @id @default(cuid())
   name         String
@@ -805,88 +985,111 @@ model Tenant {
   updatedAt    DateTime     @updatedAt
   deletedAt    DateTime?
 
-  memberships                       Membership[]
-  channels                          Channel[]
-  webhookEvents                     WebhookEvent[]
-  leads                             Lead[]
-  leadEvents                        LeadEvent[]
-  conversations                     Conversation[]
-  messages                          Message[]
-  messageAttachments                MessageAttachment[]
-  workflows                         Workflow[]
-  workflowRuns                      WorkflowRun[]
-  integrations                      IntegrationAccount[]
-  integrationSyncLogs               IntegrationSyncLog[]
-  aiUsageLogs                       AiUsageLog[]
-  auditLogs                         AuditLog[]
-  subscriptions                     Subscription[]
-  usageCounters                     UsageCounter[]
-  tasks                             Task[]
-  bookings                          Booking[]
-  orders                            Order[]
-  apiKeys                           ApiKey[]
-  authSessions                      AuthSession[]
-  onboardingState                   OnboardingState?
-  knowledgeSources                  BusinessKnowledgeSource[]
-  knowledgeChunks                   BusinessKnowledgeChunk[]
-  knowledgeRevisions                KnowledgeRevision[]
-  knowledgeRevisionChunks           KnowledgeRevisionChunk[]
-  knowledgeIndexSnapshots           KnowledgeIndexSnapshot[]
-  knowledgePublications             KnowledgePublication[]
-  activeKnowledgePublications       ActiveKnowledgePublication[]
-  knowledgeJobs                     KnowledgeJob[]
-  knowledgeOutbox                   KnowledgeOutbox[]
-  knowledgeInbox                    KnowledgeInbox[]
-  knowledgeV2Settings               KnowledgeV2Settings?
-  knowledgeV2Entities               KnowledgeV2Entity[]
-  knowledgeV2Facts                  KnowledgeV2Fact[]
-  knowledgeV2FactVersions           KnowledgeV2FactVersion[]
-  knowledgeV2GuidanceRules          KnowledgeV2GuidanceRule[]
-  knowledgeV2GuidanceVersions       KnowledgeV2GuidanceRuleVersion[]
-  knowledgeV2Evidence               KnowledgeV2Evidence[]
-  knowledgeV2Idempotency            KnowledgeV2IdempotencyRecord[]
-  knowledgeV2Validations            KnowledgeV2PublicationValidation[]
-  knowledgeV2Capabilities           KnowledgeV2Capability[]
-  knowledgeV2RequirementDefinitions KnowledgeV2RequirementDefinition[]
-  knowledgeV2RequirementEvaluations KnowledgeV2RequirementEvaluation[]
-  knowledgePublicationCapabilities  KnowledgePublicationCapability[]
-  knowledgeV2Sources                KnowledgeV2Source[]
-  knowledgeV2FileUploadIntents      KnowledgeV2FileUploadIntent[]
-  knowledgeV2Artifacts              KnowledgeV2Artifact[]
-  knowledgeV2Documents              KnowledgeV2Document[]
-  knowledgeV2Revisions              KnowledgeV2DocumentRevision[]
-  knowledgeV2Elements               KnowledgeV2Element[]
-  knowledgeV2Chunks                 KnowledgeV2Chunk[]
-  knowledgeV2EmbeddingCaches        KnowledgeV2EmbeddingCache[]
-  knowledgeV2LegacyMigrations       KnowledgeV2LegacyMigration[]
-  knowledgeCorpusSelector           KnowledgeCorpusSelector?
-  knowledgeV2DeletionLedger         KnowledgeV2DeletionLedger[]
-  knowledgeV2EvidenceRefs           KnowledgeV2EvidenceReference[]
-  knowledgeV2Conflicts              KnowledgeV2Conflict[]
-  knowledgeV2ConflictCandidates     KnowledgeV2ConflictCandidate[]
-  knowledgeV2ConflictEvidence       KnowledgeV2ConflictCandidateEvidence[]
-  knowledgeV2ReviewItems            KnowledgeV2ReviewItem[]
-  knowledgeV2ReviewEvidence         KnowledgeV2ReviewItemEvidence[]
-  knowledgeV2TestCases              KnowledgeV2TestCase[]
-  knowledgeV2TestCaseVersions       KnowledgeV2TestCaseVersion[]
-  knowledgeV2TestExpectations       KnowledgeV2TestExpectation[]
-  knowledgeV2EvaluationRuns         KnowledgeV2EvaluationRun[]
-  knowledgeV2EvaluationResults      KnowledgeV2EvaluationResult[]
-  knowledgeV2EvaluationMetrics      KnowledgeV2EvaluationMetric[]
-  knowledgeV2EvaluationEvidence     KnowledgeV2EvaluationResultEvidence[]
-  knowledgeV2Feedback               KnowledgeV2Feedback[]
-  knowledgeV2FeedbackEvidence       KnowledgeV2FeedbackEvidence[]
-  knowledgeV2RetrievalTraces        KnowledgeV2RetrievalTrace[]
-  knowledgeV2RetrievalCandidates    KnowledgeV2RetrievalCandidate[]
-  knowledgeV2Citations              KnowledgeV2Citation[]
-  aiReplyRuns                       AiReplyRun[]
-  externalOperations                ExternalOperation[]
-  channelDeliveryOperations         ChannelDeliveryOperation[]
-  runtimeOutbox                     RuntimeOutbox[]
-  runtimeInbox                      RuntimeInbox[]
-  operationalAuthorizationState     TenantOperationalAuthorizationState?
-  knowledgeV2LiveToolExecutions     KnowledgeV2LiveToolExecution[]
-  authenticatedCustomerIdentities   AuthenticatedCustomerIdentity[]
+  memberships                           Membership[]
+  channels                              Channel[]
+  webhookEvents                         WebhookEvent[]
+  leads                                 Lead[]
+  leadEvents                            LeadEvent[]
+  conversations                         Conversation[]
+  messages                              Message[]
+  messageAttachments                    MessageAttachment[]
+  workflows                             Workflow[]
+  workflowRuns                          WorkflowRun[]
+  integrations                          IntegrationAccount[]
+  integrationSyncLogs                   IntegrationSyncLog[]
+  aiUsageLogs                           AiUsageLog[]
+  auditLogs                             AuditLog[]
+  subscriptions                         Subscription[]
+  usageCounters                         UsageCounter[]
+  tasks                                 Task[]
+  bookings                              Booking[]
+  orders                                Order[]
+  apiKeys                               ApiKey[]
+  authSessions                          AuthSession[]
+  onboardingState                       OnboardingState?
+  knowledgeSources                      BusinessKnowledgeSource[]
+  knowledgeChunks                       BusinessKnowledgeChunk[]
+  knowledgeRevisions                    KnowledgeRevision[]
+  knowledgeRevisionChunks               KnowledgeRevisionChunk[]
+  knowledgeIndexSnapshots               KnowledgeIndexSnapshot[]
+  knowledgePublications                 KnowledgePublication[]
+  activeKnowledgePublications           ActiveKnowledgePublication[]
+  knowledgeJobs                         KnowledgeJob[]
+  knowledgeOutbox                       KnowledgeOutbox[]
+  knowledgeInbox                        KnowledgeInbox[]
+  knowledgeV2Settings                   KnowledgeV2Settings?
+  knowledgeV2Entities                   KnowledgeV2Entity[]
+  knowledgeV2Facts                      KnowledgeV2Fact[]
+  knowledgeV2FactVersions               KnowledgeV2FactVersion[]
+  knowledgeV2GuidanceRules              KnowledgeV2GuidanceRule[]
+  knowledgeV2GuidanceVersions           KnowledgeV2GuidanceRuleVersion[]
+  knowledgeV2Evidence                   KnowledgeV2Evidence[]
+  knowledgeV2Idempotency                KnowledgeV2IdempotencyRecord[]
+  knowledgeV2Validations                KnowledgeV2PublicationValidation[]
+  knowledgeV2Capabilities               KnowledgeV2Capability[]
+  knowledgeV2RequirementDefinitions     KnowledgeV2RequirementDefinition[]
+  knowledgeV2RequirementEvaluations     KnowledgeV2RequirementEvaluation[]
+  knowledgePublicationCapabilities      KnowledgePublicationCapability[]
+  knowledgeV2Sources                    KnowledgeV2Source[]
+  knowledgeV2FileUploadIntents          KnowledgeV2FileUploadIntent[]
+  knowledgeV2Artifacts                  KnowledgeV2Artifact[]
+  knowledgeV2Documents                  KnowledgeV2Document[]
+  knowledgeV2Revisions                  KnowledgeV2DocumentRevision[]
+  knowledgeV2Elements                   KnowledgeV2Element[]
+  knowledgeV2Chunks                     KnowledgeV2Chunk[]
+  knowledgeV2EmbeddingCaches            KnowledgeV2EmbeddingCache[]
+  knowledgeV2LegacyMigrations           KnowledgeV2LegacyMigration[]
+  knowledgeCorpusSelector               KnowledgeCorpusSelector?
+  knowledgeV2DeletionLedger             KnowledgeV2DeletionLedger[]
+  knowledgeV2EvidenceRefs               KnowledgeV2EvidenceReference[]
+  knowledgeV2Conflicts                  KnowledgeV2Conflict[]
+  knowledgeV2ConflictCandidates         KnowledgeV2ConflictCandidate[]
+  knowledgeV2ConflictEvidence           KnowledgeV2ConflictCandidateEvidence[]
+  knowledgeV2ReviewItems                KnowledgeV2ReviewItem[]
+  knowledgeV2ReviewEvidence             KnowledgeV2ReviewItemEvidence[]
+  knowledgeV2TestCases                  KnowledgeV2TestCase[]
+  knowledgeV2TestCaseVersions           KnowledgeV2TestCaseVersion[]
+  knowledgeV2TestExpectations           KnowledgeV2TestExpectation[]
+  knowledgeV2EvaluationRuns             KnowledgeV2EvaluationRun[]
+  knowledgeV2EvaluationResults          KnowledgeV2EvaluationResult[]
+  knowledgeV2EvaluationMetrics          KnowledgeV2EvaluationMetric[]
+  knowledgeV2EvaluationEvidence         KnowledgeV2EvaluationResultEvidence[]
+  knowledgeV2Feedback                   KnowledgeV2Feedback[]
+  knowledgeV2FeedbackEvidence           KnowledgeV2FeedbackEvidence[]
+  knowledgeV2RetrievalTraces            KnowledgeV2RetrievalTrace[]
+  knowledgeV2RetrievalCandidates        KnowledgeV2RetrievalCandidate[]
+  knowledgeV2Citations                  KnowledgeV2Citation[]
+  aiReplyRuns                           AiReplyRun[]
+  externalOperations                    ExternalOperation[]
+  channelDeliveryOperations             ChannelDeliveryOperation[]
+  runtimeOutbox                         RuntimeOutbox[]
+  runtimeInbox                          RuntimeInbox[]
+  operationalAuthorizationState         TenantOperationalAuthorizationState?
+  knowledgeV2LiveToolExecutions         KnowledgeV2LiveToolExecution[]
+  authenticatedCustomerIdentities       AuthenticatedCustomerIdentity[]
+  businessInformationState              BusinessInformationState?
+  businessInformationRevisions          BusinessInformationRevision[]
+  businessIdentity                      BusinessIdentity?
+  businessOfferings                     BusinessOffering[]
+  businessOfferingPrices                BusinessOfferingPrice[]
+  businessOfferingDurations             BusinessOfferingDuration[]
+  businessImportSources                 BusinessImportSource[]
+  businessImportArtifacts               BusinessImportArtifact[]
+  businessImports                       BusinessImport[]
+  businessImportMappings                BusinessImportMapping[]
+  businessImportCandidates              BusinessImportCandidate[]
+  businessImportCandidateRevisions      BusinessImportCandidateRevision[]
+  businessImportCandidateApprovals      BusinessImportCandidateApproval[]
+  businessImportApprovalGrants          BusinessImportApprovalGrant[]
+  businessImportCandidateEvidence       BusinessImportCandidateEvidence[]
+  businessImportParsedRevisions         BusinessImportParsedRevision[]
+  businessImportApplications            BusinessImportApplication[]
+  businessImportApplicationItems        BusinessImportApplicationCandidate[]
+  businessOfferingSourceBindings        BusinessOfferingSourceBinding[]
+  businessInformationAttributions       BusinessInformationAttribution[]
+  businessInformationProjectionReceipts BusinessInformationProjectionReceipt[]
+  businessImportObjectLedger            BusinessImportObjectLedger[]
+  businessImportQuotaReservations       BusinessImportQuotaReservation[]
 
   @@index([status])
 }
@@ -988,23 +1191,36 @@ model Membership {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
-  tenant                           Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user                             User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assignedKnowledgeConflicts       KnowledgeV2Conflict[]         @relation("KnowledgeV2ConflictAssignee")
-  resolvedKnowledgeConflicts       KnowledgeV2Conflict[]         @relation("KnowledgeV2ConflictResolver")
-  createdKnowledgeReviewItems      KnowledgeV2ReviewItem[]       @relation("KnowledgeV2ReviewItemCreator")
-  assignedKnowledgeReviewItems     KnowledgeV2ReviewItem[]       @relation("KnowledgeV2ReviewItemAssignee")
-  resolvedKnowledgeReviewItems     KnowledgeV2ReviewItem[]       @relation("KnowledgeV2ReviewItemResolver")
-  requestedKnowledgeV2Migrations   KnowledgeV2LegacyMigration[]  @relation("KnowledgeV2LegacyMigrationRequester")
-  selectedKnowledgeCorpus          KnowledgeCorpusSelector[]     @relation("KnowledgeCorpusSelectorActor")
-  createdKnowledgeTestCases        KnowledgeV2TestCase[]         @relation("KnowledgeV2TestCaseCreator")
-  archivedKnowledgeTestCases       KnowledgeV2TestCase[]         @relation("KnowledgeV2TestCaseArchiver")
-  createdKnowledgeTestCaseVersions KnowledgeV2TestCaseVersion[]  @relation("KnowledgeV2TestCaseVersionCreator")
-  requestedKnowledgeEvaluationRuns KnowledgeV2EvaluationRun[]    @relation("KnowledgeV2EvaluationRunRequester")
-  authoredKnowledgeFeedback        KnowledgeV2Feedback[]         @relation("KnowledgeV2FeedbackActor")
-  assignedKnowledgeFeedback        KnowledgeV2Feedback[]         @relation("KnowledgeV2FeedbackAssignee")
-  resolvedKnowledgeFeedback        KnowledgeV2Feedback[]         @relation("KnowledgeV2FeedbackResolver")
-  knowledgeV2FileUploadIntents     KnowledgeV2FileUploadIntent[]
+  tenant                                  Tenant                            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user                                    User                              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedKnowledgeConflicts              KnowledgeV2Conflict[]             @relation("KnowledgeV2ConflictAssignee")
+  resolvedKnowledgeConflicts              KnowledgeV2Conflict[]             @relation("KnowledgeV2ConflictResolver")
+  createdKnowledgeReviewItems             KnowledgeV2ReviewItem[]           @relation("KnowledgeV2ReviewItemCreator")
+  assignedKnowledgeReviewItems            KnowledgeV2ReviewItem[]           @relation("KnowledgeV2ReviewItemAssignee")
+  resolvedKnowledgeReviewItems            KnowledgeV2ReviewItem[]           @relation("KnowledgeV2ReviewItemResolver")
+  requestedKnowledgeV2Migrations          KnowledgeV2LegacyMigration[]      @relation("KnowledgeV2LegacyMigrationRequester")
+  selectedKnowledgeCorpus                 KnowledgeCorpusSelector[]         @relation("KnowledgeCorpusSelectorActor")
+  createdKnowledgeTestCases               KnowledgeV2TestCase[]             @relation("KnowledgeV2TestCaseCreator")
+  archivedKnowledgeTestCases              KnowledgeV2TestCase[]             @relation("KnowledgeV2TestCaseArchiver")
+  createdKnowledgeTestCaseVersions        KnowledgeV2TestCaseVersion[]      @relation("KnowledgeV2TestCaseVersionCreator")
+  requestedKnowledgeEvaluationRuns        KnowledgeV2EvaluationRun[]        @relation("KnowledgeV2EvaluationRunRequester")
+  authoredKnowledgeFeedback               KnowledgeV2Feedback[]             @relation("KnowledgeV2FeedbackActor")
+  assignedKnowledgeFeedback               KnowledgeV2Feedback[]             @relation("KnowledgeV2FeedbackAssignee")
+  resolvedKnowledgeFeedback               KnowledgeV2Feedback[]             @relation("KnowledgeV2FeedbackResolver")
+  knowledgeV2FileUploadIntents            KnowledgeV2FileUploadIntent[]
+  updatedBusinessInformationStates        BusinessInformationState[]        @relation("BusinessInformationStateUpdater")
+  createdBusinessInformationRevisions     BusinessInformationRevision[]     @relation("BusinessInformationRevisionCreator")
+  createdBusinessImportSources            BusinessImportSource[]            @relation("BusinessImportSourceCreator")
+  updatedBusinessImportSources            BusinessImportSource[]            @relation("BusinessImportSourceUpdater")
+  createdBusinessImports                  BusinessImport[]                  @relation("BusinessImportCreator")
+  cancelledBusinessImports                BusinessImport[]                  @relation("BusinessImportCanceller")
+  confirmedBusinessImportMappings         BusinessImportMapping[]           @relation("BusinessImportMappingConfirmer")
+  decidedBusinessImportCandidates         BusinessImportCandidate[]         @relation("BusinessImportCandidateDecisionActor")
+  requestedBusinessImportApprovals        BusinessImportCandidateApproval[] @relation("BusinessImportApprovalRequester")
+  decidedBusinessImportApprovals          BusinessImportCandidateApproval[] @relation("BusinessImportApprovalDecider")
+  grantedBusinessImportApprovals          BusinessImportApprovalGrant[]     @relation("BusinessImportApprovalGrantActor")
+  createdBusinessImportApplications       BusinessImportApplication[]       @relation("BusinessImportApplicationActor")
+  approvedBusinessInformationAttributions BusinessInformationAttribution[]  @relation("BusinessInformationAttributionApprover")
 
   @@unique([tenantId, userId])
   @@index([tenantId, role])
@@ -1068,29 +1284,29 @@ model UsageCounter {
 }
 
 model Channel {
-  id                                 String        @id @default(cuid())
-  tenantId                           String
-  type                               ChannelType
-  status                             ChannelStatus @default(PENDING)
-  name                               String
-  externalId                         String?
-  publicKey                          String?       @unique
-  settings                           Json?
-  encryptedCredentials               String?
-  lastHealthAt                       DateTime?
-  automaticRepliesEnabled            Boolean       @default(false)
-  automaticRepliesGeneration         Int           @default(1)
-  automaticRepliesPublicationId      String?
-  automaticRepliesPublicationEtag    Int?
-  automaticRepliesChannelFingerprint String?
-  automaticRepliesCapabilitySetHash  String?
-  automaticRepliesOperationalBindingHash String?
+  id                                              String        @id @default(cuid())
+  tenantId                                        String
+  type                                            ChannelType
+  status                                          ChannelStatus @default(PENDING)
+  name                                            String
+  externalId                                      String?
+  publicKey                                       String?       @unique
+  settings                                        Json?
+  encryptedCredentials                            String?
+  lastHealthAt                                    DateTime?
+  automaticRepliesEnabled                         Boolean       @default(false)
+  automaticRepliesGeneration                      Int           @default(1)
+  automaticRepliesPublicationId                   String?
+  automaticRepliesPublicationEtag                 Int?
+  automaticRepliesChannelFingerprint              String?
+  automaticRepliesCapabilitySetHash               String?
+  automaticRepliesOperationalBindingHash          String?
   automaticRepliesOperationalPermissionGeneration Int?
-  automaticRepliesActivatedAt        DateTime?
-  automaticRepliesActivatedByUserId  String?
-  createdAt                          DateTime      @default(now())
-  updatedAt                          DateTime      @updatedAt
-  deletedAt                          DateTime?
+  automaticRepliesActivatedAt                     DateTime?
+  automaticRepliesActivatedByUserId               String?
+  createdAt                                       DateTime      @default(now())
+  updatedAt                                       DateTime      @updatedAt
+  deletedAt                                       DateTime?
 
   tenant                      Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   automaticRepliesPublication KnowledgePublication?      @relation("ChannelAutomaticRepliesPublication", fields: [tenantId, automaticRepliesPublicationId, automaticRepliesCapabilitySetHash, automaticRepliesOperationalBindingHash, automaticRepliesOperationalPermissionGeneration], references: [tenantId, id, capabilitySetHash, operationalBindingHash, operationalPermissionGeneration], onDelete: NoAction, onUpdate: NoAction, map: "Channel_automaticRepliesPublication_fkey")
@@ -1380,8 +1596,8 @@ model WorkflowRun {
   lead         Lead?              @relation(fields: [leadId], references: [id], onDelete: SetNull)
   events       WorkflowRunEvent[]
 
-  @@index([tenantId, workflowId, createdAt])
   @@unique([tenantId, workflowId, idempotencyKey])
+  @@index([tenantId, workflowId, createdAt])
   @@index([tenantId, conversationId])
   @@index([tenantId, leadId])
   @@index([tenantId, status, createdAt])
@@ -2576,33 +2792,33 @@ model KnowledgeV2IdempotencyRecord {
 }
 
 model KnowledgeV2PublicationValidation {
-  id                           String                      @id @default(cuid())
-  tenantId                     String
-  targetKey                    String                      @default("workspace-v2")
-  corpusKind                   KnowledgeCorpusKind         @default(STRUCTURED_V2)
-  candidateId                  String
-  candidateVersion             Int
-  candidateManifestHash        String
-  basePublicationId            String?
-  publicationId                String?
-  indexSnapshotId              String?
-  candidateItems               Json
-  status                       KnowledgeV2ValidationStatus @default(PENDING)
-  blockers                     Json?
-  warnings                     Json?
-  capabilitySetHash            String?
-  requirementEvaluationSetHash String?
+  id                              String                      @id @default(cuid())
+  tenantId                        String
+  targetKey                       String                      @default("workspace-v2")
+  corpusKind                      KnowledgeCorpusKind         @default(STRUCTURED_V2)
+  candidateId                     String
+  candidateVersion                Int
+  candidateManifestHash           String
+  basePublicationId               String?
+  publicationId                   String?
+  indexSnapshotId                 String?
+  candidateItems                  Json
+  status                          KnowledgeV2ValidationStatus @default(PENDING)
+  blockers                        Json?
+  warnings                        Json?
+  capabilitySetHash               String?
+  requirementEvaluationSetHash    String?
   operationalBindingSchemaVersion Int?
-  operationalRegistryVersion   String?
-  operationalRegistryHash      String?
-  operationalDependencySetHash String?
-  operationalBindingHash       String?
+  operationalRegistryVersion      String?
+  operationalRegistryHash         String?
+  operationalDependencySetHash    String?
+  operationalBindingHash          String?
   operationalPermissionGeneration Int?
-  validationPolicyVersion      String                      @default("knowledge-v2")
-  validatedByUserId            String?
-  createdAt                    DateTime                    @default(now())
-  evaluatedAt                  DateTime?
-  validUntil                   DateTime?
+  validationPolicyVersion         String                      @default("knowledge-v2")
+  validatedByUserId               String?
+  createdAt                       DateTime                    @default(now())
+  evaluatedAt                     DateTime?
+  validUntil                      DateTime?
 
   tenant                  Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   basePublication         KnowledgePublication?              @relation("KnowledgeV2ValidationBasePublication", fields: [tenantId, basePublicationId, corpusKind], references: [tenantId, id, corpusKind], onDelete: NoAction)
@@ -2622,33 +2838,33 @@ model KnowledgeV2PublicationValidation {
 }
 
 model KnowledgePublication {
-  id                           String                     @id @default(cuid())
-  tenantId                     String
-  targetKey                    String                     @default("workspace")
-  corpusKind                   KnowledgeCorpusKind        @default(LEGACY_V1)
-  sequence                     Int
-  status                       KnowledgePublicationStatus @default(VALIDATING)
-  indexSnapshotId              String?
-  basePublicationId            String?
-  manifestHash                 String
-  pipelineVersion              String                     @default("legacy-v1")
-  retrievalPolicyVersion       String                     @default("legacy-v1")
-  promptPolicyVersion          String                     @default("legacy-v1")
-  capabilitySetHash            String?
-  requirementEvaluationSetHash String?
+  id                              String                     @id @default(cuid())
+  tenantId                        String
+  targetKey                       String                     @default("workspace")
+  corpusKind                      KnowledgeCorpusKind        @default(LEGACY_V1)
+  sequence                        Int
+  status                          KnowledgePublicationStatus @default(VALIDATING)
+  indexSnapshotId                 String?
+  basePublicationId               String?
+  manifestHash                    String
+  pipelineVersion                 String                     @default("legacy-v1")
+  retrievalPolicyVersion          String                     @default("legacy-v1")
+  promptPolicyVersion             String                     @default("legacy-v1")
+  capabilitySetHash               String?
+  requirementEvaluationSetHash    String?
   operationalBindingSchemaVersion Int?
-  operationalRegistryVersion   String?
-  operationalRegistryHash      String?
-  operationalDependencySetHash String?
-  operationalBindingHash       String?
+  operationalRegistryVersion      String?
+  operationalRegistryHash         String?
+  operationalDependencySetHash    String?
+  operationalBindingHash          String?
   operationalPermissionGeneration Int?
-  qualitySummary               Json?
-  failureCode                  String?
-  createdAt                    DateTime                   @default(now())
-  readyAt                      DateTime?
-  activatedAt                  DateTime?
-  supersededAt                 DateTime?
-  failedAt                     DateTime?
+  qualitySummary                  Json?
+  failureCode                     String?
+  createdAt                       DateTime                   @default(now())
+  readyAt                         DateTime?
+  activatedAt                     DateTime?
+  supersededAt                    DateTime?
+  failedAt                        DateTime?
 
   tenant                     Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   indexSnapshot              KnowledgeIndexSnapshot?            @relation(fields: [tenantId, indexSnapshotId, corpusKind], references: [tenantId, id, corpusKind], onDelete: Restrict)
@@ -2667,6 +2883,7 @@ model KnowledgePublication {
   knowledgeV2ReviewItems     KnowledgeV2ReviewItem[]
   automaticReplyChannels     Channel[]                          @relation("ChannelAutomaticRepliesPublication")
   capabilitySnapshots        KnowledgePublicationCapability[]
+  businessImportApplications BusinessImportApplication[]
 
   @@unique([tenantId, targetKey, sequence])
   @@unique([tenantId, id])
@@ -2678,24 +2895,24 @@ model KnowledgePublication {
 }
 
 model KnowledgePublicationCapability {
-  tenantId                     String
-  publicationId                String
-  validationId                 String
-  capabilityId                 String
-  capabilityType               KnowledgeV2CapabilityType
-  allowedAutonomy              KnowledgeV2CapabilityAutonomy
-  capabilityEtag               Int
-  capabilitySnapshotHash       String
-  requirementEvaluationSetHash String
-  operationalBindingHash       String?
+  tenantId                        String
+  publicationId                   String
+  validationId                    String
+  capabilityId                    String
+  capabilityType                  KnowledgeV2CapabilityType
+  allowedAutonomy                 KnowledgeV2CapabilityAutonomy
+  capabilityEtag                  Int
+  capabilitySnapshotHash          String
+  requirementEvaluationSetHash    String
+  operationalBindingHash          String?
   operationalPermissionGeneration Int?
-  createdAt                    DateTime                      @default(now())
+  createdAt                       DateTime                      @default(now())
 
   tenant      Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   publication KnowledgePublication             @relation(fields: [tenantId, publicationId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
   validation  KnowledgeV2PublicationValidation @relation(fields: [tenantId, validationId, publicationId], references: [tenantId, id, publicationId], onDelete: Restrict, onUpdate: NoAction)
   capability  KnowledgeV2Capability            @relation(fields: [tenantId, capabilityId, capabilityType], references: [tenantId, id, capabilityType], onDelete: Restrict, onUpdate: NoAction)
-  aiReplyRuns AiReplyRun[] @relation("AiReplyRuntimeCapability")
+  aiReplyRuns AiReplyRun[]                     @relation("AiReplyRuntimeCapability")
 
   @@id([publicationId, capabilityId])
   @@unique([tenantId, publicationId, capabilityId], map: "KnowledgePublicationCapability_context_key")
@@ -3599,50 +3816,50 @@ model KnowledgeInbox {
 }
 
 model AiReplyRun {
-  id                String           @id @default(cuid())
-  tenantId          String
-  conversationId    String
-  inboundMessageId  String
-  replyMessageId    String?
-  publicationId     String?
-  capabilitySetHash String?
-  operationalBindingHash String?
+  id                              String                         @id @default(cuid())
+  tenantId                        String
+  conversationId                  String
+  inboundMessageId                String
+  replyMessageId                  String?
+  publicationId                   String?
+  capabilitySetHash               String?
+  operationalBindingHash          String?
   operationalPermissionGeneration Int?
-  capabilityType   KnowledgeV2CapabilityType?
-  allowedAutonomy  KnowledgeV2CapabilityAutonomy?
-  requiredAutonomy KnowledgeV2CapabilityAutonomy?
-  capabilityDecision KnowledgeV2CapabilityDecision?
-  replyDisposition KnowledgeV2ReplyDisposition?
-  replyContentHash String?
-  replyTemplateVersion String?
-  idempotencyKey    String
-  inputHash         String
-  generation        Int
-  sequence          Int
-  status            AiReplyRunStatus @default(QUEUED)
-  schemaVersion     Int              @default(1)
-  attemptCount      Int              @default(0)
-  maxAttempts       Int              @default(5)
-  availableAt       DateTime         @default(now())
-  deadlineAt        DateTime?
-  payloadRef        String?
-  errorCode         String?
-  errorMessage      String?
-  traceId           String?
-  traceParent       String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  startedAt         DateTime?
-  heartbeatAt       DateTime?
-  cancelRequestedAt DateTime?
-  cancelReason      String?
-  completedAt       DateTime?
+  capabilityType                  KnowledgeV2CapabilityType?
+  allowedAutonomy                 KnowledgeV2CapabilityAutonomy?
+  requiredAutonomy                KnowledgeV2CapabilityAutonomy?
+  capabilityDecision              KnowledgeV2CapabilityDecision?
+  replyDisposition                KnowledgeV2ReplyDisposition?
+  replyContentHash                String?
+  replyTemplateVersion            String?
+  idempotencyKey                  String
+  inputHash                       String
+  generation                      Int
+  sequence                        Int
+  status                          AiReplyRunStatus               @default(QUEUED)
+  schemaVersion                   Int                            @default(1)
+  attemptCount                    Int                            @default(0)
+  maxAttempts                     Int                            @default(5)
+  availableAt                     DateTime                       @default(now())
+  deadlineAt                      DateTime?
+  payloadRef                      String?
+  errorCode                       String?
+  errorMessage                    String?
+  traceId                         String?
+  traceParent                     String?
+  createdAt                       DateTime                       @default(now())
+  updatedAt                       DateTime                       @updatedAt
+  startedAt                       DateTime?
+  heartbeatAt                     DateTime?
+  cancelRequestedAt               DateTime?
+  cancelReason                    String?
+  completedAt                     DateTime?
 
-  tenant                        Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversation                  Conversation                   @relation(fields: [tenantId, conversationId], references: [tenantId, id], onDelete: NoAction, map: "AiReplyRun_tenant_conversation_fkey")
-  inboundMessage                Message                        @relation("AiReplyInputMessage", fields: [tenantId, conversationId, inboundMessageId], references: [tenantId, conversationId, id], onDelete: NoAction, map: "AiReplyRun_tenant_inbound_fkey")
-  replyMessage                  Message?                       @relation("AiReplyOutputMessage", fields: [tenantId, conversationId, replyMessageId], references: [tenantId, conversationId, id], onDelete: NoAction, map: "AiReplyRun_tenant_reply_fkey")
-  publication                   KnowledgePublication?          @relation(fields: [tenantId, publicationId, capabilitySetHash, operationalBindingHash, operationalPermissionGeneration], references: [tenantId, id, capabilitySetHash, operationalBindingHash, operationalPermissionGeneration], onDelete: NoAction, onUpdate: NoAction, map: "AiReplyRun_tenant_publication_fkey")
+  tenant                        Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation                  Conversation                    @relation(fields: [tenantId, conversationId], references: [tenantId, id], onDelete: NoAction, map: "AiReplyRun_tenant_conversation_fkey")
+  inboundMessage                Message                         @relation("AiReplyInputMessage", fields: [tenantId, conversationId, inboundMessageId], references: [tenantId, conversationId, id], onDelete: NoAction, map: "AiReplyRun_tenant_inbound_fkey")
+  replyMessage                  Message?                        @relation("AiReplyOutputMessage", fields: [tenantId, conversationId, replyMessageId], references: [tenantId, conversationId, id], onDelete: NoAction, map: "AiReplyRun_tenant_reply_fkey")
+  publication                   KnowledgePublication?           @relation(fields: [tenantId, publicationId, capabilitySetHash, operationalBindingHash, operationalPermissionGeneration], references: [tenantId, id, capabilitySetHash, operationalBindingHash, operationalPermissionGeneration], onDelete: NoAction, onUpdate: NoAction, map: "AiReplyRun_tenant_publication_fkey")
   runtimeCapability             KnowledgePublicationCapability? @relation("AiReplyRuntimeCapability", fields: [tenantId, publicationId, capabilityType, allowedAutonomy], references: [tenantId, publicationId, capabilityType, allowedAutonomy], onDelete: NoAction, onUpdate: NoAction, map: "AiReplyRun_runtimeCapability_fkey")
   externalOperations            ExternalOperation[]
   knowledgeV2LiveToolExecutions KnowledgeV2LiveToolExecution[]
@@ -3833,7 +4050,9 @@ model RuntimeOutbox {
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant                                Tenant                                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  businessImportProjectionApplications  BusinessImportApplication[]            @relation("BusinessImportProjectionOutbox")
+  businessInformationProjectionReceipts BusinessInformationProjectionReceipt[] @relation("BusinessInformationProjectionOutbox")
 
   @@unique([tenantId, dedupeKey])
   @@unique([tenantId, aggregateType, aggregateId, aggregateVersion, generation, eventType], map: "RuntimeOutbox_aggregateEvent_key")
@@ -3867,4 +4086,892 @@ model RuntimeInbox {
   @@unique([consumerName, eventId])
   @@index([tenantId, status, receivedAt])
   @@index([status, lockExpiresAt, updatedAt])
+}
+
+model BusinessInformationState {
+  tenantId                  String   @id
+  revision                  Int      @default(0)
+  currentRevisionId         String?
+  canonicalHash             String
+  etag                      Int      @default(1)
+  lastProjectedRevisionId   String?
+  lastProjectedRevision     Int?
+  lastProjectedHash         String?
+  lastProjectionReceiptId   String?
+  lastProjectionReceiptHash String?
+  updatedByUserId           String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  tenant                Tenant                                @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  currentRevision       BusinessInformationRevision?          @relation("CurrentBusinessInformationRevision", fields: [tenantId, currentRevisionId, revision, canonicalHash], references: [tenantId, id, revision, canonicalHash], onDelete: NoAction, onUpdate: NoAction)
+  lastProjectionReceipt BusinessInformationProjectionReceipt? @relation("BusinessInformationStateProjectionReceipt", fields: [tenantId, lastProjectionReceiptId, lastProjectedRevisionId, lastProjectedRevision, lastProjectedHash, lastProjectionReceiptHash], references: [tenantId, id, businessRevisionId, businessRevision, businessRevisionHash, receiptHash], onDelete: NoAction, onUpdate: NoAction)
+  updatedByMembership   Membership?                           @relation("BusinessInformationStateUpdater", fields: [tenantId, updatedByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([tenantId, currentRevisionId, revision, canonicalHash], map: "BusinessInformationState_currentRevision_key")
+  @@unique([tenantId, lastProjectionReceiptId, lastProjectedRevisionId, lastProjectedRevision, lastProjectedHash, lastProjectionReceiptHash], map: "BusinessInformationState_projectionReceipt_key")
+  @@index([tenantId, revision])
+}
+
+model BusinessInformationRevision {
+  id                    String                            @id @default(cuid())
+  tenantId              String
+  revision              Int
+  parentRevisionId      String?
+  parentRevision        Int?
+  canonicalHash         String
+  origin                BusinessInformationRevisionOrigin
+  deltaObjectKey        String
+  deltaEncryptionKeyRef String
+  deltaObjectLedgerId   String
+  deltaObjectKind       BusinessImportObjectKind          @default(REVISION_DELTA)
+  deltaHash             String
+  affectedResources     Json
+  createdByUserId       String?
+  createdAt             DateTime                          @default(now())
+
+  tenant                Tenant                                 @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  creatorMembership     Membership?                            @relation("BusinessInformationRevisionCreator", fields: [tenantId, createdByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+  parent                BusinessInformationRevision?           @relation("BusinessInformationRevisionParent", fields: [tenantId, parentRevisionId, parentRevision], references: [tenantId, id, revision], onDelete: Restrict, onUpdate: NoAction)
+  children              BusinessInformationRevision[]          @relation("BusinessInformationRevisionParent")
+  deltaObjectLedger     BusinessImportObjectLedger             @relation("BusinessInformationRevisionDeltaLedger", fields: [tenantId, deltaObjectLedgerId, deltaObjectKind, deltaObjectKey, deltaEncryptionKeyRef], references: [tenantId, id, objectKind, objectStorageKey, encryptionKeyRef], onDelete: Restrict, onUpdate: NoAction)
+  currentForState       BusinessInformationState?              @relation("CurrentBusinessInformationRevision")
+  resultingApplications BusinessImportApplication[]            @relation("BusinessImportApplicationResultRevision")
+  baseApplications      BusinessImportApplication[]            @relation("BusinessImportApplicationBaseRevision")
+  baseImports           BusinessImport[]                       @relation("BusinessImportBaseRevision")
+  projectionReceipts    BusinessInformationProjectionReceipt[]
+  attributions          BusinessInformationAttribution[]
+
+  @@unique([tenantId, revision])
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, revision])
+  @@unique([tenantId, id, revision, canonicalHash], map: "BusinessInformationRevision_exact_key")
+  @@unique([deltaObjectKey])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, parentRevisionId])
+}
+
+model BusinessImportObjectLedger {
+  id                String                              @id @default(cuid())
+  tenantId          String
+  objectKind        BusinessImportObjectKind
+  objectStorageKey  String
+  encryptionKeyRef  String
+  retentionClass    String
+  legalHold         Boolean                             @default(false)
+  deletionState     BusinessImportArtifactDeletionState @default(RETAINED)
+  retainUntil       DateTime?
+  tombstoneReason   String?
+  tombstonedAt      DateTime?
+  deletionStartedAt DateTime?
+  deletedAt         DateTime?
+  lastErrorCode     String?
+  createdAt         DateTime                            @default(now())
+  updatedAt         DateTime                            @updatedAt
+
+  tenant               Tenant                            @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  stagingImports       BusinessImport[]                  @relation("BusinessImportStagingObjectLedger")
+  artifacts            BusinessImportArtifact[]          @relation("BusinessImportArtifactObjectLedger")
+  parsedRevisions      BusinessImportParsedRevision[]    @relation("BusinessImportParsedManifestLedger")
+  candidateEvidence    BusinessImportCandidateEvidence[] @relation("BusinessImportEvidenceExcerptLedger")
+  applicationPreviews  BusinessImportApplication[]       @relation("BusinessImportApplicationPreviewLedger")
+  informationRevisions BusinessInformationRevision[]     @relation("BusinessInformationRevisionDeltaLedger")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, objectStorageKey])
+  @@unique([tenantId, id, objectKind, objectStorageKey, encryptionKeyRef], map: "BusinessImportObjectLedger_exact_object_key")
+  @@index([tenantId, deletionState, retainUntil])
+  @@index([tenantId, legalHold, deletionState])
+}
+
+model BusinessIdentity {
+  id              String   @id @default(cuid())
+  tenantId        String   @unique
+  displayName     String
+  legalName       String?
+  businessType    String?
+  description     String?
+  defaultLocale   String   @default("en")
+  timezone        String
+  defaultCurrency String   @db.VarChar(3)
+  rowVersion      Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant       Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  attributions BusinessInformationAttribution[]
+
+  @@unique([tenantId, id])
+}
+
+model BusinessOffering {
+  id             String               @id @default(cuid())
+  tenantId       String
+  kind           BusinessOfferingKind @default(SERVICE)
+  category       String?
+  parentCategory String?
+  name           String
+  description    String?
+  locale         String               @default("en")
+  bookingNotes   String?
+  active         Boolean              @default(true)
+  rowVersion     Int                  @default(1)
+  archivedAt     DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  tenant             Tenant                            @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  prices             BusinessOfferingPrice[]
+  duration           BusinessOfferingDuration?
+  sourceBindings     BusinessOfferingSourceBinding[]
+  importCandidates   BusinessImportCandidate[]
+  candidateRevisions BusinessImportCandidateRevision[]
+  attributions       BusinessInformationAttribution[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, active, updatedAt])
+  @@index([tenantId, kind, category])
+}
+
+model BusinessOfferingPrice {
+  id             String                    @id @default(cuid())
+  tenantId       String
+  offeringId     String
+  type           BusinessOfferingPriceType
+  amount         Decimal?                  @db.Decimal(19, 4)
+  amountFrom     Decimal?                  @db.Decimal(19, 4)
+  amountTo       Decimal?                  @db.Decimal(19, 4)
+  currency       String                    @db.VarChar(3)
+  unit           String?
+  taxNote        String?
+  effectiveFrom  DateTime?                 @db.Date
+  effectiveUntil DateTime?                 @db.Date
+  rowVersion     Int                       @default(1)
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  tenant       Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  offering     BusinessOffering                 @relation(fields: [tenantId, offeringId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+  attributions BusinessInformationAttribution[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, offeringId, effectiveFrom])
+  @@index([tenantId, currency])
+}
+
+model BusinessOfferingDuration {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  offeringId         String
+  minimumMinutes     Int
+  maximumMinutes     Int?
+  preparationMinutes Int?
+  bufferMinutes      Int?
+  rowVersion         Int      @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tenant       Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  offering     BusinessOffering                 @relation(fields: [tenantId, offeringId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+  attributions BusinessInformationAttribution[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, offeringId])
+}
+
+model BusinessImportSource {
+  id                  String                     @id @default(cuid())
+  tenantId            String
+  lineageKey          String
+  displayName         String
+  upstreamSystem      String?
+  status              BusinessImportSourceStatus @default(ACTIVE)
+  latestImportId      String?
+  lastSchemaHash      String?
+  lastMappingRevision Int?
+  etag                Int                        @default(1)
+  createdByUserId     String
+  updatedByUserId     String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  archivedAt          DateTime?
+
+  tenant            Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  creatorMembership Membership                       @relation("BusinessImportSourceCreator", fields: [tenantId, createdByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+  updaterMembership Membership?                      @relation("BusinessImportSourceUpdater", fields: [tenantId, updatedByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+  imports           BusinessImport[]                 @relation("BusinessImportSourceImports")
+  artifacts         BusinessImportArtifact[]
+  latestImport      BusinessImport?                  @relation("BusinessImportSourceLatest", fields: [tenantId, id, latestImportId], references: [tenantId, sourceId, id], onDelete: NoAction, onUpdate: NoAction)
+  mappings          BusinessImportMapping[]
+  offeringBindings  BusinessOfferingSourceBinding[]
+  attributions      BusinessInformationAttribution[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, lineageKey])
+  @@unique([tenantId, id, latestImportId])
+  @@index([tenantId, status, updatedAt])
+}
+
+model BusinessImportArtifact {
+  id                   String                              @id @default(cuid())
+  tenantId             String
+  sourceId             String
+  objectStorageKey     String
+  encryptionKeyRef     String
+  objectLedgerId       String
+  objectKind           BusinessImportObjectKind            @default(RAW_ARTIFACT)
+  sha256               String
+  byteSize             BigInt
+  detectedMimeType     String?
+  declaredMimeType     String
+  originalFilename     String
+  malwareStatus        BusinessImportArtifactMalwareStatus @default(PENDING)
+  mimeValidationStatus BusinessImportMimeValidationStatus  @default(PENDING)
+  acquiredAt           DateTime                            @default(now())
+  scannedAt            DateTime?
+  createdAt            DateTime                            @default(now())
+  updatedAt            DateTime                            @updatedAt
+
+  tenant          Tenant                            @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  source          BusinessImportSource              @relation(fields: [tenantId, sourceId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  objectLedger    BusinessImportObjectLedger        @relation("BusinessImportArtifactObjectLedger", fields: [tenantId, objectLedgerId, objectKind, objectStorageKey, encryptionKeyRef], references: [tenantId, id, objectKind, objectStorageKey, encryptionKeyRef], onDelete: Restrict, onUpdate: NoAction)
+  imports         BusinessImport[]
+  parsedRevisions BusinessImportParsedRevision[]
+  evidence        BusinessImportCandidateEvidence[]
+  attributions    BusinessInformationAttribution[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceId, id])
+  @@unique([tenantId, sourceId, id, sha256], map: "BusinessImportArtifact_exact_hash_key")
+  @@unique([tenantId, objectStorageKey])
+  @@index([tenantId, sourceId, sha256])
+  @@index([tenantId, objectLedgerId])
+}
+
+model BusinessImport {
+  id                             String                    @id @default(cuid())
+  tenantId                       String
+  sourceId                       String
+  purpose                        BusinessImportPurpose
+  format                         BusinessImportFormat
+  state                          BusinessImportState       @default(CREATED)
+  generation                     Int                       @default(1)
+  etag                           Int                       @default(1)
+  displayName                    String
+  originalFilename               String
+  declaredMimeType               String
+  expectedByteSize               BigInt
+  uploadTokenHash                String                    @unique
+  stagingObjectKey               String?                   @unique
+  stagingEncryptionKeyRef        String?
+  stagingObjectLedgerId          String?
+  stagingObjectKind              BusinessImportObjectKind?
+  artifactId                     String?
+  artifactSha256                 String?
+  parsedRevisionId               String?
+  parsedManifestObjectKey        String?
+  parsedManifestEncryptionKeyRef String?
+  parsedManifestObjectLedgerId   String?
+  parsedManifestObjectKind       BusinessImportObjectKind?
+  parsedManifestHash             String?
+  baseBusinessRevisionId         String?
+  baseInformationRevision        Int
+  baseInformationHash            String
+  selectedCategories             Json
+  parserVersion                  String?
+  ocrVersion                     String?
+  mapperVersion                  String?
+  schemaVersion                  String
+  modelVersion                   String?
+  promptVersion                  String?
+  safeSummary                    Json?
+  failureCode                    String?
+  failureStage                   String?
+  retryable                      Boolean                   @default(false)
+  expiresAt                      DateTime
+  uploadedAt                     DateTime?
+  finalizedAt                    DateTime?
+  parsedAt                       DateTime?
+  reviewReadyAt                  DateTime?
+  reviewCompletedAt              DateTime?
+  applyStartedAt                 DateTime?
+  appliedAt                      DateTime?
+  cancelledAt                    DateTime?
+  cancelledByUserId              String?
+  createdByUserId                String
+  createdAt                      DateTime                  @default(now())
+  updatedAt                      DateTime                  @updatedAt
+
+  tenant                Tenant                                 @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  source                BusinessImportSource                   @relation("BusinessImportSourceImports", fields: [tenantId, sourceId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  latestForSource       BusinessImportSource?                  @relation("BusinessImportSourceLatest")
+  stagingObjectLedger   BusinessImportObjectLedger?            @relation("BusinessImportStagingObjectLedger", fields: [tenantId, stagingObjectLedgerId, stagingObjectKind, stagingObjectKey, stagingEncryptionKeyRef], references: [tenantId, id, objectKind, objectStorageKey, encryptionKeyRef], onDelete: Restrict, onUpdate: NoAction)
+  artifact              BusinessImportArtifact?                @relation(fields: [tenantId, sourceId, artifactId, artifactSha256], references: [tenantId, sourceId, id, sha256], onDelete: Restrict, onUpdate: NoAction)
+  baseBusinessRevision  BusinessInformationRevision?           @relation("BusinessImportBaseRevision", fields: [tenantId, baseBusinessRevisionId, baseInformationRevision, baseInformationHash], references: [tenantId, id, revision, canonicalHash], onDelete: Restrict, onUpdate: NoAction)
+  currentParsedRevision BusinessImportParsedRevision?          @relation("BusinessImportCurrentParsedRevision", fields: [tenantId, sourceId, id, artifactId, artifactSha256, generation, parsedRevisionId, parsedManifestObjectLedgerId, parsedManifestObjectKind, parsedManifestObjectKey, parsedManifestEncryptionKeyRef, parsedManifestHash], references: [tenantId, sourceId, importId, artifactId, artifactSha256, importGeneration, id, manifestObjectLedgerId, manifestObjectKind, manifestObjectKey, manifestEncryptionKeyRef, manifestHash], onDelete: Restrict, onUpdate: NoAction)
+  creatorMembership     Membership                             @relation("BusinessImportCreator", fields: [tenantId, createdByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+  cancellerMembership   Membership?                            @relation("BusinessImportCanceller", fields: [tenantId, cancelledByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+  mappings              BusinessImportMapping[]
+  parsedRevisions       BusinessImportParsedRevision[]         @relation("BusinessImportParsedRevisions")
+  candidates            BusinessImportCandidate[]
+  candidateRevisions    BusinessImportCandidateRevision[]
+  candidateApprovals    BusinessImportCandidateApproval[]
+  approvalGrants        BusinessImportApprovalGrant[]
+  candidateEvidence     BusinessImportCandidateEvidence[]
+  applications          BusinessImportApplication[]
+  projectionReceipts    BusinessInformationProjectionReceipt[]
+  firstSeenBindings     BusinessOfferingSourceBinding[]        @relation("BusinessOfferingBindingFirstImport")
+  lastSeenBindings      BusinessOfferingSourceBinding[]        @relation("BusinessOfferingBindingLastImport")
+  attributions          BusinessInformationAttribution[]
+  quotaReservation      BusinessImportQuotaReservation?
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceId, id])
+  @@unique([tenantId, sourceId, id, artifactId, artifactSha256], map: "BusinessImport_exact_artifact_key")
+  @@unique([tenantId, sourceId, id, artifactId, artifactSha256, generation, parsedRevisionId, parsedManifestObjectLedgerId, parsedManifestObjectKind, parsedManifestObjectKey, parsedManifestEncryptionKeyRef, parsedManifestHash], map: "BusinessImport_current_parsed_revision_key")
+  @@index([tenantId, state, updatedAt])
+  @@index([tenantId, sourceId, createdAt])
+  @@index([state, expiresAt])
+  @@index([tenantId, artifactSha256])
+}
+
+model BusinessImportParsedRevision {
+  id                        String                   @id @default(cuid())
+  tenantId                  String
+  sourceId                  String
+  importId                  String
+  importGeneration          Int
+  artifactId                String
+  artifactSha256            String
+  manifestObjectLedgerId    String
+  manifestObjectKind        BusinessImportObjectKind @default(PARSED_MANIFEST)
+  manifestObjectKey         String
+  manifestEncryptionKeyRef  String
+  manifestHash              String
+  parserVersion             String
+  ocrVersion                String?
+  mapperVersion             String
+  schemaVersion             String
+  extractionContractVersion String
+  createdAt                 DateTime                 @default(now())
+
+  tenant               Tenant                            @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  import               BusinessImport                    @relation("BusinessImportParsedRevisions", fields: [tenantId, sourceId, importId, artifactId, artifactSha256], references: [tenantId, sourceId, id, artifactId, artifactSha256], onDelete: Restrict, onUpdate: NoAction)
+  currentForImport     BusinessImport?                   @relation("BusinessImportCurrentParsedRevision")
+  artifact             BusinessImportArtifact            @relation(fields: [tenantId, sourceId, artifactId, artifactSha256], references: [tenantId, sourceId, id, sha256], onDelete: Restrict, onUpdate: NoAction)
+  manifestObjectLedger BusinessImportObjectLedger        @relation("BusinessImportParsedManifestLedger", fields: [tenantId, manifestObjectLedgerId, manifestObjectKind, manifestObjectKey, manifestEncryptionKeyRef], references: [tenantId, id, objectKind, objectStorageKey, encryptionKeyRef], onDelete: Restrict, onUpdate: NoAction)
+  candidateRevisions   BusinessImportCandidateRevision[]
+  evidence             BusinessImportCandidateEvidence[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceId, importId, id])
+  @@unique([tenantId, sourceId, importId, artifactId, artifactSha256, importGeneration, id, manifestObjectLedgerId, manifestObjectKind, manifestObjectKey, manifestEncryptionKeyRef, manifestHash], map: "BusinessImportParsedRevision_exact_key")
+  @@unique([tenantId, sourceId, importId, artifactId, artifactSha256, importGeneration, id, manifestHash], map: "BusinessImportParsedRevision_evidence_key")
+  @@unique([tenantId, sourceId, importId, importGeneration])
+  @@unique([tenantId, manifestObjectKey])
+  @@index([tenantId, artifactId, importGeneration])
+}
+
+model BusinessImportMapping {
+  id                  String                       @id @default(cuid())
+  tenantId            String
+  sourceId            String
+  importId            String
+  tableKey            String
+  schemaHash          String
+  headerRow           Int?
+  targetCategory      BusinessImportTargetCategory
+  fieldMappings       Json
+  defaultLocale       String?
+  defaultCurrency     String?                      @db.VarChar(3)
+  defaultTimezone     String?
+  defaultUnit         String?
+  revision            Int                          @default(1)
+  etag                Int                          @default(1)
+  supersedesMappingId String?
+  supersedesRevision  Int?
+  confirmedByUserId   String?
+  confirmedAt         DateTime?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+
+  tenant              Tenant                            @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  source              BusinessImportSource              @relation(fields: [tenantId, sourceId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  import              BusinessImport                    @relation(fields: [tenantId, sourceId, importId], references: [tenantId, sourceId, id], onDelete: Cascade, onUpdate: NoAction)
+  confirmerMembership Membership?                       @relation("BusinessImportMappingConfirmer", fields: [tenantId, confirmedByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+  supersedes          BusinessImportMapping?            @relation("BusinessImportMappingRevision", fields: [tenantId, sourceId, tableKey, targetCategory, supersedesMappingId, supersedesRevision], references: [tenantId, sourceId, tableKey, targetCategory, id, revision], onDelete: Restrict, onUpdate: NoAction)
+  supersededBy        BusinessImportMapping[]           @relation("BusinessImportMappingRevision")
+  candidates          BusinessImportCandidate[]
+  candidateRevisions  BusinessImportCandidateRevision[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, importId, id])
+  @@unique([tenantId, sourceId, tableKey, targetCategory, revision], map: "BusinessImportMapping_lineage_revision_key")
+  @@unique([tenantId, sourceId, tableKey, targetCategory, id, revision], map: "BusinessImportMapping_lineage_identity_key")
+  @@index([tenantId, sourceId, schemaHash])
+  @@index([tenantId, importId, targetCategory])
+}
+
+model BusinessImportCandidate {
+  id                  String                          @id @default(cuid())
+  tenantId            String
+  sourceId            String
+  importId            String
+  mappingId           String?
+  candidateKey        String
+  targetCategory      BusinessImportTargetCategory
+  semanticTargetKey   String
+  action              BusinessImportCandidateAction
+  normalizedValue     Json
+  normalizedValueHash String
+  targetOfferingId    String?
+  currentFingerprint  String?
+  risk                BusinessImportRiskLevel
+  confidence          BusinessImportConfidenceBand
+  validationCodes     Json?
+  reasonCodes         Json?
+  decision            BusinessImportCandidateDecision @default(PENDING)
+  requiresApproval    Boolean                         @default(false)
+  requiredPermission  String                          @default("")
+  version             Int                             @default(1)
+  etag                Int                             @default(1)
+  decidedByUserId     String?
+  decidedAt           DateTime?
+  staleAt             DateTime?
+  appliedAt           DateTime?
+  createdAt           DateTime                        @default(now())
+  updatedAt           DateTime                        @updatedAt
+
+  tenant             Tenant                               @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  import             BusinessImport                       @relation(fields: [tenantId, sourceId, importId], references: [tenantId, sourceId, id], onDelete: Cascade, onUpdate: NoAction)
+  mapping            BusinessImportMapping?               @relation(fields: [tenantId, importId, mappingId], references: [tenantId, importId, id], onDelete: Restrict, onUpdate: NoAction)
+  targetOffering     BusinessOffering?                    @relation(fields: [tenantId, targetOfferingId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  decisionMembership Membership?                          @relation("BusinessImportCandidateDecisionActor", fields: [tenantId, decidedByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+  approvals          BusinessImportCandidateApproval[]
+  approvalGrants     BusinessImportApprovalGrant[]
+  revisions          BusinessImportCandidateRevision[]
+  evidence           BusinessImportCandidateEvidence[]
+  applicationItems   BusinessImportApplicationCandidate[]
+  attributions       BusinessInformationAttribution[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, importId, id])
+  @@unique([tenantId, sourceId, importId, id], map: "BusinessImportCandidate_source_context_key")
+  @@unique([tenantId, importId, candidateKey])
+  @@index([tenantId, importId, decision, action])
+  @@index([tenantId, targetOfferingId])
+  @@index([tenantId, risk, requiresApproval])
+}
+
+model BusinessImportCandidateRevision {
+  id                  String                        @id @default(cuid())
+  tenantId            String
+  sourceId            String
+  importId            String
+  candidateId         String
+  version             Int
+  parsedRevisionId    String
+  importGeneration    Int
+  artifactId          String
+  artifactSha256      String
+  parsedManifestHash  String
+  mappingId           String?
+  targetCategory      BusinessImportTargetCategory
+  semanticTargetKey   String
+  action              BusinessImportCandidateAction
+  normalizedValue     Json
+  normalizedValueHash String
+  fieldProvenance     Json
+  targetOfferingId    String?
+  currentFingerprint  String?
+  risk                BusinessImportRiskLevel
+  confidence          BusinessImportConfidenceBand
+  validationCodes     Json?
+  reasonCodes         Json?
+  requiresApproval    Boolean                       @default(false)
+  requiredPermission  String                        @default("")
+  createdAt           DateTime                      @default(now())
+
+  tenant           Tenant                               @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  import           BusinessImport                       @relation(fields: [tenantId, sourceId, importId], references: [tenantId, sourceId, id], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportCandidateRevision_import_fkey")
+  candidate        BusinessImportCandidate              @relation(fields: [tenantId, sourceId, importId, candidateId], references: [tenantId, sourceId, importId, id], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportCandidateRevision_candidate_fkey")
+  parsedRevision   BusinessImportParsedRevision         @relation(fields: [tenantId, sourceId, importId, artifactId, artifactSha256, importGeneration, parsedRevisionId, parsedManifestHash], references: [tenantId, sourceId, importId, artifactId, artifactSha256, importGeneration, id, manifestHash], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportCandidateRevision_parsed_fkey")
+  mapping          BusinessImportMapping?               @relation(fields: [tenantId, importId, mappingId], references: [tenantId, importId, id], onDelete: Restrict, onUpdate: NoAction)
+  targetOffering   BusinessOffering?                    @relation(fields: [tenantId, targetOfferingId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  approvals        BusinessImportCandidateApproval[]
+  approvalGrants   BusinessImportApprovalGrant[]
+  evidence         BusinessImportCandidateEvidence[]
+  applicationItems BusinessImportApplicationCandidate[]
+  attributions     BusinessInformationAttribution[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceId, importId, candidateId, id])
+  @@unique([tenantId, sourceId, importId, candidateId, version, normalizedValueHash], map: "BusinessImportCandidateRevision_version_key")
+  @@unique([tenantId, sourceId, importId, candidateId, version, normalizedValueHash, requiresApproval, requiredPermission], map: "BusinessImportCandidateRevision_approval_key")
+  @@unique([tenantId, sourceId, importId, candidateId, version, normalizedValueHash, action, targetCategory, risk, requiresApproval, requiredPermission], map: "BusinessImportCandidateRevision_application_key")
+  @@unique([tenantId, sourceId, importId, candidateId, version, normalizedValueHash, parsedRevisionId, importGeneration, artifactId, artifactSha256, parsedManifestHash], map: "BusinessImportCandidateRevision_exact_parse_key")
+  @@index([tenantId, importId, candidateId, createdAt])
+}
+
+model BusinessImportCandidateApproval {
+  id                 String                      @id @default(cuid())
+  tenantId           String
+  sourceId           String
+  importId           String
+  candidateId        String
+  candidateVersion   Int
+  candidateValueHash String
+  requiresApproval   Boolean                     @default(true)
+  requiredPermission String
+  riskReason         String
+  state              BusinessImportApprovalState @default(PENDING)
+  requestedByUserId  String
+  decidedByUserId    String?
+  decisionReason     String?
+  decidedAt          DateTime?
+  invalidatedAt      DateTime?
+  etag               Int                         @default(1)
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+
+  tenant              Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  import              BusinessImport                  @relation(fields: [tenantId, sourceId, importId], references: [tenantId, sourceId, id], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportCandidateApproval_import_fkey")
+  candidate           BusinessImportCandidate         @relation(fields: [tenantId, sourceId, importId, candidateId], references: [tenantId, sourceId, importId, id], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportCandidateApproval_candidate_fkey")
+  candidateRevision   BusinessImportCandidateRevision @relation(fields: [tenantId, sourceId, importId, candidateId, candidateVersion, candidateValueHash, requiresApproval, requiredPermission], references: [tenantId, sourceId, importId, candidateId, version, normalizedValueHash, requiresApproval, requiredPermission], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportCandidateApproval_revision_fkey")
+  requesterMembership Membership                      @relation("BusinessImportApprovalRequester", fields: [tenantId, requestedByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+  deciderMembership   Membership?                     @relation("BusinessImportApprovalDecider", fields: [tenantId, decidedByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+  grants              BusinessImportApprovalGrant[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceId, importId, candidateId, id], map: "BusinessImportApproval_candidate_context_key")
+  @@unique([tenantId, sourceId, importId, candidateId, id, candidateVersion, candidateValueHash, requiredPermission], map: "BusinessImportApproval_exact_version_key")
+  @@unique([tenantId, candidateId, candidateVersion, candidateValueHash, requiredPermission])
+  @@index([tenantId, importId, state])
+  @@index([tenantId, requestedByUserId, createdAt])
+}
+
+model BusinessImportApprovalGrant {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  sourceId           String
+  importId           String
+  candidateId        String
+  candidateVersion   Int
+  candidateValueHash String
+  requiredPermission String
+  approvalId         String
+  grantedByUserId    String
+  grantedAt          DateTime
+  decisionHash       String
+  createdAt          DateTime @default(now())
+
+  tenant              Tenant                               @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  import              BusinessImport                       @relation(fields: [tenantId, sourceId, importId], references: [tenantId, sourceId, id], onDelete: Restrict, onUpdate: NoAction)
+  candidate           BusinessImportCandidate              @relation(fields: [tenantId, sourceId, importId, candidateId], references: [tenantId, sourceId, importId, id], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportApprovalGrant_candidate_fkey")
+  candidateRevision   BusinessImportCandidateRevision      @relation(fields: [tenantId, sourceId, importId, candidateId, candidateVersion, candidateValueHash], references: [tenantId, sourceId, importId, candidateId, version, normalizedValueHash], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportApprovalGrant_revision_fkey")
+  approval            BusinessImportCandidateApproval      @relation(fields: [tenantId, sourceId, importId, candidateId, approvalId, candidateVersion, candidateValueHash, requiredPermission], references: [tenantId, sourceId, importId, candidateId, id, candidateVersion, candidateValueHash, requiredPermission], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportApprovalGrant_approval_fkey")
+  grantedByMembership Membership                           @relation("BusinessImportApprovalGrantActor", fields: [tenantId, grantedByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+  applicationItems    BusinessImportApplicationCandidate[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceId, importId, candidateId, id, candidateVersion, candidateValueHash, requiredPermission], map: "BusinessImportApprovalGrant_exact_key")
+  @@unique([tenantId, approvalId])
+  @@index([tenantId, importId, candidateId])
+}
+
+model BusinessImportCandidateEvidence {
+  id                        String                   @id @default(cuid())
+  tenantId                  String
+  sourceId                  String
+  importId                  String
+  candidateId               String
+  candidateVersion          Int
+  candidateValueHash        String
+  artifactId                String
+  artifactSha256            String
+  importGeneration          Int
+  parsedRevisionId          String
+  parsedManifestHash        String
+  evidenceRecordHash        String
+  semanticElementId         String?
+  semanticTableId           String?
+  locator                   Json
+  sourceValueHash           String
+  excerptHash               String
+  excerptObjectKey          String
+  excerptEncryptionKeyRef   String
+  excerptObjectLedgerId     String
+  excerptObjectKind         BusinessImportObjectKind @default(EVIDENCE_EXCERPT)
+  parserVersion             String
+  ocrVersion                String?
+  extractionContractVersion String
+  createdAt                 DateTime                 @default(now())
+
+  tenant              Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  import              BusinessImport                   @relation(fields: [tenantId, sourceId, importId], references: [tenantId, sourceId, id], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportCandidateEvidence_import_fkey")
+  candidate           BusinessImportCandidate          @relation(fields: [tenantId, sourceId, importId, candidateId], references: [tenantId, sourceId, importId, id], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportCandidateEvidence_candidate_fkey")
+  candidateRevision   BusinessImportCandidateRevision  @relation(fields: [tenantId, sourceId, importId, candidateId, candidateVersion, candidateValueHash, parsedRevisionId, importGeneration, artifactId, artifactSha256, parsedManifestHash], references: [tenantId, sourceId, importId, candidateId, version, normalizedValueHash, parsedRevisionId, importGeneration, artifactId, artifactSha256, parsedManifestHash], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportCandidateEvidence_revision_fkey")
+  parsedRevision      BusinessImportParsedRevision     @relation(fields: [tenantId, sourceId, importId, artifactId, artifactSha256, importGeneration, parsedRevisionId, parsedManifestHash], references: [tenantId, sourceId, importId, artifactId, artifactSha256, importGeneration, id, manifestHash], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportCandidateEvidence_parsed_revision_fkey")
+  artifact            BusinessImportArtifact           @relation(fields: [tenantId, sourceId, artifactId, artifactSha256], references: [tenantId, sourceId, id, sha256], onDelete: Restrict, onUpdate: NoAction)
+  excerptObjectLedger BusinessImportObjectLedger       @relation("BusinessImportEvidenceExcerptLedger", fields: [tenantId, excerptObjectLedgerId, excerptObjectKind, excerptObjectKey, excerptEncryptionKeyRef], references: [tenantId, id, objectKind, objectStorageKey, encryptionKeyRef], onDelete: Restrict, onUpdate: NoAction)
+  attributions        BusinessInformationAttribution[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceId, id], map: "BusinessImportEvidence_source_context_key")
+  @@unique([tenantId, sourceId, importId, candidateId, candidateVersion, candidateValueHash, artifactId, artifactSha256, importGeneration, parsedRevisionId, parsedManifestHash, sourceValueHash, id], map: "BusinessImportEvidence_exact_context_key")
+  @@index([tenantId, excerptObjectLedgerId], map: "BusinessImportEvidence_excerpt_ledger_idx")
+  @@index([tenantId, candidateId])
+  @@index([tenantId, artifactId, parsedRevisionId])
+}
+
+model BusinessOfferingSourceBinding {
+  id                      String   @id @default(cuid())
+  tenantId                String
+  sourceId                String
+  offeringId              String
+  externalKey             String
+  normalizedCandidateKey  String?
+  firstSeenImportId       String
+  lastSeenImportId        String
+  lastSeenSourceValueHash String
+  active                  Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  source          BusinessImportSource @relation(fields: [tenantId, sourceId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  offering        BusinessOffering     @relation(fields: [tenantId, offeringId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  firstSeenImport BusinessImport       @relation("BusinessOfferingBindingFirstImport", fields: [tenantId, sourceId, firstSeenImportId], references: [tenantId, sourceId, id], onDelete: Restrict, onUpdate: NoAction)
+  lastSeenImport  BusinessImport       @relation("BusinessOfferingBindingLastImport", fields: [tenantId, sourceId, lastSeenImportId], references: [tenantId, sourceId, id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceId, externalKey])
+  @@index([tenantId, offeringId])
+  @@index([tenantId, sourceId, normalizedCandidateKey])
+  @@index([tenantId, sourceId, active])
+}
+
+model BusinessImportApplication {
+  id                           String                         @id @default(cuid())
+  tenantId                     String
+  sourceId                     String
+  importId                     String
+  kind                         BusinessImportApplicationKind  @default(APPLY)
+  state                        BusinessImportApplicationState @default(COMMITTED)
+  revertOfApplicationId        String?
+  previewManifestHash          String
+  previewObjectLedgerId        String
+  previewObjectKind            BusinessImportObjectKind       @default(APPLICATION_PREVIEW)
+  previewObjectKey             String
+  previewEncryptionKeyRef      String
+  candidateManifestHash        String
+  idempotencyKeyHash           String
+  idempotencyRequestHash       String
+  baseInformationRevision      Int
+  baseInformationHash          String
+  baseBusinessRevisionId       String?
+  resultingInformationRevision Int
+  resultingInformationHash     String
+  businessRevisionId           String
+  affectedResourceVersions     Json
+  projectionOutboxDedupeKey    String
+  projectionOutboxId           String?
+  projectionOutboxPrunedAt     DateTime?
+  projectionReceiptHash        String?
+  publicationId                String?
+  createdByUserId              String
+  committedAt                  DateTime                       @default(now())
+  projectedAt                  DateTime?
+  revertedAt                   DateTime?
+  supersededAt                 DateTime?
+  createdAt                    DateTime                       @default(now())
+  updatedAt                    DateTime                       @updatedAt
+
+  tenant               Tenant                                @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  import               BusinessImport                        @relation(fields: [tenantId, sourceId, importId], references: [tenantId, sourceId, id], onDelete: Restrict, onUpdate: NoAction)
+  baseBusinessRevision BusinessInformationRevision?          @relation("BusinessImportApplicationBaseRevision", fields: [tenantId, baseBusinessRevisionId, baseInformationRevision, baseInformationHash], references: [tenantId, id, revision, canonicalHash], onDelete: Restrict, onUpdate: NoAction)
+  businessRevision     BusinessInformationRevision           @relation("BusinessImportApplicationResultRevision", fields: [tenantId, businessRevisionId, resultingInformationRevision, resultingInformationHash], references: [tenantId, id, revision, canonicalHash], onDelete: Restrict, onUpdate: NoAction)
+  previewObjectLedger  BusinessImportObjectLedger            @relation("BusinessImportApplicationPreviewLedger", fields: [tenantId, previewObjectLedgerId, previewObjectKind, previewObjectKey, previewEncryptionKeyRef], references: [tenantId, id, objectKind, objectStorageKey, encryptionKeyRef], onDelete: Restrict, onUpdate: NoAction)
+  projectionOutbox     RuntimeOutbox?                        @relation("BusinessImportProjectionOutbox", fields: [projectionOutboxId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  actorMembership      Membership                            @relation("BusinessImportApplicationActor", fields: [tenantId, createdByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+  publication          KnowledgePublication?                 @relation(fields: [tenantId, publicationId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  revertOf             BusinessImportApplication?            @relation("BusinessImportApplicationRevert", fields: [tenantId, revertOfApplicationId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  reverts              BusinessImportApplication[]           @relation("BusinessImportApplicationRevert")
+  candidateItems       BusinessImportApplicationCandidate[]
+  projectionReceipt    BusinessInformationProjectionReceipt?
+  attributions         BusinessInformationAttribution[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, importId, id])
+  @@unique([tenantId, sourceId, importId, id], map: "BusinessImportApplication_source_context_key")
+  @@unique([tenantId, sourceId, importId, id, businessRevisionId, resultingInformationRevision, resultingInformationHash], map: "BusinessImportApplication_revision_context_key")
+  @@unique([tenantId, sourceId, importId, id, businessRevisionId, resultingInformationRevision, resultingInformationHash, projectionOutboxDedupeKey], map: "BusinessImportApplication_projection_context_key")
+  @@unique([tenantId, businessRevisionId])
+  @@unique([tenantId, idempotencyKeyHash])
+  @@unique([tenantId, projectionOutboxDedupeKey])
+  @@index([tenantId, importId, state])
+  @@index([tenantId, resultingInformationRevision])
+  @@index([tenantId, publicationId])
+}
+
+model BusinessImportApplicationCandidate {
+  tenantId           String
+  sourceId           String
+  importId           String
+  applicationId      String
+  candidateId        String
+  candidateVersion   Int
+  candidateValueHash String
+  action             BusinessImportCandidateAction
+  targetCategory     BusinessImportTargetCategory
+  risk               BusinessImportRiskLevel
+  requiresApproval   Boolean
+  requiredPermission String
+  approvalGrantId    String?
+  appliedAt          DateTime                      @default(now())
+
+  tenant            Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  application       BusinessImportApplication        @relation(fields: [tenantId, sourceId, importId, applicationId], references: [tenantId, sourceId, importId, id], onDelete: Cascade, onUpdate: NoAction)
+  candidate         BusinessImportCandidate          @relation(fields: [tenantId, sourceId, importId, candidateId], references: [tenantId, sourceId, importId, id], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportApplicationCandidate_candidate_fkey")
+  candidateRevision BusinessImportCandidateRevision  @relation(fields: [tenantId, sourceId, importId, candidateId, candidateVersion, candidateValueHash, action, targetCategory, risk, requiresApproval, requiredPermission], references: [tenantId, sourceId, importId, candidateId, version, normalizedValueHash, action, targetCategory, risk, requiresApproval, requiredPermission], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportApplicationCandidate_revision_fkey")
+  approvalGrant     BusinessImportApprovalGrant?     @relation(fields: [tenantId, sourceId, importId, candidateId, approvalGrantId, candidateVersion, candidateValueHash, requiredPermission], references: [tenantId, sourceId, importId, candidateId, id, candidateVersion, candidateValueHash, requiredPermission], onDelete: Restrict, onUpdate: NoAction, map: "BusinessImportApplicationCandidate_approval_grant_fkey")
+  attributions      BusinessInformationAttribution[]
+
+  @@id([tenantId, applicationId, candidateId])
+  @@unique([tenantId, sourceId, importId, applicationId, candidateId, candidateVersion, candidateValueHash], map: "BusinessImportApplicationCandidate_attribution_key")
+  @@index([tenantId, importId, candidateId])
+  @@index([tenantId, approvalGrantId])
+}
+
+model BusinessInformationProjectionReceipt {
+  id                         String    @id @default(cuid())
+  tenantId                   String
+  sourceId                   String?
+  importId                   String?
+  applicationId              String?   @unique
+  businessRevisionId         String
+  businessRevision           Int
+  businessRevisionHash       String
+  knowledgeTargetKey         String
+  knowledgeDraftGeneration   Int
+  knowledgeDraftManifestHash String
+  runtimeOutboxId            String?
+  runtimeOutboxDedupeKey     String
+  runtimeOutboxPrunedAt      DateTime?
+  receiptHash                String
+  projectedAt                DateTime  @default(now())
+  createdAt                  DateTime  @default(now())
+
+  tenant              Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  import              BusinessImport?             @relation(fields: [tenantId, sourceId, importId], references: [tenantId, sourceId, id], onDelete: Restrict, onUpdate: NoAction, map: "BusinessInformationProjectionReceipt_import_fkey")
+  application         BusinessImportApplication?  @relation(fields: [tenantId, sourceId, importId, applicationId, businessRevisionId, businessRevision, businessRevisionHash, runtimeOutboxDedupeKey], references: [tenantId, sourceId, importId, id, businessRevisionId, resultingInformationRevision, resultingInformationHash, projectionOutboxDedupeKey], onDelete: Restrict, onUpdate: NoAction, map: "BusinessInformationProjectionReceipt_application_fkey")
+  informationRevision BusinessInformationRevision @relation(fields: [tenantId, businessRevisionId, businessRevision, businessRevisionHash], references: [tenantId, id, revision, canonicalHash], onDelete: Restrict, onUpdate: NoAction)
+  runtimeOutbox       RuntimeOutbox?              @relation("BusinessInformationProjectionOutbox", fields: [runtimeOutboxId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  currentForState     BusinessInformationState?   @relation("BusinessInformationStateProjectionReceipt")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, businessRevisionId, businessRevision, businessRevisionHash, receiptHash], map: "BusinessInformationProjectionReceipt_exact_key")
+  @@unique([tenantId, applicationId])
+  @@unique([tenantId, sourceId, importId, applicationId, businessRevisionId, businessRevision, businessRevisionHash, runtimeOutboxDedupeKey], map: "BusinessInformationProjectionReceipt_application_key")
+  @@unique([tenantId, runtimeOutboxDedupeKey])
+  @@index([tenantId, businessRevision, projectedAt])
+}
+
+model BusinessInformationAttribution {
+  id                   String                          @id @default(cuid())
+  tenantId             String
+  resourceType         BusinessInformationResourceType
+  resourceKey          String
+  identityId           String?
+  offeringId           String?
+  offeringPriceId      String?
+  offeringDurationId   String?
+  fieldPath            String
+  currentValueHash     String
+  sourceValueHash      String?
+  authority            BusinessInformationAuthority
+  confidence           BusinessImportConfidenceBand?
+  sourceId             String?
+  importId             String?
+  candidateId          String?
+  candidateVersion     Int?
+  candidateValueHash   String?
+  evidenceId           String?
+  artifactId           String?
+  artifactSha256       String?
+  importGeneration     Int?
+  parsedRevisionId     String?
+  parsedManifestHash   String?
+  applicationId        String?
+  businessRevisionId   String
+  businessRevision     Int
+  businessRevisionHash String
+  parserVersion        String?
+  ocrVersion           String?
+  mapperVersion        String?
+  schemaVersion        String?
+  modelVersion         String?
+  promptVersion        String?
+  approvedByUserId     String?
+  approvedAt           DateTime?
+  attributedAt         DateTime                        @default(now())
+  supersededAt         DateTime?
+  createdAt            DateTime                        @default(now())
+
+  tenant               Tenant                              @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  identity             BusinessIdentity?                   @relation(fields: [tenantId, identityId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  offering             BusinessOffering?                   @relation(fields: [tenantId, offeringId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  offeringPrice        BusinessOfferingPrice?              @relation(fields: [tenantId, offeringPriceId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  offeringDuration     BusinessOfferingDuration?           @relation(fields: [tenantId, offeringDurationId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  source               BusinessImportSource?               @relation(fields: [tenantId, sourceId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  import               BusinessImport?                     @relation(fields: [tenantId, importId], references: [tenantId, id], onDelete: Restrict, onUpdate: NoAction)
+  candidate            BusinessImportCandidate?            @relation(fields: [tenantId, sourceId, importId, candidateId], references: [tenantId, sourceId, importId, id], onDelete: Restrict, onUpdate: NoAction, map: "BusinessInformationAttribution_candidate_fkey")
+  candidateRevision    BusinessImportCandidateRevision?    @relation(fields: [tenantId, sourceId, importId, candidateId, candidateVersion, candidateValueHash, parsedRevisionId, importGeneration, artifactId, artifactSha256, parsedManifestHash], references: [tenantId, sourceId, importId, candidateId, version, normalizedValueHash, parsedRevisionId, importGeneration, artifactId, artifactSha256, parsedManifestHash], onDelete: Restrict, onUpdate: NoAction, map: "BusinessInformationAttribution_candidate_revision_fkey")
+  evidence             BusinessImportCandidateEvidence?    @relation(fields: [tenantId, sourceId, importId, candidateId, candidateVersion, candidateValueHash, artifactId, artifactSha256, importGeneration, parsedRevisionId, parsedManifestHash, sourceValueHash, evidenceId], references: [tenantId, sourceId, importId, candidateId, candidateVersion, candidateValueHash, artifactId, artifactSha256, importGeneration, parsedRevisionId, parsedManifestHash, sourceValueHash, id], onDelete: Restrict, onUpdate: NoAction, map: "BusinessInformationAttribution_evidence_fkey")
+  artifact             BusinessImportArtifact?             @relation(fields: [tenantId, sourceId, artifactId, artifactSha256], references: [tenantId, sourceId, id, sha256], onDelete: Restrict, onUpdate: NoAction)
+  application          BusinessImportApplication?          @relation(fields: [tenantId, sourceId, importId, applicationId, businessRevisionId, businessRevision, businessRevisionHash], references: [tenantId, sourceId, importId, id, businessRevisionId, resultingInformationRevision, resultingInformationHash], onDelete: Restrict, onUpdate: NoAction, map: "BusinessInformationAttribution_application_fkey")
+  applicationCandidate BusinessImportApplicationCandidate? @relation(fields: [tenantId, sourceId, importId, applicationId, candidateId, candidateVersion, candidateValueHash], references: [tenantId, sourceId, importId, applicationId, candidateId, candidateVersion, candidateValueHash], onDelete: Restrict, onUpdate: NoAction, map: "BusinessInformationAttribution_application_candidate_fkey")
+  informationRevision  BusinessInformationRevision         @relation(fields: [tenantId, businessRevisionId, businessRevision, businessRevisionHash], references: [tenantId, id, revision, canonicalHash], onDelete: Restrict, onUpdate: NoAction)
+  approverMembership   Membership?                         @relation("BusinessInformationAttributionApprover", fields: [tenantId, approvedByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, resourceType, resourceKey, fieldPath, supersededAt])
+  @@index([tenantId, sourceId, importId])
+  @@index([tenantId, candidateId])
+  @@index([tenantId, businessRevisionId])
+  @@index([tenantId, artifactId])
+}
+
+model BusinessImportQuotaReservation {
+  id                  String                    @id @default(cuid())
+  tenantId            String
+  importId            String
+  status              BusinessImportQuotaStatus @default(RESERVED)
+  rawBytes            BigInt                    @default(0)
+  expandedBytes       BigInt                    @default(0)
+  sheetCount          Int                       @default(0)
+  rowCount            Int                       @default(0)
+  columnCount         Int                       @default(0)
+  cellCount           BigInt                    @default(0)
+  pdfPageCount        Int                       @default(0)
+  ocrPageCount        Int                       @default(0)
+  ocrPixels           BigInt                    @default(0)
+  processorSeconds    Int                       @default(0)
+  extractedCharacters Int                       @default(0)
+  candidateCount      Int                       @default(0)
+  modelTokens         BigInt                    @default(0)
+  retainedBytes       BigInt                    @default(0)
+  expiresAt           DateTime
+  consumedAt          DateTime?
+  releasedAt          DateTime?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  import BusinessImport @relation(fields: [tenantId, importId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, importId])
+  @@index([status, expiresAt])
+  @@index([tenantId, status, createdAt])
 }

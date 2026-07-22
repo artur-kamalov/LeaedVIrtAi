@@ -42,6 +42,19 @@ assert(
   enable.includes("temporary server could not bind port 80; no existing listener was changed"),
   "Port 80 conflicts do not fail closed.",
 );
+assert(
+  enable.includes('keys = {"BUSINESS_IMPORT_ENABLED", "BUSINESS_IMPORT_PARSER_APPROVED"}') &&
+    enable.includes('enabled = all(values.get(key, "false") in truthy for key in keys)') &&
+    enable.includes('parser_url=""') &&
+    enable.includes('parser_version="unconfigured"'),
+  "Manual HTTPS enablement does not use the strict two-flag parser gate.",
+);
+assert(
+  /if \[ "\$parser_enabled" = "1" \]; then[\s\S]*?up -d --build --force-recreate business-import-parser api worker web nginx[\s\S]*?Business import parser did not become ready with the expected contract\.[\s\S]*?else[\s\S]*?stop business-import-parser[\s\S]*?rm -f business-import-parser[\s\S]*?up -d --build --force-recreate api worker web nginx[\s\S]*?fi/.test(
+    enable,
+  ),
+  "Manual HTTPS enablement does not conditionally prove or remove the parser before starting core services.",
+);
 
 for (const [name, script] of [
   ["enable", enable],

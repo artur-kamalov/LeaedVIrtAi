@@ -16,10 +16,17 @@
     "qa:automation:truthfulness": "tsx ../../artifacts/scripts/workflow-runtime-truthfulness-smoke.ts",
     "qa:billing:service": "tsx ../../artifacts/scripts/billing-service-smoke.ts",
     "qa:ai:provider": "tsx ../../artifacts/scripts/ai-provider-smoke.ts",
+    "qa:business-profile:canonical": "tsx ../../artifacts/scripts/business-profile-canonical-smoke.ts",
+    "qa:business-import:application": "tsx src/modules/business-profile/business-import-application.service.smoke.ts",
+    "qa:business-import:e2e": "tsx ../../artifacts/scripts/business-import-csv-e2e-smoke.ts",
+    "qa:business-import:lifecycle": "tsx src/modules/business-profile/business-import-object-lifecycle.smoke.ts",
+    "qa:business-import:review": "tsx src/modules/business-profile/business-import-review.service.smoke.ts",
+    "qa:business-import:rebase": "tsx ../../artifacts/scripts/business-import-rebase-smoke.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@leadvirt/ai": "workspace:*",
+    "@leadvirt/business-import": "workspace:*",
     "@leadvirt/config": "workspace:*",
     "@leadvirt/db": "workspace:*",
     "@leadvirt/integrations": "workspace:*",

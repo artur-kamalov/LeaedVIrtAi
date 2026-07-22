@@ -39,6 +39,18 @@ import { createAiBudgetStore } from "../ai/ai-budget-store.js";
 import { runAiReplyGraph } from "../ai/ai-reply-graph.js";
 import { deliverChannelMessage } from "../channels/channel-delivery.js";
 import {
+  businessImportSafeError,
+  createBusinessImportDependencies,
+  isBusinessImportRuntimeData,
+  processBusinessImportJob,
+} from "../business-import/business-import-processor.js";
+import {
+  businessInformationProjectionSafeError,
+  createBusinessInformationProjectionDependencies,
+  isBusinessInformationProjectionRuntimeData,
+  processBusinessInformationProjectionJob,
+} from "../business-import/business-information-projection-processor.js";
+import {
   createKnowledgeIngestionDependencies,
   isKnowledgeIngestionRuntimeData,
   knowledgeIngestionErrorType,
@@ -306,6 +318,9 @@ const knowledgeRetriever = new KnowledgeRuntimeRetriever(
 );
 const groundedAnswerService = createGroundedAnswerService();
 const knowledgeIngestionDependencies = createKnowledgeIngestionDependencies(prisma);
+const businessImportDependencies = createBusinessImportDependencies(prisma);
+const businessInformationProjectionDependencies =
+  createBusinessInformationProjectionDependencies(prisma);
 
 export type LeadVirtJobData = Record<string, unknown>;
 
@@ -537,6 +552,60 @@ export function processLeadVirtJob(
           }
           throw error;
         });
+    }
+    case "business.import": {
+      if (job.name === "project" || job.name === "project-revision") {
+        if (!isBusinessInformationProjectionRuntimeData(data) || typeof job.id !== "string") {
+          throw new UnrecoverableError("The Business Information projection payload is invalid.");
+        }
+        return processBusinessInformationProjectionJob(
+          {
+            id: job.id,
+            name: job.name,
+            data,
+            signal: signal ?? new AbortController().signal,
+          },
+          businessInformationProjectionDependencies,
+        ).catch((error: unknown) => {
+          const safe = businessInformationProjectionSafeError(error);
+          if (!safe.retryable) {
+            const terminal = new UnrecoverableError(safe.message);
+            Object.defineProperty(terminal, "businessInformationProjectionCode", {
+              value: safe.code,
+            });
+            Object.defineProperty(terminal, "businessInformationProjectionStage", {
+              value: safe.stage,
+            });
+            throw terminal;
+          }
+          throw error;
+        });
+      }
+      if (
+        !isBusinessImportRuntimeData(data) ||
+        typeof job.id !== "string" ||
+        job.name !== "parse"
+      ) {
+        throw new UnrecoverableError("The business import queue payload is invalid.");
+      }
+      return processBusinessImportJob(
+        {
+          id: job.id,
+          name: job.name,
+          data,
+          signal: signal ?? new AbortController().signal,
+        },
+        businessImportDependencies,
+      ).catch((error: unknown) => {
+        const safe = businessImportSafeError(error);
+        if (!safe.retryable) {
+          const terminal = new UnrecoverableError(safe.message);
+          Object.defineProperty(terminal, "businessImportCode", { value: safe.code });
+          Object.defineProperty(terminal, "businessImportStage", { value: safe.stage });
+          throw terminal;
+        }
+        throw error;
+      });
     }
     default:
       throw new UnrecoverableError(`No processor is implemented for ${queueName}.`);

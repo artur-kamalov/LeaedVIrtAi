@@ -502,6 +502,8 @@ export type KnowledgeV2JobStatus =
 export type KnowledgeV2ErrorCode =
   | "IDEMPOTENCY_KEY_REUSED"
   | "REVISION_CONFLICT"
+  | `BUSINESS_IMPORT_${string}`
+  | `BUSINESS_INFORMATION_${string}`
   | `KNOWLEDGE_VALIDATION_${string}`
   | `KNOWLEDGE_SOURCE_${string}`
   | `KNOWLEDGE_UPLOAD_${string}`
@@ -1092,6 +1094,365 @@ export interface BusinessProfileView {
   version: number;
   etag: string;
   updatedAt: string;
+}
+
+export type BusinessImportFormat = "CSV" | "XLSX" | "PDF";
+export type BusinessImportState =
+  | "CREATED"
+  | "UPLOADING"
+  | "UPLOADED"
+  | "SCANNING"
+  | "PARSING"
+  | "MAPPING_REQUIRED"
+  | "EXTRACTING"
+  | "READY_FOR_REVIEW"
+  | "AWAITING_APPROVAL"
+  | "APPLYING"
+  | "PROJECTING"
+  | "PROJECTION_DELAYED"
+  | "PARTIALLY_APPLIED"
+  | "APPLIED"
+  | "CLOSED_WITH_REMAINDER"
+  | "FAILED_RETRYABLE"
+  | "FAILED"
+  | "REJECTED"
+  | "CANCELLED"
+  | "EXPIRED";
+export type BusinessImportCandidateAction =
+  | "ADD"
+  | "UPDATE"
+  | "LINK"
+  | "UNCHANGED"
+  | "CONFLICT"
+  | "INVALID"
+  | "MISSING"
+  | "ARCHIVE";
+export type BusinessImportCandidateDecision =
+  | "PENDING"
+  | "ACCEPTED"
+  | "EDITED"
+  | "SUBMITTED_FOR_APPROVAL"
+  | "REJECTED"
+  | "STALE"
+  | "APPLIED";
+export type BusinessImportRiskLevel = "LOW" | "MEDIUM" | "HIGH" | "PROHIBITED";
+export type BusinessImportConfidence = "CONFIRMED_FORMAT" | "HIGH" | "MEDIUM" | "LOW";
+export type BusinessOfferingPriceType = "FIXED" | "FROM" | "RANGE" | "FREE" | "ON_REQUEST";
+export type BusinessImportAllowedAction =
+  | "UPLOAD"
+  | "FINALIZE"
+  | "REVIEW"
+  | "REBASE"
+  | "APPLY"
+  | "RETRY"
+  | "CANCEL"
+  | "REVERT";
+
+export interface BusinessImportCreateIntentRequest {
+  filename: string;
+  declaredMimeType:
+    | "text/csv"
+    | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    | "application/pdf";
+  byteSize: number;
+  sourceId?: string | null;
+  sourceName?: string | null;
+}
+
+export interface BusinessImportUploadPolicyView {
+  maxBytes: number;
+  expectedBytes: number;
+  allowedMimeTypes: readonly string[];
+  expiresAt: string;
+  oneTime: true;
+}
+
+export interface BusinessImportUploadIntentView {
+  id: string;
+  importId: string;
+  uploadUrl: string;
+  method: "PUT";
+  headers: {
+    Authorization: string;
+    "Content-Type": string;
+    "Content-Length": string;
+  };
+  policy: BusinessImportUploadPolicyView;
+  idempotencyReplayed: boolean;
+}
+
+export interface BusinessImportUploadReceiptView {
+  importId: string;
+  status: "UPLOADED";
+  uploadedAt: string;
+}
+
+export interface BusinessImportDiagnosticView {
+  severity: "ERROR" | "WARNING";
+  code: string;
+  message: string;
+  row?: number | null;
+  column?: number | null;
+  field?: string | null;
+}
+
+export interface BusinessImportCountsView {
+  total: number;
+  valid: number;
+  invalid: number;
+  additions: number;
+  updates: number;
+  linked: number;
+  unchanged: number;
+  conflicts: number;
+  pendingApproval: number;
+  applied: number;
+}
+
+export interface BusinessImportProjectionView {
+  businessInformationRevision?: number | null;
+  knowledgeDraftGeneration?: number | null;
+  ready: boolean;
+  errorCode?: string | null;
+}
+
+export interface BusinessImportApplyEligibilityView {
+  eligible: boolean;
+  selectedCandidates: number;
+  blockingConflicts: number;
+  blockingInvalid: number;
+  pendingApprovals: number;
+  staleCandidates: number;
+  reasonCodes: string[];
+}
+
+export interface BusinessImportView {
+  id: string;
+  sourceId: string;
+  sourceName: string;
+  format: BusinessImportFormat;
+  state: BusinessImportState;
+  generation: number;
+  etag: string;
+  originalFilename: string;
+  schemaVersion?: string | null;
+  baseBusinessInformationRevision: number;
+  counts: BusinessImportCountsView;
+  diagnostics: BusinessImportDiagnosticView[];
+  projection: BusinessImportProjectionView;
+  allowedActions: BusinessImportAllowedAction[];
+  applyEligibility: BusinessImportApplyEligibilityView;
+  retryable: boolean;
+  errorCode?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  reviewReadyAt?: string | null;
+  appliedAt?: string | null;
+}
+
+export type BusinessImportCandidateEvidenceAvailability =
+  | "AVAILABLE"
+  | "EXPIRED"
+  | "UNAVAILABLE"
+  | "CORRUPT";
+
+interface BusinessImportCandidateEvidenceBaseView {
+  format: BusinessImportFormat;
+  artifactId: string;
+  locator: {
+    row?: number | null;
+    column?: number | null;
+    header?: string | null;
+    sheet?: string | null;
+    range?: string | null;
+    page?: number | null;
+    boundingBox?: readonly number[] | null;
+  };
+  expiresAt?: string | null;
+}
+
+export type BusinessImportCandidateEvidenceView =
+  | (BusinessImportCandidateEvidenceBaseView & {
+      availability: "AVAILABLE";
+      sourceValue: string;
+    })
+  | (BusinessImportCandidateEvidenceBaseView & {
+      availability: Exclude<BusinessImportCandidateEvidenceAvailability, "AVAILABLE">;
+      sourceValue: null;
+    });
+
+export interface BusinessImportOfferingValue {
+  externalId?: string | null;
+  category?: string | null;
+  name: string;
+  description?: string | null;
+  price?: {
+    type: BusinessOfferingPriceType;
+    amount?: string | null;
+    from?: string | null;
+    to?: string | null;
+    currency?: string | null;
+    unit?: string | null;
+    taxNote?: string | null;
+  } | null;
+  duration?: {
+    minimumMinutes: number;
+    maximumMinutes?: number | null;
+  } | null;
+  locationExternalId?: string | null;
+  bookingNotes?: string | null;
+  active: boolean;
+  validFrom?: string | null;
+  validUntil?: string | null;
+  language?: string | null;
+}
+
+export interface BusinessImportCandidateView {
+  id: string;
+  importId: string;
+  action: BusinessImportCandidateAction;
+  decision: BusinessImportCandidateDecision;
+  riskLevel: BusinessImportRiskLevel;
+  requiresApproval: boolean;
+  confidence: BusinessImportConfidence;
+  version: number;
+  etag: string;
+  targetOfferingId?: string | null;
+  proposed: BusinessImportOfferingValue;
+  current?: BusinessImportOfferingValue | null;
+  diagnostics: BusinessImportDiagnosticView[];
+  evidence: BusinessImportCandidateEvidenceView[];
+  approval?: {
+    id: string;
+    state: "PENDING" | "APPROVED" | "REJECTED" | "INVALIDATED";
+    candidateVersion: number;
+    decidedAt?: string | null;
+  } | null;
+  selected: boolean;
+  canEditProposed: boolean;
+  allowedDecisions: Array<"ACCEPTED" | "REJECTED">;
+  appliedAt?: string | null;
+}
+
+export interface BusinessImportCandidatePage {
+  items: BusinessImportCandidateView[];
+  nextCursor?: string | null;
+}
+
+export interface BusinessImportListQuery {
+  cursor?: string;
+  limit?: number;
+  sourceId?: string;
+  state?: BusinessImportState;
+}
+
+export interface BusinessImportPage {
+  items: BusinessImportView[];
+  nextCursor?: string | null;
+}
+
+export interface BusinessImportCandidateDecisionRequest {
+  decision: Extract<BusinessImportCandidateDecision, "ACCEPTED" | "REJECTED">;
+  proposed?: BusinessImportOfferingValue | null;
+}
+
+export interface BusinessImportBulkCandidateDecisionRequest {
+  candidates: Array<{
+    id: string;
+    etag: string;
+    decision: Extract<BusinessImportCandidateDecision, "ACCEPTED" | "REJECTED">;
+  }>;
+}
+
+export interface BusinessImportApprovalDecisionRequest {
+  decision: "APPROVED" | "REJECTED";
+  reason?: string | null;
+}
+
+export interface BusinessImportBulkApprovalRequest {
+  candidates: Array<{
+    id: string;
+    version: number;
+    etag: string;
+  }>;
+}
+
+export interface BusinessImportApprovalMutationView {
+  import: BusinessImportView;
+  candidates: BusinessImportCandidateView[];
+}
+
+export interface BusinessImportBulkApprovalView extends BusinessImportApprovalMutationView {
+  summary: {
+    selected: number;
+    newlyApproved: number;
+    approvalRequestsCreated: number;
+    alreadyApproved: number;
+  };
+}
+
+export interface BusinessImportApplyPreviewRequest {
+  candidateIds: string[];
+}
+
+export interface BusinessImportApplyPreviewView {
+  importId: string;
+  candidateIds: string[];
+  candidateVersions: Record<string, number>;
+  manifestHash: string;
+  businessInformationEtag: string;
+  expiresAt: string;
+  counts: Pick<
+    BusinessImportCountsView,
+    "additions" | "updates" | "linked" | "unchanged" | "conflicts"
+  >;
+  diagnostics: BusinessImportDiagnosticView[];
+}
+
+export interface BusinessImportApplyRequest {
+  candidateIds: string[];
+  manifestHash: string;
+}
+
+export interface BusinessImportApplicationView {
+  id: string;
+  importId: string;
+  state: "COMMITTED" | "PROJECTING" | "READY" | "PROJECTION_DELAYED" | "REVERTED" | "SUPERSEDED";
+  baseBusinessInformationRevision: number;
+  resultingBusinessInformationRevision: number;
+  counts: Pick<BusinessImportCountsView, "additions" | "updates" | "linked" | "unchanged">;
+  projection: BusinessImportProjectionView;
+  createdAt: string;
+  readyAt?: string | null;
+  revertedAt?: string | null;
+}
+
+export interface BusinessImportRebaseRequest {
+  candidateIds?: string[] | null;
+}
+
+export interface BusinessImportRetryRequest {
+  generation: number;
+}
+
+export interface BusinessImportCancelView {
+  importId: string;
+  state: "CANCELLED";
+  cancelledAt: string;
+}
+
+export interface BusinessImportRevertPreviewView {
+  applicationId: string;
+  eligible: boolean;
+  manifestHash: string;
+  businessInformationEtag: string;
+  expiresAt: string;
+  affectedOfferingIds: string[];
+  blockers: string[];
+}
+
+export interface BusinessImportRevertRequest {
+  manifestHash: string;
 }
 
 export interface BusinessKnowledgeSource {

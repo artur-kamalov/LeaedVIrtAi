@@ -284,6 +284,42 @@ export class AppConfigService {
     return this.env.KNOWLEDGE_FILE_IMPORT_ENABLED;
   }
 
+  get businessImportEnabled() {
+    return this.env.BUSINESS_IMPORT_ENABLED;
+  }
+
+  get businessImportMaxFileBytes() {
+    return this.env.BUSINESS_IMPORT_MAX_FILE_BYTES;
+  }
+
+  get businessImportUploadTtlSeconds() {
+    return this.env.BUSINESS_IMPORT_UPLOAD_TTL_SECONDS;
+  }
+
+  get businessImportMaxPendingPerTenant() {
+    return this.env.BUSINESS_IMPORT_MAX_PENDING_PER_TENANT;
+  }
+
+  get businessImportXlsxSandboxApproved() {
+    return this.env.BUSINESS_IMPORT_XLSX_SANDBOX_APPROVED;
+  }
+
+  get businessImportParserApproved() {
+    return this.env.BUSINESS_IMPORT_PARSER_APPROVED;
+  }
+
+  get businessImportParserUrl() {
+    return this.env.BUSINESS_IMPORT_PARSER_URL;
+  }
+
+  get businessImportParserVersion() {
+    return this.env.BUSINESS_IMPORT_PARSER_VERSION;
+  }
+
+  get businessImportParserTimeoutMs() {
+    return this.env.BUSINESS_IMPORT_PARSER_TIMEOUT_MS;
+  }
+
   get knowledgeMaxFileBytes() {
     return this.env.KNOWLEDGE_MAX_FILE_BYTES;
   }

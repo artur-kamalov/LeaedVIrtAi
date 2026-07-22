@@ -168,6 +168,8 @@ The workflow installs `leadvirt-deployment-reconcile.service`. Before drain it f
 
 Recovery uses the same deployment lock as the workflow. A `precommit` journal restores the exact recorded `current` target and restarts only prior containers recorded as running; a `committed` journal never returns to old code and resumes candidate migration and promotion. Ambiguous or failed recovery retains the journal and keeps nginx stopped. The systemd oneshot starts after Docker and the network and retries after failure.
 
+The Business Import parser is optional. It is built, preflighted, started, and health-checked only when both `BUSINESS_IMPORT_ENABLED=true` and `BUSINESS_IMPORT_PARSER_APPROVED=true`. The journal records that decision. A committed deployment with either flag false stops and removes an old parser container while API, worker, AI, and channel services deploy without a parser image or endpoint.
+
 Inspect or retry recovery with:
 
 ```bash

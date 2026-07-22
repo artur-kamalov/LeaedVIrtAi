@@ -1,5 +1,189 @@
 # Decision Log
 
+## 2026-07-21: Keep Structured Import Release A CSV-Only
+
+Decision: Release A exposes only the LeadVirt services CSV contract in the server-owned format catalog and upload UI. The deterministic XLSX parser remains rollout-gated, and PDF remains disabled until field mapping, evidence review, parser security, and capacity are proven. Generic JSON is not an upload format.
+
+Context: Parser existence does not make a format supportable for customers. Advertising XLSX or PDF before the complete review contract is ready creates an import path whose result cannot be explained or corrected safely. Accepting arbitrary JSON would also turn an internal schema into an accidental public API.
+
+Consequences:
+
+- Production Business Import flags remain false until the release-A infrastructure and rollout gates pass.
+- XLSX can be enabled only through the server catalog after its rollout gate; frontend file acceptance is not an independent capability switch.
+- PDF mapping and review must be completed before either native-text or OCR parsing is customer-visible.
+- Future JSON work is split into authenticated, versioned batch-upsert and LeadVirt snapshot import/export contracts, each with staged diffs. There is no generic JSON upload.
+
+## 2026-07-21: Require Explicit Candidate Decisions And Non-Destructive Missing Rows
+
+Decision: Every actionable imported candidate begins undecided and must be explicitly included or excluded. Bulk decisions and owner/admin bulk approvals are atomic and bound to the exact import ETag plus candidate IDs, versions, and ETags. A `MISSING` candidate is excluded by default and never implies deletion, archival, or approval.
+
+Context: Treating all parsed rows as selected hides the effect of an apply action. Treating absence from one file as removal would let incomplete exports destroy current business information. Re-deriving approval policy in the browser could also disagree with the persisted server decision.
+
+Consequences:
+
+- The API exposes `requiresApproval` as candidate state; clients do not infer it from action or risk.
+- Include/Exclude is explicit in first-use and bulk review flows. INVALID and CONFLICT candidates remain blocked until corrected; terminal candidates cannot be reopened.
+- Owners and administrators can discover pending approval imports from Business Information and approve an exact bounded set atomically.
+- Stale writes trigger a full import/candidate refresh. Apply uses the exact previewed candidate snapshot, and transient retries retain the same application idempotency key.
+
+## 2026-07-21: Persist Exact Evidence And Application Request Identities
+
+Decision: Every `BusinessImportCandidateEvidence` row carries a hash of its exact immutable record, and every `BusinessImportApplication` carries the full canonical request hash alongside the idempotency-key hash. Both identities are database-constrained and immutable.
+
+Context: Ciphertext and value hashes alone did not authenticate the full evidence ledger row. An idempotency key alone also could not prove that a replay carried the same candidate versions, decisions, and preview identity.
+
+Consequences:
+
+- Evidence verification fails closed when record fields or hashes disagree; evidence rows cannot be updated or deleted.
+- An application replay succeeds only for the same idempotency key and full request. Key reuse with different input is rejected.
+- The migrations refuse existing evidence or application rows instead of fabricating hashes through an unverifiable backfill. Existing pre-contract imports must be recreated.
+
+## 2026-07-21: Represent Exact Source Matches As Binding-Only Links
+
+Decision: A source row that has no active source binding and exactly matches one existing service's canonical business fields is a `LINK`, not `UPDATE` or `UNCHANGED`. Applying it writes only `BusinessOfferingSourceBinding`; the application records a same-hash Business Information revision and an exact LINK candidate receipt.
+
+Context: `UNCHANGED` applications skipped source binding creation, while treating an external ID as an offering change would rewrite unchanged business fields and increment resource versions. External IDs are source metadata, and PostgreSQL's raw text uniqueness does not enforce the normalized identity used by matching.
+
+Consequences:
+
+- Canonical comparison excludes `externalId`, but candidate evidence and value hashes retain it.
+- Preview and apply enforce normalized external-key uniqueness across selected rows plus active and inactive bindings; ownership ambiguity fails closed.
+- LINK never changes offering, price, duration, or attribution rows. Projection creates no fact versions only when the exact base projection receipt still matches the current draft generation and recomputed manifest; otherwise normal projection runs.
+- `LINK` is a first-class persisted action in the migration, API summaries, eligibility, signed preview v4, application ledger, filters, and all six UI locales.
+
+## 2026-07-21: Bound PDF And OCR Work With One Request Deadline
+
+Decision: The isolated PDF parser owns a 240-second monotonic request budget, below the worker's 300-second client timeout. Every Poppler/Tesseract process receives only the remaining budget and is process-group terminated on deadline or client disconnect. OCR is capped before rasterization at 20 pages, 15 megapixels per page, and 50 megapixels cumulatively.
+
+Context: Independent command timeouts allowed one request to exceed the worker timeout. Cumulative raster limits were checked only after Tesseract, and OCR text limits were applied per page before a late document-wide check.
+
+Consequences:
+
+- Startup fails unless `pdfinfo`, `pdftotext`, `pdftoppm`, `tesseract`, and every configured OCR language are present.
+- Native coordinates must be finite and inside the page; invalid OCR raster boxes are discarded before scaling.
+- Logs contain only bounded codes, counts, sizes, and durations. CI sends native and image-only PDFs through the restricted running image, proves timeout/limit/busy/disconnect behavior, and rejects document-text leakage.
+- PDF and OCR rollout flags remain false pending the separate benchmark, security, and production-capacity gates.
+
+## 2026-07-21: Keep The Document Parser Outside Core Release Readiness
+
+Decision: Deploy the Business Import parser only when both `BUSINESS_IMPORT_ENABLED` and `BUSINESS_IMPORT_PARSER_APPROVED` are true. Persist that result in the deployment journal. The worker has no parser startup dependency, and disabled deployments pass blank parser URL/version values.
+
+Context: CSV and the core API, worker, AI, and channel paths do not require the PDF parser. Unconditional image build, candidate health, worker reachability, and recovery made an optional service a platform-wide release dependency.
+
+Consequences:
+
+- Before commit, rollback restores the exact prior parser container and running state with the rest of the prior release.
+- After commit, recovery starts and proves the parser only for an enabled journal; a disabled journal stops and removes any old canonical parser container.
+- Disabled deployments do not build a parser image, create a parser preflight, wait on parser health, or inject a parser URL. Parser images remain covered by exact release-aware pruning when they exist.
+- Production templates keep both flags false and the parser endpoint unconfigured.
+
+## 2026-07-21: Separate CSV Lifecycle Acceptance From Live Malware Infrastructure
+
+Decision: The releasable CSV path requires one fresh-PostgreSQL acceptance that uses the real upload, encrypted object store, parser, review, approval, application, and projection services with a deterministic clean scanner implementing the production admission contract. Live ClamAV connectivity and image readiness remain a separate infrastructure gate.
+
+Context: Component smokes did not prove that one uploaded file reaches an exact Knowledge V2 draft fact and immutable projection receipt without mutating the active publication. Requiring a networked ClamAV instance inside this deterministic data-flow test would make application correctness depend on external process startup rather than malware-service readiness.
+
+Consequences:
+
+- The lifecycle gate proves exact scanner invocation and approval metadata but does not claim to exercise the ClamAV protocol, daemon, signatures, or network path.
+- Apply fails closed before the exact high-risk candidate version is approved; replay cannot duplicate candidates, revisions, grants, applications, fact versions, receipts, or draft generations.
+- Projection must leave the active publication pointer unchanged; imported authoring changes become draft facts only.
+- Production rollout still requires a live ClamAV readiness smoke, and feature flags remain disabled until all rollout gates pass.
+
+## 2026-07-21: Gate CSV Release At The Supported Maximum
+
+Decision: CI must run the real worker processor against an isolated PostgreSQL database and encrypted object store with exactly 200 services and every one of the 19 CSV template columns populated. The processor must finish at least 60 seconds before its worker deadline and preserve exact quota, object-ledger, staging-deletion, and replay invariants.
+
+Context: Parser unit tests proved row limits but did not prove that 3,800 per-cell evidence objects and the final serializable publication transaction fit the worker runtime or remain idempotent at the releasable maximum.
+
+Consequences:
+
+- The deterministic clean scanner is test-only but production-approved by the same admission contract; the parser, encrypted storage, PostgreSQL writes, lifecycle, and replay paths are real.
+- The gate expects 200 candidates, 3,800 evidence rows/objects, 3,803 ledger rows including deleted staging, and exact consumed retained bytes.
+- The acceptance budget is 300 seconds against the current minimum 360-second Business Import worker timeout; production rollout flags remain disabled independently of this gate.
+
+## 2026-07-21: Require Complete Review Data And Typed Evidence Availability
+
+Decision: Import evidence is a discriminated view: only `AVAILABLE` carries exact source text, including an empty string; `EXPIRED`, `UNAVAILABLE`, and `CORRUPT` carry `null`. Review loads the complete bounded set of at most 200 imported and 200 source-missing candidates before client search, filters, approval, or apply are enabled.
+
+Context: Empty source cells were indistinguishable from deleted, missing, hash-invalid, or undecodable ciphertext. Client filters covered only the first 100 candidates until a user manually loaded later pages.
+
+Consequences:
+
+- Evidence failures can no longer appear as genuine blank source values, and expiry metadata remains visible.
+- Pagination is sequential, request-fenced, duplicate/cursor checked, and fails visibly on count mismatch or a future limit increase.
+- INVALID and CONFLICT candidates can be edited by workspace editors while direct acceptance remains blocked until server reclassification succeeds.
+- APPLIED and STALE candidate decisions are terminal; neither direct nor bulk review can reopen them.
+
+## 2026-07-21: Expire Import Ciphertext Without Deleting Provenance Metadata
+
+Decision: The object sweeper may delete ciphertext for finite expired `RAW_ARTIFACT`, `PARSED_MANIFEST`, `EVIDENCE_EXCERPT`, and `APPLICATION_PREVIEW` ledgers even while immutable reference rows remain. Eligibility requires an exact object-kind/retention-class pair, an elapsed non-null deadline, no legal hold, and a fenced lifecycle claim. Ledger rows remain durable.
+
+Context: Reference rows are immutable provenance, so requiring them to disappear before pruning made every adopted object effectively permanent.
+
+Consequences:
+
+- Expired content becomes unavailable while hashes, locators, lineage, applications, and audit metadata remain queryable.
+- `REVISION_DELTA`, null-retention, future-retained, legal-hold, and referenced staging objects are never selected by this path.
+- Failed and stale deletion claims retry only through legal lifecycle edges and exact claim tokens.
+
+## 2026-07-21: Keep Repeat File Imports In One Source Lineage
+
+Decision: A file uploaded from an existing import page must create a new import against that exact `sourceId`; changing the filename never creates a new lineage. Recent imports remain visible to every authenticated workspace role, while upload actions remain limited to owner, admin, and manager roles.
+
+Context: The API already supports source-bound create intents, but the product only exposed first-time uploads. Re-uploading through that entry point created a new source, so deterministic `UPDATE` matching and source history were unavailable in the normal customer journey.
+
+Consequences:
+
+- Repeat-upload intent payloads preserve the existing source ID and display name.
+- Users can reopen recent imports from Business Information and start the next revision from the relevant source.
+- Viewers and agents can inspect history without receiving mutation controls.
+
+## 2026-07-21: Fail Closed On Partial Service Re-imports
+
+Decision: The initial services importer accepts partial columns for new records, but a changed row already bound to an offering is invalid unless every versioned template column is present. Blank cells are explicit replacement values; omitted columns are not treated as clears.
+
+Context: Candidate values and application writes currently use full-record semantics. Treating omitted columns as null or defaults silently clears business data and can reactivate inactive services.
+
+Consequences:
+
+- Exact unchanged replay remains valid even when the original file used fewer columns.
+- Customers must use the complete template for replacement updates.
+- A future patch-import contract must carry an explicit signed field-presence mask before partial updates can be enabled.
+
+## 2026-07-21: Fence Canonical Projection With An Immutable Receipt
+
+Decision: Every committed Business Information revision projects deterministic identity and offering facts into the Knowledge V2 draft. Import revisions retain an exact source/import/application receipt context; manual revisions use the same receipt with an SQL-enforced all-null import context. Both paths require the exact persisted revision and runtime outbox. Projection never changes the active publication.
+
+Context: Canonical authoring can commit before asynchronous Knowledge preparation. Reporting success before exact draft materialization would make tests stale, while publishing during projection would bypass review and customer-serving gates.
+
+Consequences:
+
+- Runtime jobs contain only opaque identifiers and are fenced against tenant, revision, actor, outbox, generation, and the current canonical row hash. Import jobs additionally require the exact source, import, and application.
+- Replay returns the existing receipt without creating fact versions or advancing draft generation.
+- Manual evidence stores explicit attribution/revision identifiers and hashes, never private delta content or fabricated imported provenance.
+- An import revision overtaken before projection terminates its application as `SUPERSEDED` and its import as `CLOSED_WITH_REMAINDER`, without a receipt. Other import failures record `PROJECTION_DELAYED`.
+- Manual projection terminal failures preserve the canonical commit and are visible through the current-versus-last-projected state tuple plus content-free outbox/DLQ audits.
+- `BusinessInformationState` receives the projection tuple only while the projected revision is still current.
+- Runtime outbox pruning clears only the receipt's live outbox reference and records `runtimeOutboxPrunedAt`; immutable dedupe and receipt hashes remain durable.
+
+## 2026-07-21: Separate Structured Business Imports From Reference Documents
+
+Decision: LeadVirt will present two explicit file intents. `Import business information` stages evidence-backed structured changes, applies an exact reviewed diff to canonical Business Information authoring state, and reaches customer answers only through explicit Knowledge publication. `Add reference material` remains the document-ingestion path. CSV, XLSX, native-text PDF, and OCR PDF will be released in phases. Raw structured-import artifacts are provenance only and are not retrievable AI documents by default. Arbitrary JSON will not be a client upload format. Future JSON uses separate versioned batch-upsert and LeadVirt snapshot contracts with round-trip export.
+
+Context: Current CSV upload creates an unstructured Knowledge document, XLSX is rejected, PDF is blocked pending a safe parser, and the current JSON-backed Business Profile lacks stable item identity, field provenance, normalized money and duration, location scope, and date exceptions. Treating all files as documents or accepting arbitrary JSON would create duplicate truths, unreliable re-import, and an accidental public dependency on an internal schema.
+
+Consequences:
+
+- Business Information v2 requires a relational canonical model, stable external IDs, source bindings, and field-level provenance before broad import.
+- Business Information v2 is canonical authoring state; the immutable active Knowledge publication remains the only customer-serving state.
+- Every import produces staged candidates, exact evidence, version-bound approvals, conflict review, immutable application batches, and a concurrency-fenced apply transaction; it never edits active customer answers directly.
+- An application becomes testable only after the exact resulting authoring revision has a Knowledge draft projection receipt. Partial apply and safe reverse diffs remain explicit states.
+- Missing rows do not imply deletion, raw files are private by default, and publication remains explicit.
+- CSV/XLSX services ship first, followed by broader deterministic spreadsheets, native PDFs, and OCR PDFs behind measured rollout gates.
+- Parsing untrusted XLSX/PDF content requires a network-isolated bounded sandbox in addition to quarantine and malware scanning.
+- File-format availability is server-owned and fail-closed. The client renders only catalog entries enabled by the current security gates; the first releasable slice may therefore be CSV-only without advertising XLSX or PDF as usable.
+
 ## 2026-07-19: Make Interactive State And Destinations Programmatic
 
 Decision: Product navigation uses real links when a destination exists; selected controls expose `aria-pressed` or `aria-current`; repeated actions include their provider or plan in the accessible name; and dialogs restore focus only to a stable, still-connected trigger. Mobile form and switch targets are at least 44px, while compact desktop icon actions remain at least 32px.

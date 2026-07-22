@@ -177,6 +177,25 @@ export const serverEnvSchema = z.object({
   KNOWLEDGE_FILE_SCANNER_PORT: z.coerce.number().int().min(1).max(65_535).default(3310),
   KNOWLEDGE_FILE_SCANNER_VERSION: z.string().min(1).max(100).default("clamav"),
   KNOWLEDGE_FILE_SCANNER_TIMEOUT_MS: z.coerce.number().int().min(100).max(60_000).default(10_000),
+  BUSINESS_IMPORT_ENABLED: booleanEnv.default(false),
+  BUSINESS_IMPORT_MAX_FILE_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10 * 1024 * 1024)
+    .default(10 * 1024 * 1024),
+  BUSINESS_IMPORT_UPLOAD_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
+  BUSINESS_IMPORT_MAX_PENDING_PER_TENANT: z.coerce.number().int().min(1).max(20).default(5),
+  BUSINESS_IMPORT_XLSX_SANDBOX_APPROVED: booleanEnv.default(false),
+  BUSINESS_IMPORT_PARSER_APPROVED: booleanEnv.default(false),
+  BUSINESS_IMPORT_PARSER_URL: optionalUrlEnv,
+  BUSINESS_IMPORT_PARSER_VERSION: z.string().min(1).max(100).default("unconfigured"),
+  BUSINESS_IMPORT_PARSER_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(10 * 60_000)
+    .default(5 * 60_000),
   OTEL_ENABLED: booleanEnv.default(false),
   OTEL_COLLECTOR_HEALTH_URL: optionalUrlEnv,
   STORAGE_PROVIDER: z.enum(["local", "s3", "r2"]).default("local"),

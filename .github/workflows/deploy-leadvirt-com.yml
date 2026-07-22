@@ -76,6 +76,8 @@ jobs:
       RAG_QDRANT_ENABLED: "false"
       RAG_RETRIEVAL_MODE: "database"
       RAG_QDRANT_URL: http://localhost:6333
+      BUSINESS_IMPORT_ENABLED: "true"
+      NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED: "true"
 
     steps:
       - name: Checkout
@@ -150,6 +152,65 @@ jobs:
           corepack pnpm --filter @leadvirt/worker typecheck
           corepack pnpm --filter @leadvirt/worker lint
           corepack pnpm --filter @leadvirt/worker build
+
+      - name: Verify business information imports
+        run: |
+          corepack pnpm --filter @leadvirt/business-import typecheck
+          corepack pnpm --filter @leadvirt/business-import lint
+          corepack pnpm --filter @leadvirt/business-import build
+          corepack pnpm --filter @leadvirt/business-import qa:admission
+          corepack pnpm --filter @leadvirt/business-import qa:csv
+          corepack pnpm --filter @leadvirt/business-import qa:xlsx
+          corepack pnpm --filter @leadvirt/db qa:business-import-migration
+          corepack pnpm --filter @leadvirt/api qa:business-import:application
+          corepack pnpm --filter @leadvirt/api qa:business-import:lifecycle
+          corepack pnpm --filter @leadvirt/api qa:business-import:review
+          corepack pnpm --filter @leadvirt/api qa:business-import:rebase
+          corepack pnpm --filter @leadvirt/api qa:business-profile:canonical
+          corepack pnpm --filter @leadvirt/worker qa:business-import
+          corepack pnpm --filter @leadvirt/worker qa:business-import:capacity
+          corepack pnpm --filter @leadvirt/worker qa:business-information-projection
+          corepack pnpm --filter @leadvirt/worker qa:business-import:sweeper
+          corepack pnpm --filter @leadvirt/api qa:business-import:e2e
+
+      - name: Verify business import parser image
+        env:
+          BUSINESS_IMPORT_ENABLED: "true"
+          BUSINESS_IMPORT_PARSER_APPROVED: "true"
+        run: |
+          if [ "$BUSINESS_IMPORT_ENABLED" != "true" ] || [ "$BUSINESS_IMPORT_PARSER_APPROVED" != "true" ]; then
+            echo "Business import parser image verification skipped: parser deployment gate is closed."
+            exit 0
+          fi
+          parser_container="leadvirt-business-import-parser-ci"
+          trap 'docker rm -f "$parser_container" >/dev/null 2>&1 || true' EXIT
+          docker build --tag leadvirt-business-import-parser:ci deploy/business-import-parser
+          docker run -d \
+            --name "$parser_container" \
+            --read-only \
+            --tmpfs /tmp:size=384m,mode=1777,noexec,nosuid,nodev \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --pids-limit 64 \
+            --memory 768m \
+            --cpus 1 \
+            leadvirt-business-import-parser:ci >/dev/null
+          for attempt in $(seq 1 30); do
+            if docker exec "$parser_container" python -c "import json,urllib.request; payload=json.load(urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=2)); raise SystemExit(0 if payload.get('ready') is True and payload.get('version') == 'poppler-tesseract-v1' and payload.get('contractVersion') == 'leadvirt.pdf-extraction.v1' else 1)"; then
+              break
+            fi
+            if [ "$attempt" = "30" ]; then
+              echo "Business import parser image did not become ready with the expected contract." >&2
+              exit 1
+            fi
+            sleep 2
+          done
+          docker exec -i "$parser_container" python - < deploy/business-import-parser/runtime_smoke.py
+          parser_logs="$(docker logs "$parser_container" 2>&1)"
+          if printf '%s' "$parser_logs" | grep -Fq -e 'PRIVATE_SERVICE_SENTINEL_7843' -e 'SERVICE PRICE 25 EUR'; then
+            echo "Business import parser leaked extracted content to container logs." >&2
+            exit 1
+          fi
 
       - name: Verify release readiness scripts
         run: |
@@ -317,6 +378,8 @@ jobs:
           corepack pnpm exec playwright test artifacts/playwright/inbox-live-refresh.spec.ts --reporter=line --workers=1
           corepack pnpm exec playwright test artifacts/playwright/demo-conversation-mobile-scroll.spec.ts artifacts/playwright/pipeline-list-responsive.spec.ts --reporter=line --workers=1
           corepack pnpm exec playwright test artifacts/playwright/client-eye-ux-regressions.spec.ts --reporter=line --workers=1
+          corepack pnpm exec playwright test artifacts/playwright/business-import.spec.ts --reporter=line --workers=1
+          corepack pnpm exec playwright test artifacts/playwright/business-import-approval-discovery.spec.ts --reporter=line --workers=1
           corepack pnpm run qa:knowledge:v2:api
           corepack pnpm run qa:knowledge:v2:workspace
           corepack pnpm run qa:knowledge:v2:editors
@@ -495,6 +558,11 @@ jobs:
           compose_project_name="deploy"
           deployment_phase="preparation"
           pending_current_link=""
+          business_import_parser_enabled=0
+          business_import_parser_url=""
+          business_import_parser_version="unconfigured"
+          business_import_parser_profiles=""
+          candidate_parser_container="leadvirt-business-import-parser-preflight-$release_id"
           candidate_api_container="leadvirt-api-preflight-$release_id"
           candidate_worker_container="leadvirt-worker-preflight-$release_id"
           candidate_web_container="leadvirt-web-preflight-$release_id"
@@ -580,7 +648,7 @@ jobs:
 
           detected_projects=()
           if [ -n "$previous_root" ] && [ -f "$previous_root/deploy/docker-compose.staging.yml" ]; then
-            for service in api worker web nginx postgres redis qdrant clamav; do
+            for service in api worker web business-import-parser nginx postgres redis qdrant clamav; do
               while IFS= read -r candidate_container; do
                 if [ -z "$candidate_container" ]; then
                   continue
@@ -601,7 +669,7 @@ jobs:
                     ;;
                 esac
                 case "$service" in
-                  api|worker|web|nginx)
+                  api|worker|web|business-import-parser|nginx)
                     if [ -n "${previous_container_by_service[$service]:-}" ]; then
                       echo "Multiple canonical $service containers match the prior release." >&2
                       exit 1
@@ -649,7 +717,7 @@ jobs:
           sync -f "$release_dir/.leadvirt-compose-project"
           sync -f "$release_dir"
 
-          for service in api worker web nginx; do
+          for service in api worker web business-import-parser nginx; do
             candidate_container="${previous_container_by_service[$service]:-}"
             if [ -n "$candidate_container" ] && [ "$(docker inspect --format '{{.State.Running}}' "$candidate_container")" = "true" ]; then
               previous_running_container_by_service[$service]="$candidate_container"
@@ -668,16 +736,18 @@ jobs:
           previous_api_running=0
           previous_worker_running=0
           previous_web_running=0
+          previous_business_import_parser_running=0
           previous_nginx_running=0
           [ -n "${previous_running_container_by_service[api]:-}" ] && previous_api_running=1
           [ -n "${previous_running_container_by_service[worker]:-}" ] && previous_worker_running=1
           [ -n "${previous_running_container_by_service[web]:-}" ] && previous_web_running=1
+          [ -n "${previous_running_container_by_service[business-import-parser]:-}" ] && previous_business_import_parser_running=1
           [ -n "${previous_running_container_by_service[nginx]:-}" ] && previous_nginx_running=1
           echo "DEPLOY_PREPARE: compose-project=$compose_project_name"
 
           assert_previous_containers_unchanged() {
             assert_previous_current_unchanged || return 1
-            for service in api worker web nginx; do
+            for service in api worker web business-import-parser nginx; do
               expected_container="${previous_container_by_service[$service]:-}"
               expected_running_container="${previous_running_container_by_service[$service]:-}"
               canonical_containers="$(docker ps -a --no-trunc \
@@ -726,6 +796,9 @@ jobs:
           release_compose() {
             LEADVIRT_IMAGE_TAG="$release_id" \
             LEADVIRT_ENV_FILE="$DEPLOY_ENV_FILE" \
+            BUSINESS_IMPORT_PARSER_URL="$business_import_parser_url" \
+            BUSINESS_IMPORT_PARSER_VERSION="$business_import_parser_version" \
+            COMPOSE_PROFILES="$business_import_parser_profiles" \
               docker compose \
                 --project-name "$compose_project_name" \
                 --env-file "$DEPLOY_ENV_FILE" \
@@ -737,6 +810,9 @@ jobs:
             LEADVIRT_IMAGE_TAG="$release_id" \
             LEADVIRT_ENV_FILE="$DEPLOY_ENV_FILE" \
             WORKER_DEPLOYMENT_PAUSED=true \
+            BUSINESS_IMPORT_PARSER_URL="$business_import_parser_url" \
+            BUSINESS_IMPORT_PARSER_VERSION="$business_import_parser_version" \
+            COMPOSE_PROFILES="$business_import_parser_profiles" \
               docker compose \
                 --project-name "$compose_project_name" \
                 --env-file "$DEPLOY_ENV_FILE" \
@@ -754,6 +830,7 @@ jobs:
             JOURNAL_COMPOSE_PROJECT="$compose_project_name" \
             JOURNAL_ENV_FILE="$DEPLOY_ENV_FILE" \
             JOURNAL_PUBLIC_URL="$PUBLIC_URL" \
+            JOURNAL_BUSINESS_IMPORT_PARSER_ENABLED="$business_import_parser_enabled" \
             JOURNAL_PREVIOUS_CURRENT_KIND="$previous_current_kind" \
             JOURNAL_PREVIOUS_LINK_TARGET="$previous_link_target" \
             JOURNAL_PREVIOUS_ROOT="$previous_root" \
@@ -765,6 +842,8 @@ jobs:
             JOURNAL_PREVIOUS_WORKER_RUNNING="$previous_worker_running" \
             JOURNAL_PREVIOUS_WEB_CONTAINER="${previous_container_by_service[web]:-}" \
             JOURNAL_PREVIOUS_WEB_RUNNING="$previous_web_running" \
+            JOURNAL_PREVIOUS_BUSINESS_IMPORT_PARSER_CONTAINER="${previous_container_by_service[business-import-parser]:-}" \
+            JOURNAL_PREVIOUS_BUSINESS_IMPORT_PARSER_RUNNING="$previous_business_import_parser_running" \
             JOURNAL_PREVIOUS_NGINX_CONTAINER="${previous_container_by_service[nginx]:-}" \
             JOURNAL_PREVIOUS_NGINX_RUNNING="$previous_nginx_running" \
               bash "$installed_deployment_journal" write "$journal_phase" </dev/null
@@ -821,7 +900,7 @@ jobs:
 
           remove_candidate_preflights() {
             candidate_cleanup_status=0
-            for candidate_container in "$candidate_api_container" "$candidate_worker_container" "$candidate_web_container"; do
+            for candidate_container in "$candidate_parser_container" "$candidate_api_container" "$candidate_worker_container" "$candidate_web_container"; do
               if docker inspect "$candidate_container" >/dev/null 2>&1; then
                 if ! docker rm -f "$candidate_container" >/dev/null; then
                   echo "Failed to remove candidate preflight container $candidate_container." >&2
@@ -872,6 +951,22 @@ jobs:
 
           release_compose config --quiet
           release_compose build migrate
+          business_import_parser_enabled="$(release_compose run --rm --no-deps -T api node -e "const parse=(name)=>{const raw=(process.env[name]??'false').trim().toLowerCase();if(['1','true','yes','on'].includes(raw))return true;if(['','0','false','no','off'].includes(raw))return false;throw new Error('Invalid boolean '+name)};process.stdout.write(parse('BUSINESS_IMPORT_ENABLED')&&parse('BUSINESS_IMPORT_PARSER_APPROVED')?'1':'0')")"
+          case "$business_import_parser_enabled" in
+            1)
+              business_import_parser_url="http://business-import-parser:8080"
+              business_import_parser_version="poppler-tesseract-v1"
+              business_import_parser_profiles="business-import-parser"
+              release_compose build business-import-parser
+              ;;
+            0)
+              echo "DEPLOY_PREPARE: business-import-parser-disabled"
+              ;;
+            *)
+              echo "Invalid business import parser deployment gate result." >&2
+              exit 1
+              ;;
+          esac
           release_compose up -d --no-recreate postgres redis qdrant clamav
           wait_for_stateful_dependencies
 
@@ -905,18 +1000,40 @@ jobs:
           trap 'exit 130' INT
           trap 'exit 143' TERM
 
+          if [ "$business_import_parser_enabled" = "1" ]; then
+            release_compose run -d --no-deps \
+              --name "$candidate_parser_container" \
+              business-import-parser >/dev/null
+          fi
           release_compose run -d --no-deps \
             --name "$candidate_api_container" \
             -e API_DEPLOYMENT_PREFLIGHT=true \
             api >/dev/null
+          candidate_worker_parser_args=()
+          if [ "$business_import_parser_enabled" = "1" ]; then
+            candidate_worker_parser_args=(-e "BUSINESS_IMPORT_PARSER_URL=http://$candidate_parser_container:8080")
+          fi
           release_compose run -d --no-deps \
             --name "$candidate_worker_container" \
             -e WORKER_DEPLOYMENT_PAUSED=true \
+            "${candidate_worker_parser_args[@]}" \
             worker >/dev/null
           release_compose run -d --no-deps \
             --name "$candidate_web_container" \
             web >/dev/null
 
+          if [ "$business_import_parser_enabled" = "1" ]; then
+            for attempt in $(seq 1 30); do
+              if docker exec "$candidate_parser_container" python -c "import json,urllib.request; payload=json.load(urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=2)); raise SystemExit(0 if payload.get('ready') is True and payload.get('version') == 'poppler-tesseract-v1' and payload.get('contractVersion') == 'leadvirt.pdf-extraction.v1' else 1)"; then
+                break
+              fi
+              if [ "$attempt" = "30" ]; then
+                echo "Candidate business import parser did not become ready with the expected contract." >&2
+                exit 1
+              fi
+              sleep 2
+            done
+          fi
           for attempt in $(seq 1 30); do
             if docker exec "$candidate_api_container" \
               node -e "fetch('http://127.0.0.1:4001/health/ready').then(async r=>({ok:r.ok,v:await r.json()})).then(x=>process.exit(x.ok&&x.v.data?.deploymentPreflight===true?0:1)).catch(()=>process.exit(1))"; then
@@ -950,6 +1067,13 @@ jobs:
             fi
               sleep 2
             done
+          if [ "$business_import_parser_enabled" = "1" ]; then
+            if ! docker exec "$candidate_worker_container" \
+              node -e "fetch(process.env.BUSINESS_IMPORT_PARSER_URL+'/health').then(async r=>({ok:r.ok,v:await r.json()})).then(x=>process.exit(x.ok&&x.v.ready===true&&x.v.version==='poppler-tesseract-v1'&&x.v.contractVersion==='leadvirt.pdf-extraction.v1'?0:1)).catch(()=>process.exit(1))"; then
+              echo "Candidate worker cannot reach the candidate business import parser contract." >&2
+              exit 1
+            fi
+          fi
           for attempt in $(seq 1 30); do
             if docker exec "$candidate_web_container" \
               node -e "fetch('http://127.0.0.1:3001').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
@@ -964,7 +1088,7 @@ jobs:
           release_compose run --rm --no-deps -T nginx nginx -t
           remove_candidate_preflights
           assert_previous_containers_unchanged
-          echo "DEPLOY_GATE: isolated-candidate-api-worker-and-web-ready"
+          echo "DEPLOY_GATE: isolated-candidate-api-worker-and-web-ready parser-enabled=$business_import_parser_enabled"
 
           if [ "${#previous_writer_container_ids[@]}" -gt 0 ]; then
             docker stop --time 120 "${previous_writer_container_ids[@]}"

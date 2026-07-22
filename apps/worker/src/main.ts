@@ -19,6 +19,11 @@ import {
 } from "./reliability/worker-reliability.js";
 import { startWorkerMetricsServer } from "./observability/metrics-server.js";
 import { knowledgeIngestionSafeError } from "./knowledge/knowledge-ingestion-processor.js";
+import {
+  createBusinessImportObjectSweeperDependencies,
+  startBusinessImportObjectSweeper,
+  type BusinessImportObjectSweeperSchedule,
+} from "./business-import/business-import-object-sweeper.js";
 
 loadEnvFile();
 startOpenTelemetry({
@@ -34,6 +39,7 @@ const activationMarkerPath =
   process.env.WORKER_ACTIVATION_MARKER_PATH ?? "/tmp/leadvirt-worker-activated";
 let runtimeOutboxDispatcher: RuntimeOutboxDispatcher | undefined;
 let runtimeOutboxTimer: NodeJS.Timeout | undefined;
+let businessImportObjectSweeper: BusinessImportObjectSweeperSchedule | undefined;
 let redisReadinessProbe: RedisReadinessProbe | undefined;
 const queues: Queue[] = [];
 const workers: Worker<LeadVirtJobData>[] = [];
@@ -124,6 +130,12 @@ function activateProcessors(persistMarker: boolean) {
       throw new Error(`BullMQ worker ${inactiveWorker.name} did not enter its run loop.`);
     }
     health.active = true;
+    if (!businessImportObjectSweeper) {
+      const dependencies = createBusinessImportObjectSweeperDependencies(prisma);
+      if (dependencies) {
+        businessImportObjectSweeper = startBusinessImportObjectSweeper(dependencies);
+      }
+    }
     console.log("LeadVirt.ai worker processors are running.");
   })().catch((error) => {
     activationPromise = undefined;
@@ -252,6 +264,7 @@ async function shutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   if (runtimeOutboxTimer) clearInterval(runtimeOutboxTimer);
+  await businessImportObjectSweeper?.stop();
   await Promise.all(workers.map((worker) => worker.close()));
   await Promise.all(queues.map((queue) => queue.close()));
   await runtimeOutboxDispatcher?.close();

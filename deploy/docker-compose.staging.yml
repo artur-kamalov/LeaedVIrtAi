@@ -8,6 +8,7 @@ x-leadvirt-app: &leadvirt-app
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?set NEXT_PUBLIC_APP_URL}
       NEXT_PUBLIC_WEB_URL: ${NEXT_PUBLIC_WEB_URL:?set NEXT_PUBLIC_WEB_URL}
       NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-false}
+      NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED: ${NEXT_PUBLIC_BUSINESS_IMPORT_ENABLED:-false}
   restart: unless-stopped
 
 x-leadvirt-runtime: &leadvirt-runtime
@@ -56,6 +57,39 @@ services:
     volumes:
       - clamav_data:/var/lib/clamav
 
+  business-import-parser:
+    image: leadvirt-business-import-parser:${LEADVIRT_IMAGE_TAG:-staging}
+    build:
+      context: ./business-import-parser
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    profiles:
+      - business-import-parser
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=384m,mode=1777,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 768m
+    cpus: 1.0
+    networks:
+      - business_import_parser
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).read()",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
   migrate:
     <<: *leadvirt-runtime
     restart: "no"
@@ -76,6 +110,8 @@ services:
     stop_grace_period: 30s
     environment:
       API_DEPLOYMENT_PREFLIGHT: "false"
+      BUSINESS_IMPORT_PARSER_URL: ${BUSINESS_IMPORT_PARSER_URL:-}
+      BUSINESS_IMPORT_PARSER_VERSION: ${BUSINESS_IMPORT_PARSER_VERSION:-unconfigured}
     volumes:
       - knowledge_artifacts:/var/lib/leadvirt/knowledge-artifacts
     depends_on:
@@ -106,6 +142,8 @@ services:
     stop_grace_period: 2m
     environment:
       WORKER_DEPLOYMENT_PAUSED: ${WORKER_DEPLOYMENT_PAUSED:-false}
+      BUSINESS_IMPORT_PARSER_URL: ${BUSINESS_IMPORT_PARSER_URL:-}
+      BUSINESS_IMPORT_PARSER_VERSION: ${BUSINESS_IMPORT_PARSER_VERSION:-unconfigured}
     volumes:
       - knowledge_artifacts:/var/lib/leadvirt/knowledge-artifacts
     depends_on:
@@ -117,6 +155,9 @@ services:
         condition: service_started
       migrate:
         condition: service_completed_successfully
+    networks:
+      - default
+      - business_import_parser
     healthcheck:
       test:
         [
@@ -224,3 +265,7 @@ volumes:
   prometheus_data:
   grafana_data:
   tempo_data:
+
+networks:
+  business_import_parser:
+    internal: true

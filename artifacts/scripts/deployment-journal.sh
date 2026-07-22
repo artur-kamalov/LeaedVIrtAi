@@ -20,6 +20,8 @@ releases_root="$DEPLOY_ROOT/releases"
 current_link="$DEPLOY_ROOT/current"
 journal_file="$DEPLOY_ROOT/.deployment-journal.v1"
 lock_file="$DEPLOY_ROOT/.deploy.lock"
+tracked_release_services=(api worker web business-import-parser nginx)
+release_image_repositories=(leadvirt-app leadvirt-business-import-parser)
 
 sync_path() {
   sync -f "$1"
@@ -146,7 +148,9 @@ write_journal() {
   : "${JOURNAL_PREVIOUS_API_RUNNING:?}"
   : "${JOURNAL_PREVIOUS_WORKER_RUNNING:?}"
   : "${JOURNAL_PREVIOUS_WEB_RUNNING:?}"
+  : "${JOURNAL_PREVIOUS_BUSINESS_IMPORT_PARSER_RUNNING:?}"
   : "${JOURNAL_PREVIOUS_NGINX_RUNNING:?}"
+  : "${JOURNAL_BUSINESS_IMPORT_PARSER_ENABLED:?}"
 
   validate_direct_release_dir "$JOURNAL_RELEASE_DIR" || die "Candidate release directory is invalid."
   validate_release_id "$JOURNAL_RELEASE_ID" || die "Candidate release id is invalid."
@@ -179,6 +183,7 @@ write_journal() {
     "${JOURNAL_PREVIOUS_API_CONTAINER:-}" \
     "${JOURNAL_PREVIOUS_WORKER_CONTAINER:-}" \
     "${JOURNAL_PREVIOUS_WEB_CONTAINER:-}" \
+    "${JOURNAL_PREVIOUS_BUSINESS_IMPORT_PARSER_CONTAINER:-}" \
     "${JOURNAL_PREVIOUS_NGINX_CONTAINER:-}"; do
     validate_container_id "$container_id" || die "Prior container identity is invalid."
   done
@@ -186,16 +191,21 @@ write_journal() {
     "$JOURNAL_PREVIOUS_API_RUNNING" \
     "$JOURNAL_PREVIOUS_WORKER_RUNNING" \
     "$JOURNAL_PREVIOUS_WEB_RUNNING" \
+    "$JOURNAL_PREVIOUS_BUSINESS_IMPORT_PARSER_RUNNING" \
     "$JOURNAL_PREVIOUS_NGINX_RUNNING"; do
     validate_running_flag "$running_flag" || die "Prior running state is invalid."
   done
-  for service in API WORKER WEB NGINX; do
-    container_variable="JOURNAL_PREVIOUS_${service}_CONTAINER"
-    running_variable="JOURNAL_PREVIOUS_${service}_RUNNING"
+  validate_running_flag "$JOURNAL_BUSINESS_IMPORT_PARSER_ENABLED" || \
+    die "Candidate business import parser state is invalid."
+  for service in "${tracked_release_services[@]}"; do
+    service_key="${service//-/_}"
+    upper_service="${service_key^^}"
+    container_variable="JOURNAL_PREVIOUS_${upper_service}_CONTAINER"
+    running_variable="JOURNAL_PREVIOUS_${upper_service}_RUNNING"
     container_id="${!container_variable:-}"
     running_flag="${!running_variable}"
     if [ -z "$container_id" ] && [ "$running_flag" != "0" ]; then
-      die "Prior ${service,,} running state has no container."
+      die "Prior $service running state has no container."
     fi
     if [ "$JOURNAL_PREVIOUS_CURRENT_KIND" = "missing" ] && { [ -n "$container_id" ] || [ "$running_flag" != "0" ]; }; then
       die "First-deploy journal cannot claim prior app containers."
@@ -207,8 +217,9 @@ write_journal() {
     "$JOURNAL_RELEASE_SHA" \
     "$JOURNAL_COMPOSE_PROJECT" || die "Candidate release artifacts are invalid."
   docker info >/dev/null 2>&1 || die "Docker is unavailable while recording deployment state."
-  for service in api worker web nginx; do
-    upper_service="${service^^}"
+  for service in "${tracked_release_services[@]}"; do
+    service_key="${service//-/_}"
+    upper_service="${service_key^^}"
     container_variable="JOURNAL_PREVIOUS_${upper_service}_CONTAINER"
     expected_container="${!container_variable:-}"
     actual_container="$(docker ps -a --no-trunc \
@@ -253,14 +264,17 @@ write_journal() {
       [ "$journal_previous_link_target" = "${JOURNAL_PREVIOUS_LINK_TARGET:-}" ] && \
       [ "$journal_previous_root" = "${JOURNAL_PREVIOUS_ROOT:-}" ] && \
       [ "$journal_previous_path_identity" = "${JOURNAL_PREVIOUS_PATH_IDENTITY:-}" ] && \
-      [ "$journal_previous_backup_dir" = "${JOURNAL_PREVIOUS_BACKUP_DIR:-}" ] || die "Committed journal identity differs from precommit."
+      [ "$journal_previous_backup_dir" = "${JOURNAL_PREVIOUS_BACKUP_DIR:-}" ] && \
+      [ "$journal_business_import_parser_enabled" = "$JOURNAL_BUSINESS_IMPORT_PARSER_ENABLED" ] || \
+      die "Committed journal identity differs from precommit."
     [ -L "$current_link" ] && \
       [ "$(readlink -f "$current_link" 2>/dev/null || true)" = "$JOURNAL_RELEASE_DIR" ] || \
       die "Current does not point to the candidate at journal commit."
-    for service in api worker web nginx; do
-      container_key="previous_${service}_container"
-      running_key="previous_${service}_running"
-      upper_service="${service^^}"
+    for service in "${tracked_release_services[@]}"; do
+      service_key="${service//-/_}"
+      container_key="previous_${service_key}_container"
+      running_key="previous_${service_key}_running"
+      upper_service="${service_key^^}"
       container_variable="JOURNAL_PREVIOUS_${upper_service}_CONTAINER"
       running_variable="JOURNAL_PREVIOUS_${upper_service}_RUNNING"
       expected_container="${!container_variable:-}"
@@ -281,6 +295,7 @@ write_journal() {
     printf 'compose_project %s\n' "$JOURNAL_COMPOSE_PROJECT"
     printf 'env_file %s\n' "$(encode_value "$JOURNAL_ENV_FILE")"
     printf 'public_url %s\n' "$(encode_value "$JOURNAL_PUBLIC_URL")"
+    printf 'business_import_parser_enabled %s\n' "$JOURNAL_BUSINESS_IMPORT_PARSER_ENABLED"
     printf 'previous_current_kind %s\n' "$JOURNAL_PREVIOUS_CURRENT_KIND"
     printf 'previous_link_target %s\n' "$(encode_value "${JOURNAL_PREVIOUS_LINK_TARGET:-}")"
     printf 'previous_root %s\n' "$(encode_value "${JOURNAL_PREVIOUS_ROOT:-}")"
@@ -292,6 +307,8 @@ write_journal() {
     printf 'previous_worker_running %s\n' "$JOURNAL_PREVIOUS_WORKER_RUNNING"
     printf 'previous_web_container %s\n' "${JOURNAL_PREVIOUS_WEB_CONTAINER:-}"
     printf 'previous_web_running %s\n' "$JOURNAL_PREVIOUS_WEB_RUNNING"
+    printf 'previous_business_import_parser_container %s\n' "${JOURNAL_PREVIOUS_BUSINESS_IMPORT_PARSER_CONTAINER:-}"
+    printf 'previous_business_import_parser_running %s\n' "$JOURNAL_PREVIOUS_BUSINESS_IMPORT_PARSER_RUNNING"
     printf 'previous_nginx_container %s\n' "${JOURNAL_PREVIOUS_NGINX_CONTAINER:-}"
     printf 'previous_nginx_running %s\n' "$JOURNAL_PREVIOUS_NGINX_RUNNING"
   } > "$temporary_journal"
@@ -321,7 +338,7 @@ load_journal() {
   while IFS=' ' read -r key value extra || [ -n "${key:-}" ]; do
     [ -n "${key:-}" ] && [ -z "${extra:-}" ] || die "Malformed deployment journal."
     case "$key" in
-      version|phase|release_dir|release_id|release_sha|compose_project|env_file|public_url|previous_current_kind|previous_link_target|previous_root|previous_path_identity|previous_backup_dir|previous_api_container|previous_api_running|previous_worker_container|previous_worker_running|previous_web_container|previous_web_running|previous_nginx_container|previous_nginx_running) ;;
+      version|phase|release_dir|release_id|release_sha|compose_project|env_file|public_url|business_import_parser_enabled|previous_current_kind|previous_link_target|previous_root|previous_path_identity|previous_backup_dir|previous_api_container|previous_api_running|previous_worker_container|previous_worker_running|previous_web_container|previous_web_running|previous_business_import_parser_container|previous_business_import_parser_running|previous_nginx_container|previous_nginx_running) ;;
       *) die "Unknown deployment journal field." ;;
     esac
     [ -z "${journal[$key]+present}" ] || die "Duplicate deployment journal field."
@@ -330,10 +347,12 @@ load_journal() {
 
   required_fields=(
     version phase release_dir release_id release_sha compose_project env_file public_url
+    business_import_parser_enabled
     previous_current_kind previous_link_target previous_root previous_path_identity
     previous_backup_dir previous_api_container previous_api_running
     previous_worker_container previous_worker_running previous_web_container
-    previous_web_running previous_nginx_container previous_nginx_running
+    previous_web_running previous_business_import_parser_container
+    previous_business_import_parser_running previous_nginx_container previous_nginx_running
   )
   [ "${#journal[@]}" -eq "${#required_fields[@]}" ] || die "Deployment journal field count is invalid."
   for key in "${required_fields[@]}"; do
@@ -354,6 +373,7 @@ load_journal() {
   journal_release_id="${journal[release_id]}"
   journal_release_sha="${journal[release_sha]}"
   journal_compose_project="${journal[compose_project]}"
+  journal_business_import_parser_enabled="${journal[business_import_parser_enabled]}"
   journal_previous_current_kind="${journal[previous_current_kind]}"
   journal_previous_path_identity="${journal[previous_path_identity]}"
 
@@ -369,6 +389,8 @@ load_journal() {
   validate_env_file "$journal_env_file" || die "Journal deployment env file is invalid."
   validate_project "$journal_compose_project" || die "Journal Compose project is invalid."
   validate_public_url "$journal_public_url" || die "Journal public URL is invalid."
+  validate_running_flag "$journal_business_import_parser_enabled" || \
+    die "Journal business import parser state is invalid."
   case "$journal_previous_current_kind" in
     symlink)
       [ -n "$journal_previous_link_target" ] && [ -n "$journal_previous_root" ] || die "Prior symlink metadata is incomplete."
@@ -390,9 +412,10 @@ load_journal() {
     *) die "Journal prior current kind is invalid." ;;
   esac
 
-  for service in api worker web nginx; do
-    container_key="previous_${service}_container"
-    running_key="previous_${service}_running"
+  for service in "${tracked_release_services[@]}"; do
+    service_key="${service//-/_}"
+    container_key="previous_${service_key}_container"
+    running_key="previous_${service_key}_running"
     validate_container_id "${journal[$container_key]}" || die "Journal prior $service container identity is invalid."
     validate_running_flag "${journal[$running_key]}" || die "Journal prior $service running state is invalid."
     if [ -z "${journal[$container_key]}" ] && [ "${journal[$running_key]}" != "0" ]; then
@@ -489,8 +512,9 @@ set_container_running() {
 }
 
 verify_prior_identity() {
-  for service in api worker web nginx; do
-    container_key="previous_${service}_container"
+  for service in "${tracked_release_services[@]}"; do
+    service_key="${service//-/_}"
+    container_key="previous_${service_key}_container"
     expected="${journal[$container_key]}"
     actual="$(project_service_containers "$service")" || return 1
     if [ "$actual" != "$expected" ]; then
@@ -505,9 +529,10 @@ verify_prior_identity() {
 }
 
 verify_prior_running_state() {
-  for service in api worker web nginx; do
-    container_key="previous_${service}_container"
-    running_key="previous_${service}_running"
+  for service in "${tracked_release_services[@]}"; do
+    service_key="${service//-/_}"
+    container_key="previous_${service_key}_container"
+    running_key="previous_${service_key}_running"
     container_id="${journal[$container_key]}"
     desired="${journal[$running_key]}"
     if [ -n "$container_id" ]; then
@@ -519,7 +544,7 @@ verify_prior_running_state() {
 }
 
 remove_candidate_preflights() {
-  for service in api worker web; do
+  for service in api worker web business-import-parser; do
     container_name="leadvirt-${service}-preflight-$journal_release_id"
     if docker inspect "$container_name" >/dev/null 2>&1; then
       metadata="$(docker inspect \
@@ -558,6 +583,17 @@ wait_container_http() {
   return 1
 }
 
+wait_parser_container_health() {
+  container_id="$1"
+  for attempt in $(seq 1 30); do
+    if docker exec "$container_id" python -c "import json,urllib.request; payload=json.load(urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=2)); raise SystemExit(0 if payload.get('ready') is True else 1)"; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
 recover_precommit() {
   printf 'DEPLOY_RECONCILE: restoring exact precommit state release=%s\n' "$journal_release_id"
   remove_candidate_preflights || return 1
@@ -566,12 +602,16 @@ recover_precommit() {
   nginx_id="${journal[previous_nginx_container]}"
   set_container_running "$nginx_id" 0 || return 1
   restore_previous_current || return 1
-  for service in api worker web; do
-    container_key="previous_${service}_container"
-    running_key="previous_${service}_running"
+  for service in business-import-parser api worker web; do
+    service_key="${service//-/_}"
+    container_key="previous_${service_key}_container"
+    running_key="previous_${service_key}_running"
     set_container_running "${journal[$container_key]}" "${journal[$running_key]}" || return 1
   done
 
+  if [ "${journal[previous_business_import_parser_running]}" = "1" ]; then
+    wait_parser_container_health "${journal[previous_business_import_parser_container]}" || return 1
+  fi
   if [ "${journal[previous_api_running]}" = "1" ]; then
     wait_container_http "${journal[previous_api_container]}" "http://127.0.0.1:4001/health/ready" "true" || return 1
   fi
@@ -610,8 +650,19 @@ recover_precommit() {
 }
 
 journal_compose() {
+  parser_url=""
+  parser_version="unconfigured"
+  parser_profiles=""
+  if [ "$journal_business_import_parser_enabled" = "1" ]; then
+    parser_url="http://business-import-parser:8080"
+    parser_version="poppler-tesseract-v1"
+    parser_profiles="business-import-parser"
+  fi
   LEADVIRT_IMAGE_TAG="$journal_release_id" \
   LEADVIRT_ENV_FILE="$journal_env_file" \
+  BUSINESS_IMPORT_PARSER_URL="$parser_url" \
+  BUSINESS_IMPORT_PARSER_VERSION="$parser_version" \
+  COMPOSE_PROFILES="$parser_profiles" \
     docker compose \
       --project-name "$journal_compose_project" \
       --env-file "$journal_env_file" \
@@ -620,9 +671,20 @@ journal_compose() {
 }
 
 journal_compose_paused_worker() {
+  parser_url=""
+  parser_version="unconfigured"
+  parser_profiles=""
+  if [ "$journal_business_import_parser_enabled" = "1" ]; then
+    parser_url="http://business-import-parser:8080"
+    parser_version="poppler-tesseract-v1"
+    parser_profiles="business-import-parser"
+  fi
   LEADVIRT_IMAGE_TAG="$journal_release_id" \
   LEADVIRT_ENV_FILE="$journal_env_file" \
   WORKER_DEPLOYMENT_PAUSED=true \
+  BUSINESS_IMPORT_PARSER_URL="$parser_url" \
+  BUSINESS_IMPORT_PARSER_VERSION="$parser_version" \
+  COMPOSE_PROFILES="$parser_profiles" \
     docker compose \
       --project-name "$journal_compose_project" \
       --env-file "$journal_env_file" \
@@ -663,13 +725,30 @@ stop_project_services() {
   done
 }
 
+remove_project_service_containers() {
+  for service in "$@"; do
+    containers="$(project_service_containers "$service")" || return 1
+    if [ -n "$containers" ]; then
+      docker rm -f $containers >/dev/null || return 1
+    fi
+  done
+}
+
 recover_committed() {
   printf 'DEPLOY_RECONCILE: resuming candidate-only roll-forward release=%s\n' "$journal_release_id"
   [ "$(readlink -f "$current_link" 2>/dev/null || true)" = "$journal_release_dir" ] || return 1
   remove_candidate_preflights || return 1
-  stop_project_services api worker nginx || return 1
+  stop_project_services api worker business-import-parser nginx || return 1
   wait_stateful_dependencies || return 1
   journal_compose up --no-deps --force-recreate --abort-on-container-exit --exit-code-from migrate migrate || return 1
+  if [ "$journal_business_import_parser_enabled" = "1" ]; then
+    journal_compose up -d --no-deps --no-build --force-recreate business-import-parser || return 1
+    parser_container_id="$(journal_compose ps -q business-import-parser)" || return 1
+    [ -n "$parser_container_id" ] || return 1
+    wait_parser_container_health "$parser_container_id" || return 1
+  else
+    remove_project_service_containers business-import-parser || return 1
+  fi
   journal_compose_paused_worker up -d --no-deps --no-build --force-recreate api worker web || return 1
 
   for attempt in $(seq 1 30); do
@@ -796,7 +875,8 @@ managed_release() {
 }
 
 image_tag_is_referenced() {
-  local tag="$1"
+  local repository="$1"
+  local tag="$2"
   local image_markers marker container_ids container_id container_image
 
   if [ -f "$journal_file" ] && [ ! -L "$journal_file" ]; then
@@ -814,7 +894,7 @@ image_tag_is_referenced() {
   while IFS= read -r container_id; do
     [ -n "$container_id" ] || continue
     container_image="$(docker inspect --format '{{.Config.Image}}' "$container_id" 2>/dev/null)" || return 0
-    [ "$container_image" != "leadvirt-app:$tag" ] || return 0
+    [ "$container_image" != "$repository:$tag" ] || return 0
   done <<< "$container_ids"
   return 1
 }
@@ -850,16 +930,22 @@ prune() {
     sync_path "$releases_root"
   done
 
-  image_listing="$(docker image ls leadvirt-app --format '{{.Repository}} {{.Tag}}')" || \
-    die "Image inventory failed; pruning skipped."
+  image_listing="$({
+    for repository in "${release_image_repositories[@]}"; do
+      docker image ls "$repository" --format '{{.Repository}} {{.Tag}}' || exit 1
+    done
+  })" || die "Image inventory failed; pruning skipped."
   while IFS=' ' read -r repository tag; do
     [ -n "$repository" ] || continue
-    [ "$repository" = "leadvirt-app" ] || continue
+    case "$repository" in
+      leadvirt-app|leadvirt-business-import-parser) ;;
+      *) continue ;;
+    esac
     validate_release_id "$tag" || continue
-    image_tag_is_referenced "$tag" && continue
-    printf 'DEPLOY_PRUNE: removing unreferenced image=leadvirt-app:%s\n' "$tag"
-    if ! docker image rm "leadvirt-app:$tag" >/dev/null; then
-      printf 'DEPLOY_PRUNE: image retained because Docker rejected removal tag=%s\n' "$tag" >&2
+    image_tag_is_referenced "$repository" "$tag" && continue
+    printf 'DEPLOY_PRUNE: removing unreferenced image=%s:%s\n' "$repository" "$tag"
+    if ! docker image rm "$repository:$tag" >/dev/null; then
+      printf 'DEPLOY_PRUNE: image retained because Docker rejected removal repository=%s tag=%s\n' "$repository" "$tag" >&2
     fi
   done <<< "$image_listing"
 }

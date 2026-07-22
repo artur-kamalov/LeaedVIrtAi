@@ -1,0 +1,20 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strictPropertyInitialization": false,
+    "paths": {
+      "@leadvirt/types": ["packages/types/src/index.ts"],
+      "@leadvirt/config": ["packages/config/src/index.ts"],
+      "@leadvirt/db": ["packages/db/src/index.ts"],
+      "@leadvirt/knowledge": ["packages/knowledge/src/index.ts"],
+      "@leadvirt/runtime-queue": ["packages/runtime-queue/src/index.ts"],
+      "@leadvirt/business-import": ["packages/business-import/src/index.ts"]
+    }
+  },
+  "include": ["scripts/business-import-csv-e2e-smoke.ts"]
+}

@@ -162,10 +162,38 @@ const businessProfileVersionMigrationUrl = new URL(
   "./migrations/20260716100000_business_profile_version/migration.sql",
   import.meta.url,
 );
+const businessInformationImportFoundationMigrationUrl = new URL(
+  "./migrations/20260721100000_business_information_import_foundation/migration.sql",
+  import.meta.url,
+);
+const businessInformationManualProjectionMigrationUrl = new URL(
+  "./migrations/20260721110000_business_information_manual_projection/migration.sql",
+  import.meta.url,
+);
+const businessImportFieldProvenanceMigrationUrl = new URL(
+  "./migrations/20260721120000_business_import_field_provenance/migration.sql",
+  import.meta.url,
+);
+const businessImportEvidenceLedgerIndexRepairMigrationUrl = new URL(
+  "./migrations/20260721130000_business_import_evidence_ledger_index_repair/migration.sql",
+  import.meta.url,
+);
+const businessImportEvidenceRecordIntegrityMigrationUrl = new URL(
+  "./migrations/20260721140000_business_import_evidence_record_integrity/migration.sql",
+  import.meta.url,
+);
+const businessImportLinkActionMigrationUrl = new URL(
+  "./migrations/20260721150000_business_import_link_action/migration.sql",
+  import.meta.url,
+);
+const businessImportApplicationIdempotencyRequestMigrationUrl = new URL(
+  "./migrations/20260721160000_business_import_application_idempotency_request/migration.sql",
+  import.meta.url,
+);
 const migrationRunnerLockPrefix = "leadvirt.custom-migration-runner.v1";
 const migrationRunnerMaxWaitMs = 30_000;
 const migrationRunnerTimeoutMs = 15 * 60_000;
-type MigrationTestStopAfter = "channel_automatic_reply_activation";
+type MigrationTestStopAfter = "channel_automatic_reply_activation" | "business_profile_version";
 
 function getMigrationTestStopAfter(): MigrationTestStopAfter | null {
   const value = process.env.LEADVIRT_MIGRATION_TEST_STOP_AFTER;
@@ -173,7 +201,7 @@ function getMigrationTestStopAfter(): MigrationTestStopAfter | null {
   if (process.env.NODE_ENV !== "test") {
     throw new Error("LEADVIRT_MIGRATION_TEST_STOP_AFTER is only available in NODE_ENV=test.");
   }
-  if (value !== "channel_automatic_reply_activation") {
+  if (value !== "channel_automatic_reply_activation" && value !== "business_profile_version") {
     throw new Error(`Unsupported LEADVIRT_MIGRATION_TEST_STOP_AFTER value: ${value}.`);
   }
   return value;
@@ -3840,6 +3868,686 @@ async function businessProfileVersionState(prisma: PrismaClient) {
   };
 }
 
+async function businessInformationImportFoundationState(prisma: PrismaClient) {
+  const rows = await prisma.$queryRaw<
+    Array<{
+      table_count: bigint;
+      enum_count: bigint;
+      column_count: bigint;
+      check_count: bigint;
+      foreign_key_count: bigint;
+      index_count: bigint;
+      base_index_count: bigint;
+      trigger_count: bigint;
+      enum_contract_ready: boolean;
+      artifact_boundary_ready: boolean;
+      candidate_revision_ready: boolean;
+      parsed_revision_ready: boolean;
+      approval_grant_ready: boolean;
+      attribution_provenance_ready: boolean;
+      revision_tuple_ready: boolean;
+      attribution_current_ready: boolean;
+      projection_receipt_ready: boolean;
+      mapping_lineage_ready: boolean;
+      deletion_ledger_ready: boolean;
+    }>
+  >`
+    WITH expected_table(table_name) AS (
+      VALUES
+        ('BusinessInformationState'),
+        ('BusinessInformationRevision'),
+        ('BusinessImportObjectLedger'),
+        ('BusinessIdentity'),
+        ('BusinessOffering'),
+        ('BusinessOfferingPrice'),
+        ('BusinessOfferingDuration'),
+        ('BusinessImportSource'),
+        ('BusinessImportArtifact'),
+        ('BusinessImport'),
+        ('BusinessImportParsedRevision'),
+        ('BusinessImportMapping'),
+        ('BusinessImportCandidate'),
+        ('BusinessImportCandidateRevision'),
+        ('BusinessImportCandidateApproval'),
+        ('BusinessImportApprovalGrant'),
+        ('BusinessImportCandidateEvidence'),
+        ('BusinessOfferingSourceBinding'),
+        ('BusinessImportApplication'),
+        ('BusinessImportApplicationCandidate'),
+        ('BusinessInformationProjectionReceipt'),
+        ('BusinessInformationAttribution'),
+        ('BusinessImportQuotaReservation')
+    )
+    SELECT
+      (
+        SELECT COUNT(*)
+        FROM information_schema.tables AS table_record
+        INNER JOIN expected_table
+          ON expected_table.table_name = table_record.table_name
+        WHERE table_record.table_schema = current_schema()
+      ) AS "table_count",
+      (
+        SELECT COUNT(*)
+        FROM pg_type AS enum_type
+        INNER JOIN pg_namespace AS enum_schema
+          ON enum_schema.oid = enum_type.typnamespace
+          AND enum_schema.nspname = current_schema()
+        WHERE enum_type.typname IN (
+          'BusinessInformationRevisionOrigin',
+          'BusinessInformationAuthority',
+          'BusinessInformationResourceType',
+          'BusinessOfferingKind',
+          'BusinessOfferingPriceType',
+          'BusinessImportSourceStatus',
+          'BusinessImportPurpose',
+          'BusinessImportFormat',
+          'BusinessImportArtifactMalwareStatus',
+          'BusinessImportMimeValidationStatus',
+          'BusinessImportArtifactDeletionState',
+          'BusinessImportObjectKind',
+          'BusinessImportState',
+          'BusinessImportTargetCategory',
+          'BusinessImportCandidateAction',
+          'BusinessImportCandidateDecision',
+          'BusinessImportConfidenceBand',
+          'BusinessImportRiskLevel',
+          'BusinessImportApprovalState',
+          'BusinessImportApplicationKind',
+          'BusinessImportApplicationState',
+          'BusinessImportQuotaStatus'
+        )
+      ) AS "enum_count",
+      (
+        SELECT COUNT(*)
+        FROM information_schema.columns AS column_record
+        INNER JOIN expected_table
+          ON expected_table.table_name = column_record.table_name
+        WHERE column_record.table_schema = current_schema()
+      ) AS "column_count",
+      (
+        SELECT COUNT(*)
+        FROM pg_constraint AS constraint_record
+        INNER JOIN pg_class AS table_record ON table_record.oid = constraint_record.conrelid
+        INNER JOIN pg_namespace AS table_schema
+          ON table_schema.oid = table_record.relnamespace
+          AND table_schema.nspname = current_schema()
+        INNER JOIN expected_table ON expected_table.table_name = table_record.relname
+        WHERE constraint_record.contype = 'c'
+          AND constraint_record.convalidated
+      ) AS "check_count",
+      (
+        SELECT COUNT(*)
+        FROM pg_constraint AS constraint_record
+        INNER JOIN pg_class AS table_record ON table_record.oid = constraint_record.conrelid
+        INNER JOIN pg_namespace AS table_schema
+          ON table_schema.oid = table_record.relnamespace
+          AND table_schema.nspname = current_schema()
+        INNER JOIN expected_table ON expected_table.table_name = table_record.relname
+        WHERE constraint_record.contype = 'f'
+          AND constraint_record.convalidated
+      ) AS "foreign_key_count",
+      (
+        SELECT COUNT(*)
+        FROM pg_index AS index_state
+        INNER JOIN pg_class AS table_record ON table_record.oid = index_state.indrelid
+        INNER JOIN pg_namespace AS table_schema
+          ON table_schema.oid = table_record.relnamespace
+          AND table_schema.nspname = current_schema()
+        INNER JOIN expected_table ON expected_table.table_name = table_record.relname
+        WHERE index_state.indisvalid
+          AND index_state.indisready
+          AND index_state.indislive
+      ) AS "index_count",
+      (
+        SELECT COUNT(*)
+        FROM pg_index AS index_state
+        INNER JOIN pg_class AS table_record ON table_record.oid = index_state.indrelid
+        INNER JOIN pg_namespace AS table_schema
+          ON table_schema.oid = table_record.relnamespace
+          AND table_schema.nspname = current_schema()
+        INNER JOIN expected_table ON expected_table.table_name = table_record.relname
+        WHERE index_state.indisvalid
+          AND index_state.indisready
+          AND index_state.indislive
+          AND index_state.indexrelid IS DISTINCT FROM to_regclass(
+            format('%I.%I', current_schema(), 'BusinessImportEvidence_excerpt_ledger_idx')
+          )
+      ) AS "base_index_count",
+      (
+        SELECT COUNT(*)
+        FROM pg_trigger AS trigger_record
+        INNER JOIN pg_class AS table_record ON table_record.oid = trigger_record.tgrelid
+        INNER JOIN pg_namespace AS table_schema
+          ON table_schema.oid = table_record.relnamespace
+          AND table_schema.nspname = current_schema()
+        WHERE NOT trigger_record.tgisinternal
+          AND (
+            table_record.relname IN (SELECT table_name FROM expected_table)
+            OR table_record.relname = 'RuntimeOutbox'
+          )
+          AND trigger_record.tgname IN (
+            'BusinessInformationRevision_immutable',
+            'BusinessImportParsedRevision_immutable',
+            'BusinessImportCandidateRevision_immutable',
+            'BusinessImportApprovalGrant_immutable',
+            'BusinessImportObjectLedger_identity_guard',
+            'BusinessImportMapping_lineage_guard',
+            'BusinessImportParsedRevision_generation_guard',
+            'BusinessImportApprovalGrant_approval_guard',
+            'BusinessImportApplication_projection_outbox_guard',
+            'BusinessInformationProjectionReceipt_exact_guard',
+            'BusinessInformationProjectionReceipt_immutable',
+            'BusinessImportApplication_ready_guard',
+            'BusinessImport_applied_projection_guard'
+          )
+      ) AS "trigger_count",
+      (
+        SELECT array_agg(enum_value.enumlabel ORDER BY enum_value.enumsortorder)
+        FROM pg_type AS enum_type
+        INNER JOIN pg_namespace AS enum_schema
+          ON enum_schema.oid = enum_type.typnamespace
+          AND enum_schema.nspname = current_schema()
+        INNER JOIN pg_enum AS enum_value ON enum_value.enumtypid = enum_type.oid
+        WHERE enum_type.typname = 'BusinessImportCandidateDecision'
+      ) = ARRAY[
+        'PENDING',
+        'ACCEPTED',
+        'EDITED',
+        'SUBMITTED_FOR_APPROVAL',
+        'REJECTED',
+        'STALE',
+        'APPLIED'
+      ]::name[] AS "enum_contract_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_constraint AS constraint_record
+        WHERE constraint_record.conname = 'BusinessImport_tenantId_sourceId_artifactId_artifactSha256_fkey'
+          AND constraint_record.convalidated
+          AND constraint_record.confrelid = to_regclass(format('%I.%I', current_schema(), 'BusinessImportArtifact'))
+          AND cardinality(constraint_record.conkey) = 4
+          AND cardinality(constraint_record.confkey) = 4
+      ) AS "artifact_boundary_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_constraint AS constraint_record
+        WHERE constraint_record.conname = 'BusinessImportApplicationCandidate_revision_fkey'
+          AND constraint_record.convalidated
+          AND constraint_record.confrelid = to_regclass(format('%I.%I', current_schema(), 'BusinessImportCandidateRevision'))
+          AND cardinality(constraint_record.conkey) = 11
+          AND cardinality(constraint_record.confkey) = 11
+      ) AS "candidate_revision_ready",
+      (
+        SELECT COUNT(*) = 2
+        FROM pg_constraint AS constraint_record
+        WHERE constraint_record.conname IN (
+          'BusinessImportCandidateEvidence_parsed_revision_fkey',
+          'BusinessImport_tenantId_sourceId_id_artifactId_artifactSha_fkey'
+        )
+          AND constraint_record.convalidated
+          AND constraint_record.confrelid = to_regclass(format('%I.%I', current_schema(), 'BusinessImportParsedRevision'))
+      ) AS "parsed_revision_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_constraint AS constraint_record
+        WHERE constraint_record.conname = 'BusinessImportApplicationCandidate_approval_grant_fkey'
+          AND constraint_record.convalidated
+          AND constraint_record.confrelid = to_regclass(format('%I.%I', current_schema(), 'BusinessImportApprovalGrant'))
+          AND cardinality(constraint_record.conkey) = 8
+          AND cardinality(constraint_record.confkey) = 8
+      ) AS "approval_grant_ready",
+      (
+        SELECT COUNT(*) = 4
+        FROM pg_constraint AS constraint_record
+        WHERE constraint_record.conname IN (
+          'BusinessInformationAttribution_evidence_fkey',
+          'BusinessInformationAttribution_application_fkey',
+          'BusinessInformationAttribution_application_candidate_fkey',
+          'BusinessInformationAttribution_provenance_check'
+        )
+          AND constraint_record.convalidated
+      ) AS "attribution_provenance_ready",
+      (
+        SELECT COUNT(*) = 4
+        FROM pg_constraint AS constraint_record
+        WHERE constraint_record.conname IN (
+          'BusinessInformationState_tenantId_currentRevisionId_revisi_fkey',
+          'BusinessImport_tenantId_baseBusinessRevisionId_baseInforma_fkey',
+          'BusinessImportApplication_tenantId_baseBusinessRevisionId__fkey',
+          'BusinessImportApplication_tenantId_businessRevisionId_resu_fkey'
+        )
+          AND constraint_record.convalidated
+          AND cardinality(constraint_record.conkey) = 4
+          AND cardinality(constraint_record.confkey) = 4
+      ) AS "revision_tuple_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_class AS index_record
+        INNER JOIN pg_namespace AS index_schema
+          ON index_schema.oid = index_record.relnamespace
+          AND index_schema.nspname = current_schema()
+        INNER JOIN pg_index AS index_state ON index_state.indexrelid = index_record.oid
+        WHERE index_record.relname = 'BusinessInformationAttribution_current_field_key'
+          AND index_state.indisunique
+          AND index_state.indisvalid
+          AND index_state.indisready
+          AND index_state.indislive
+          AND pg_get_indexdef(index_record.oid) LIKE '%("tenantId", "resourceType", "resourceKey", "fieldPath")%'
+          AND pg_get_expr(index_state.indpred, index_state.indrelid) = '("supersededAt" IS NULL)'
+      ) AS "attribution_current_ready",
+      (
+        SELECT COUNT(*) = 3
+        FROM pg_constraint AS constraint_record
+        WHERE constraint_record.conname IN (
+          'BusinessInformationProjectionReceipt_application_fkey',
+          'BusinessInformationProjectionReceipt_tenantId_businessRevi_fkey',
+          'BusinessInformationProjectionReceipt_value_check'
+        )
+          AND constraint_record.convalidated
+      ) AS "projection_receipt_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_constraint AS constraint_record
+        WHERE constraint_record.conname = 'BusinessImportMapping_tenantId_sourceId_tableKey_targetCat_fkey'
+          AND constraint_record.convalidated
+          AND constraint_record.confrelid = to_regclass(format('%I.%I', current_schema(), 'BusinessImportMapping'))
+          AND cardinality(constraint_record.conkey) = 6
+          AND cardinality(constraint_record.confkey) = 6
+      ) AS "mapping_lineage_ready",
+      (
+        SELECT COUNT(*) = 3
+        FROM pg_constraint AS constraint_record
+        WHERE constraint_record.conname IN (
+          'BusinessImportObjectLedger_lifecycle_check',
+          'BusinessImportArtifact_tenantId_objectLedgerId_objectKind__fkey',
+          'BusinessImportCandidateEvidence_tenantId_excerptObjectLedg_fkey'
+        )
+          AND constraint_record.convalidated
+      ) AS "deletion_ledger_ready"
+  `;
+  const state = rows[0];
+  const present = Boolean(
+    state && (state.table_count > 0n || state.enum_count > 0n || state.column_count > 0n),
+  );
+  return {
+    present,
+    diagnostics: state
+      ? [
+          `tables=${state.table_count}`,
+          `enums=${state.enum_count}`,
+          `columns=${state.column_count}`,
+          `checks=${state.check_count}`,
+          `foreignKeys=${state.foreign_key_count}`,
+          `indexes=${state.index_count}`,
+          `baseIndexes=${state.base_index_count}`,
+          `triggers=${state.trigger_count}`,
+          `enumContract=${state.enum_contract_ready}`,
+          `artifactBoundary=${state.artifact_boundary_ready}`,
+          `candidateRevision=${state.candidate_revision_ready}`,
+          `parsedRevision=${state.parsed_revision_ready}`,
+          `approvalGrant=${state.approval_grant_ready}`,
+          `attributionProvenance=${state.attribution_provenance_ready}`,
+          `revisionTuple=${state.revision_tuple_ready}`,
+          `currentAttribution=${state.attribution_current_ready}`,
+          `projectionReceipt=${state.projection_receipt_ready}`,
+          `mappingLineage=${state.mapping_lineage_ready}`,
+          `deletionLedger=${state.deletion_ledger_ready}`,
+        ].join(", ")
+      : "state query returned no row",
+    complete: Boolean(
+      state &&
+      state.table_count === 23n &&
+      state.enum_count === 22n &&
+      state.column_count >= 468n &&
+      state.check_count >= 53n &&
+      state.foreign_key_count === 110n &&
+      state.base_index_count === 147n &&
+      state.trigger_count === 13n &&
+      state.enum_contract_ready &&
+      state.artifact_boundary_ready &&
+      state.candidate_revision_ready &&
+      state.parsed_revision_ready &&
+      state.approval_grant_ready &&
+      state.attribution_provenance_ready &&
+      state.revision_tuple_ready &&
+      state.attribution_current_ready &&
+      state.projection_receipt_ready &&
+      state.mapping_lineage_ready &&
+      state.deletion_ledger_ready,
+    ),
+  };
+}
+
+async function businessInformationManualProjectionState(prisma: PrismaClient) {
+  const rows = await prisma.$queryRaw<
+    Array<{
+      nullable_context_count: bigint;
+      value_check_ready: boolean;
+      receipt_guard_ready: boolean;
+      application_receipt_check_ready: boolean;
+      application_guard_ready: boolean;
+      ledger_guard_ready: boolean;
+    }>
+  >`
+    SELECT
+      (
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'BusinessInformationProjectionReceipt'
+          AND column_name IN ('sourceId', 'importId', 'applicationId')
+          AND is_nullable = 'YES'
+      ) AS "nullable_context_count",
+      EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'BusinessInformationProjectionReceipt_value_check'
+          AND convalidated
+          AND pg_get_constraintdef(oid) LIKE '%"sourceId" IS NULL%'
+          AND pg_get_constraintdef(oid) LIKE '%"runtimeOutboxPrunedAt" IS NOT NULL%'
+      ) AS "value_check_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_proc
+        INNER JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+        WHERE pg_namespace.nspname = current_schema()
+          AND pg_proc.proname = 'business_information_projection_receipt_guard'
+          AND pg_get_functiondef(pg_proc.oid) LIKE '%business.information.project.requested%'
+          AND pg_get_functiondef(pg_proc.oid) LIKE '%project-revision%'
+          AND pg_get_functiondef(pg_proc.oid) LIKE '%MANUAL%'
+      ) AS "receipt_guard_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'BusinessImportApplication_receipt_check'
+          AND convalidated
+          AND pg_get_constraintdef(oid) LIKE '%SUPERSEDED%'
+          AND pg_get_constraintdef(oid) LIKE '%supersededAt%'
+      ) AS "application_receipt_check_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_proc
+        INNER JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+        WHERE pg_namespace.nspname = current_schema()
+          AND pg_proc.proname = 'business_import_application_ready_guard'
+          AND pg_get_functiondef(pg_proc.oid) LIKE '%newer current revision%'
+      ) AS "application_guard_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_proc
+        INNER JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+        WHERE pg_namespace.nspname = current_schema()
+          AND pg_proc.proname = 'business_import_object_ledger_identity_guard'
+          AND pg_get_functiondef(pg_proc.oid) LIKE '%NEW."retainUntil" IS NOT NULL%'
+          AND pg_get_functiondef(pg_proc.oid) NOT LIKE '%NEW."retainUntil" IS NULL OR%'
+      ) AS "ledger_guard_ready"
+  `;
+  const state = rows[0];
+  return {
+    present: Boolean(
+      state &&
+      (state.nullable_context_count > 0n ||
+        state.value_check_ready ||
+        state.receipt_guard_ready ||
+        state.application_receipt_check_ready ||
+        state.application_guard_ready ||
+        state.ledger_guard_ready),
+    ),
+    complete: Boolean(
+      state &&
+      state.nullable_context_count === 3n &&
+      state.value_check_ready &&
+      state.receipt_guard_ready &&
+      state.application_receipt_check_ready &&
+      state.application_guard_ready &&
+      state.ledger_guard_ready,
+    ),
+    diagnostics: state
+      ? `nullableContext=${state.nullable_context_count}, valueCheck=${state.value_check_ready}, receiptGuard=${state.receipt_guard_ready}, applicationReceiptCheck=${state.application_receipt_check_ready}, applicationGuard=${state.application_guard_ready}, ledgerGuard=${state.ledger_guard_ready}`
+      : "state query returned no row",
+  };
+}
+
+async function businessImportFieldProvenanceState(prisma: PrismaClient) {
+  const rows = await prisma.$queryRaw<
+    Array<{
+      column_ready: boolean;
+      constraint_ready: boolean;
+      function_ready: boolean;
+    }>
+  >`
+    SELECT
+      EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'BusinessImportCandidateRevision'
+          AND column_name = 'fieldProvenance'
+          AND data_type = 'jsonb'
+          AND is_nullable = 'NO'
+      ) AS "column_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'BusinessImportCandidateRevision_value_check'
+          AND convalidated
+          AND pg_get_constraintdef(oid) LIKE '%business_import_field_provenance_valid%'
+      ) AS "constraint_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_proc
+        INNER JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+        WHERE pg_namespace.nspname = current_schema()
+          AND pg_proc.proname = 'business_import_field_provenance_valid'
+          AND pg_get_functiondef(pg_proc.oid) LIKE '%IMPORTED%'
+          AND pg_get_functiondef(pg_proc.oid) LIKE '%evidenceId%'
+      ) AS "function_ready"
+  `;
+  const state = rows[0];
+  return {
+    present: Boolean(
+      state && (state.column_ready || state.constraint_ready || state.function_ready),
+    ),
+    complete: Boolean(
+      state && state.column_ready && state.constraint_ready && state.function_ready,
+    ),
+    diagnostics: state
+      ? `column=${state.column_ready}, constraint=${state.constraint_ready}, function=${state.function_ready}`
+      : "state query returned no row",
+  };
+}
+
+async function businessImportEvidenceLedgerIndexRepairState(prisma: PrismaClient) {
+  const rows = await prisma.$queryRaw<Array<{ present: boolean; complete: boolean }>>`
+    SELECT
+      EXISTS (
+        SELECT 1
+        FROM pg_class AS index_record
+        INNER JOIN pg_namespace AS index_schema
+          ON index_schema.oid = index_record.relnamespace
+          AND index_schema.nspname = current_schema()
+        WHERE index_record.relname = 'BusinessImportEvidence_excerpt_ledger_idx'
+          AND index_record.relkind = 'i'
+      ) AS "present",
+      EXISTS (
+        SELECT 1
+        FROM pg_class AS index_record
+        INNER JOIN pg_namespace AS index_schema
+          ON index_schema.oid = index_record.relnamespace
+          AND index_schema.nspname = current_schema()
+        INNER JOIN pg_index AS index_state ON index_state.indexrelid = index_record.oid
+        WHERE index_record.relname = 'BusinessImportEvidence_excerpt_ledger_idx'
+          AND index_record.relkind = 'i'
+          AND index_state.indrelid = to_regclass(
+            format('%I.%I', current_schema(), 'BusinessImportCandidateEvidence')
+          )
+          AND NOT index_state.indisunique
+          AND index_state.indisvalid
+          AND index_state.indisready
+          AND index_state.indislive
+          AND index_state.indnkeyatts = 2
+          AND index_state.indnatts = 2
+          AND index_state.indpred IS NULL
+          AND index_state.indexprs IS NULL
+          AND pg_get_indexdef(index_record.oid) LIKE
+            '%USING btree ("tenantId", "excerptObjectLedgerId")'
+      ) AS "complete"
+  `;
+  const state = rows[0] ?? { present: false, complete: false };
+  return {
+    ...state,
+    diagnostics: `present=${state.present}, complete=${state.complete}`,
+  };
+}
+
+async function businessImportEvidenceRecordIntegrityState(prisma: PrismaClient) {
+  const rows = await prisma.$queryRaw<
+    Array<{
+      column_ready: boolean;
+      constraint_ready: boolean;
+      trigger_ready: boolean;
+    }>
+  >`
+    SELECT
+      EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'BusinessImportCandidateEvidence'
+          AND column_name = 'evidenceRecordHash'
+          AND data_type = 'text'
+          AND is_nullable = 'NO'
+      ) AS "column_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'BusinessImportEvidence_record_hash_check'
+          AND conrelid = to_regclass(
+            format('%I.%I', current_schema(), 'BusinessImportCandidateEvidence')
+          )
+          AND contype = 'c'
+          AND convalidated
+          AND pg_get_constraintdef(oid) LIKE '%"evidenceRecordHash" ~%^[a-f0-9]{64}$%'
+      ) AS "constraint_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgrelid = to_regclass(
+            format('%I.%I', current_schema(), 'BusinessImportCandidateEvidence')
+          )
+          AND tgname = 'BusinessImportCandidateEvidence_immutable'
+          AND NOT tgisinternal
+          AND (tgtype & 1) = 1
+          AND (tgtype & 2) = 2
+          AND (tgtype & 8) = 8
+          AND (tgtype & 16) = 16
+          AND pg_get_triggerdef(oid) LIKE '%business_import_reject_immutable_mutation%'
+      ) AS "trigger_ready"
+  `;
+  const state = rows[0];
+  return {
+    present: Boolean(
+      state && (state.column_ready || state.constraint_ready || state.trigger_ready),
+    ),
+    complete: Boolean(state && state.column_ready && state.constraint_ready && state.trigger_ready),
+    diagnostics: state
+      ? `column=${state.column_ready}, constraint=${state.constraint_ready}, trigger=${state.trigger_ready}`
+      : "state query returned no row",
+  };
+}
+
+async function businessImportLinkActionState(prisma: PrismaClient) {
+  const rows = await prisma.$queryRaw<Array<{ complete: boolean }>>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_type
+      INNER JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace
+      INNER JOIN pg_enum ON pg_enum.enumtypid = pg_type.oid
+      WHERE pg_namespace.nspname = current_schema()
+        AND pg_type.typname = 'BusinessImportCandidateAction'
+        AND pg_enum.enumlabel = 'LINK'
+    ) AS "complete"
+  `;
+  const complete = rows[0]?.complete ?? false;
+  return { present: complete, complete, diagnostics: `link=${complete}` };
+}
+
+async function businessImportApplicationIdempotencyRequestState(prisma: PrismaClient) {
+  const rows = await prisma.$queryRaw<
+    Array<{
+      column_ready: boolean;
+      constraint_ready: boolean;
+      function_ready: boolean;
+      trigger_ready: boolean;
+    }>
+  >`
+    SELECT
+      EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'BusinessImportApplication'
+          AND column_name = 'idempotencyRequestHash'
+          AND data_type = 'text'
+          AND is_nullable = 'NO'
+      ) AS "column_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'BusinessImportApplication_idempotency_request_hash_check'
+          AND conrelid = to_regclass(
+            format('%I.%I', current_schema(), 'BusinessImportApplication')
+          )
+          AND contype = 'c'
+          AND convalidated
+          AND pg_get_constraintdef(oid) LIKE '%"idempotencyRequestHash" ~%^[a-f0-9]{64}$%'
+      ) AS "constraint_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_proc
+        INNER JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+        WHERE pg_namespace.nspname = current_schema()
+          AND pg_proc.proname = 'business_import_application_idempotency_identity_guard'
+          AND pg_proc.prorettype = 'trigger'::regtype
+          AND pg_get_functiondef(pg_proc.oid) LIKE '%TG_OP = ''DELETE''%'
+          AND pg_get_functiondef(pg_proc.oid) LIKE '%NEW."idempotencyKeyHash" IS DISTINCT FROM OLD."idempotencyKeyHash"%'
+          AND pg_get_functiondef(pg_proc.oid) LIKE '%NEW."idempotencyRequestHash" IS DISTINCT FROM OLD."idempotencyRequestHash"%'
+          AND pg_get_functiondef(pg_proc.oid) LIKE '%idempotency identity is immutable%'
+      ) AS "function_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgrelid = to_regclass(
+            format('%I.%I', current_schema(), 'BusinessImportApplication')
+          )
+          AND tgname = 'BusinessImportApplication_idempotency_identity_guard'
+          AND NOT tgisinternal
+          AND (tgtype & 1) = 1
+          AND (tgtype & 2) = 2
+          AND (tgtype & 8) = 8
+          AND (tgtype & 16) = 16
+          AND pg_get_triggerdef(oid) LIKE '%UPDATE OF "idempotencyKeyHash", "idempotencyRequestHash"%'
+          AND pg_get_triggerdef(oid) LIKE '%business_import_application_idempotency_identity_guard%'
+      ) AS "trigger_ready"
+  `;
+  const state = rows[0];
+  return {
+    present: Boolean(
+      state &&
+      (state.column_ready || state.constraint_ready || state.function_ready || state.trigger_ready),
+    ),
+    complete: Boolean(
+      state &&
+      state.column_ready &&
+      state.constraint_ready &&
+      state.function_ready &&
+      state.trigger_ready,
+    ),
+    diagnostics: state
+      ? `column=${state.column_ready}, constraint=${state.constraint_ready}, function=${state.function_ready}, trigger=${state.trigger_ready}`
+      : "state query returned no row",
+  };
+}
+
 function splitSqlStatements(sql: string) {
   const statements: string[] = [];
   let start = 0;
@@ -4600,6 +5308,174 @@ async function runMigrations(databaseUrl: string, testStopAfter: MigrationTestSt
         );
       }
       console.log(`Applied business_profile_version migration (${statementCount} statements).`);
+    }
+    if (testStopAfter === "business_profile_version") return;
+
+    const businessInformationImport = await businessInformationImportFoundationState(prisma);
+    if (businessInformationImport.complete) {
+      console.log(
+        "Business information import foundation already exists; skipping business_information_import_foundation migration.",
+      );
+    } else if (businessInformationImport.present) {
+      throw new Error(
+        `Business information import foundation is partially installed; refusing to replay its DDL (${businessInformationImport.diagnostics}).`,
+      );
+    } else {
+      const statementCount = await applySqlFile(
+        prisma,
+        businessInformationImportFoundationMigrationUrl,
+      );
+      const installed = await businessInformationImportFoundationState(prisma);
+      if (!installed.complete) {
+        throw new Error(
+          "Business information import foundation migration completed without its full tenant, approval, artifact, and attribution contract.",
+        );
+      }
+      console.log(
+        `Applied business_information_import_foundation migration (${statementCount} statements).`,
+      );
+    }
+
+    const businessInformationManualProjection =
+      await businessInformationManualProjectionState(prisma);
+    if (businessInformationManualProjection.complete) {
+      console.log(
+        "Business information manual projection already exists; skipping business_information_manual_projection migration.",
+      );
+    } else if (businessInformationManualProjection.present) {
+      throw new Error(
+        "Business information manual projection is partially installed; refusing to replay its DDL.",
+      );
+    } else {
+      const statementCount = await applySqlFile(
+        prisma,
+        businessInformationManualProjectionMigrationUrl,
+      );
+      const installed = await businessInformationManualProjectionState(prisma);
+      if (!installed.complete) {
+        throw new Error(
+          `Business information manual projection migration completed without its nullable import context and exact manual revision guard (${installed.diagnostics}).`,
+        );
+      }
+      console.log(
+        `Applied business_information_manual_projection migration (${statementCount} statements).`,
+      );
+    }
+
+    const businessImportFieldProvenance = await businessImportFieldProvenanceState(prisma);
+    if (businessImportFieldProvenance.complete) {
+      console.log(
+        "Business import field provenance already exists; skipping business_import_field_provenance migration.",
+      );
+    } else if (businessImportFieldProvenance.present) {
+      throw new Error(
+        `Business import field provenance is partially installed; refusing to replay its DDL (${businessImportFieldProvenance.diagnostics}).`,
+      );
+    } else {
+      const statementCount = await applySqlFile(prisma, businessImportFieldProvenanceMigrationUrl);
+      const installed = await businessImportFieldProvenanceState(prisma);
+      if (!installed.complete) {
+        throw new Error(
+          `Business import field provenance migration completed without its immutable exact-field contract (${installed.diagnostics}).`,
+        );
+      }
+      console.log(
+        `Applied business_import_field_provenance migration (${statementCount} statements).`,
+      );
+    }
+
+    const businessImportEvidenceLedgerIndexRepair =
+      await businessImportEvidenceLedgerIndexRepairState(prisma);
+    if (businessImportEvidenceLedgerIndexRepair.complete) {
+      console.log(
+        "Business import evidence ledger index already exists; skipping business_import_evidence_ledger_index_repair migration.",
+      );
+    } else if (businessImportEvidenceLedgerIndexRepair.present) {
+      throw new Error(
+        `Business import evidence ledger index is malformed; refusing to hide it behind CREATE INDEX IF NOT EXISTS (${businessImportEvidenceLedgerIndexRepair.diagnostics}).`,
+      );
+    } else {
+      const statementCount = await applySqlFile(
+        prisma,
+        businessImportEvidenceLedgerIndexRepairMigrationUrl,
+      );
+      const installed = await businessImportEvidenceLedgerIndexRepairState(prisma);
+      if (!installed.complete) {
+        throw new Error(
+          `Business import evidence ledger index repair completed without its exact lookup contract (${installed.diagnostics}).`,
+        );
+      }
+      console.log(
+        `Applied business_import_evidence_ledger_index_repair migration (${statementCount} statements).`,
+      );
+    }
+
+    const businessImportEvidenceRecordIntegrity =
+      await businessImportEvidenceRecordIntegrityState(prisma);
+    if (businessImportEvidenceRecordIntegrity.complete) {
+      console.log(
+        "Business import evidence record integrity already exists; skipping business_import_evidence_record_integrity migration.",
+      );
+    } else if (businessImportEvidenceRecordIntegrity.present) {
+      throw new Error(
+        `Business import evidence record integrity is partially installed; refusing to replay its DDL (${businessImportEvidenceRecordIntegrity.diagnostics}).`,
+      );
+    } else {
+      const statementCount = await applySqlFile(
+        prisma,
+        businessImportEvidenceRecordIntegrityMigrationUrl,
+      );
+      const installed = await businessImportEvidenceRecordIntegrityState(prisma);
+      if (!installed.complete) {
+        throw new Error(
+          `Business import evidence record integrity migration completed without its append-only hash contract (${installed.diagnostics}).`,
+        );
+      }
+      console.log(
+        `Applied business_import_evidence_record_integrity migration (${statementCount} statements).`,
+      );
+    }
+
+    const businessImportLinkAction = await businessImportLinkActionState(prisma);
+    if (businessImportLinkAction.complete) {
+      console.log(
+        "Business import link action already exists; skipping business_import_link_action migration.",
+      );
+    } else {
+      const statementCount = await applySqlFile(prisma, businessImportLinkActionMigrationUrl);
+      const installed = await businessImportLinkActionState(prisma);
+      if (!installed.complete) {
+        throw new Error(
+          `Business import link action migration completed without its enum contract (${installed.diagnostics}).`,
+        );
+      }
+      console.log(`Applied business_import_link_action migration (${statementCount} statements).`);
+    }
+
+    const businessImportApplicationIdempotencyRequest =
+      await businessImportApplicationIdempotencyRequestState(prisma);
+    if (businessImportApplicationIdempotencyRequest.complete) {
+      console.log(
+        "Business import application idempotency request contract already exists; skipping business_import_application_idempotency_request migration.",
+      );
+    } else if (businessImportApplicationIdempotencyRequest.present) {
+      throw new Error(
+        `Business import application idempotency request contract is partially installed; refusing to replay its DDL (${businessImportApplicationIdempotencyRequest.diagnostics}).`,
+      );
+    } else {
+      const statementCount = await applySqlFile(
+        prisma,
+        businessImportApplicationIdempotencyRequestMigrationUrl,
+      );
+      const installed = await businessImportApplicationIdempotencyRequestState(prisma);
+      if (!installed.complete) {
+        throw new Error(
+          `Business import application idempotency request migration completed without its durable replay contract (${installed.diagnostics}).`,
+        );
+      }
+      console.log(
+        `Applied business_import_application_idempotency_request migration (${statementCount} statements).`,
+      );
     }
   } finally {
     await prisma.$disconnect();

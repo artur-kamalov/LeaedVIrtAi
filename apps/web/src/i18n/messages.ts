@@ -33,6 +33,10 @@ import {
   type DashboardReadinessTranslationKey,
 } from "./dashboard-readiness-messages";
 import { activationMessages, type ActivationTranslationKey } from "./activation-messages";
+import {
+  businessImportMessages,
+  type BusinessImportTranslationKey,
+} from "./business-import-messages";
 
 const ru = {
   "language.label": "Язык",
@@ -455,6 +459,7 @@ export type TranslationKey =
   | IntegrationTranslationKey
   | ResourceTranslationKey
   | BusinessProfileTranslationKey
+  | BusinessImportTranslationKey
   | DashboardReadinessTranslationKey
   | ActivationTranslationKey;
 export type TranslationValues = Record<string, string | number>;
@@ -878,6 +883,7 @@ export const messages = {
     ...testKnowledgeMessages.en,
     ...settingsMessages.en,
     ...businessProfileMessages.en,
+    ...businessImportMessages.en,
     ...dashboardReadinessMessages.en,
     ...activationMessages.en,
   },
@@ -894,6 +900,7 @@ export const messages = {
     ...testKnowledgeMessages.es,
     ...settingsMessages.es,
     ...businessProfileMessages.es,
+    ...businessImportMessages.es,
     ...dashboardReadinessMessages.es,
     ...activationMessages.es,
   },
@@ -910,6 +917,7 @@ export const messages = {
     ...testKnowledgeMessages.fr,
     ...settingsMessages.fr,
     ...businessProfileMessages.fr,
+    ...businessImportMessages.fr,
     ...dashboardReadinessMessages.fr,
     ...activationMessages.fr,
   },
@@ -926,6 +934,7 @@ export const messages = {
     ...testKnowledgeMessages.de,
     ...settingsMessages.de,
     ...businessProfileMessages.de,
+    ...businessImportMessages.de,
     ...dashboardReadinessMessages.de,
     ...activationMessages.de,
   },
@@ -942,6 +951,7 @@ export const messages = {
     ...testKnowledgeMessages.pt,
     ...settingsMessages.pt,
     ...businessProfileMessages.pt,
+    ...businessImportMessages.pt,
     ...dashboardReadinessMessages.pt,
     ...activationMessages.pt,
   },
@@ -958,6 +968,7 @@ export const messages = {
     ...testKnowledgeMessages.ru,
     ...settingsMessages.ru,
     ...businessProfileMessages.ru,
+    ...businessImportMessages.ru,
     ...dashboardReadinessMessages.ru,
     ...activationMessages.ru,
   },
