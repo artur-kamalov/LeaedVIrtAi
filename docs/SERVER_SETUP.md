@@ -172,7 +172,7 @@ The Business Import parser is optional. It is built, preflighted, started, and h
 
 LeadVirt.com intentionally enables the CSV Business Import core in the production web, API, and worker while pinning XLSX and the parser off. Before traffic drain, candidate deployment validates the exact rollout state, writable encrypted artifact storage and key configuration, and a real clean ClamAV scan. Journal recovery inherits these committed Compose values rather than transient workflow overrides.
 
-Before strict staging validation, deployment may canonicalize a legacy artifact key's base64 text while preserving the exact effective decoded 32 key bytes. Exact duplicate assignments are collapsed using the same last-wins semantics as Compose and the env parser. This is an atomic owner/mode-preserving normalization, not key rotation. Missing or malformed effective assignments still stop deployment and require manual secret repair.
+Before strict staging validation, deployment may canonicalize an existing artifact key's base64 text while preserving the exact effective decoded 32 key bytes. Exact duplicate assignments are collapsed using the same last-wins semantics as Compose and the env parser. This is an atomic owner/mode-preserving normalization, not key rotation. Missing or malformed effective assignments still stop deployment. Provision a missing key explicitly with 32 random bytes encoded as canonical base64 and a stable non-secret key ID; never print the key or generate it automatically during a normal deploy.
 
 Inspect or retry recovery with:
 

@@ -1,10 +1,10 @@
 # Decision Log
 
-## 2026-07-22: Canonicalize The Legacy Artifact Key Without Rotation
+## 2026-07-22: Normalize Existing Artifact Keys And Provision Missing Keys Explicitly
 
-Decision: Before strict production readiness, deployment canonicalizes the effective artifact encryption key's base64 text only when it decodes to exactly 32 bytes. Multiple exact assignments are normalized with the existing Compose and env-parser last-wins semantics: the last assignment is retained and earlier shadowed assignments are removed. The effective decoded key bytes and key ID do not change. Missing or unreadable key assignments and structurally invalid effective values fail closed instead of generating or rotating a key.
+Decision: Before strict production readiness, deployment canonicalizes an existing effective artifact encryption key's base64 text only when it decodes to exactly 32 bytes. Multiple exact assignments are normalized with the existing Compose and env-parser last-wins semantics: the last assignment is retained and earlier shadowed assignments are removed. The effective decoded key bytes and key ID do not change. A missing key must be provisioned explicitly by an operator; deployment never generates or rotates it.
 
-Context: The first CSV rollout deploy passed the legacy regex-only staging check but the candidate API rejected the key because re-encoding was not canonical. The retry exposed multiple exact key assignments in the production env file. Both releases aborted before drain and preserved the previous production state.
+Context: The first CSV rollout reached the candidate gate without a production artifact key because the legacy staging validator skipped Knowledge V2 checks while that subsystem was disabled. The next two attempts established that the secret file had no key assignment, rather than a duplicate or non-canonical key. All three attempts aborted before drain. With no client artifacts to preserve, the operator atomically provisioned one random canonical 32-byte key and stable key ID; the failed deployment job then succeeded on rerun.
 
 Consequences:
 
@@ -12,7 +12,7 @@ Consequences:
 - Shadowed duplicate assignments are removed only after the effective last value passes the complete key contract; malformed effective values still stop deployment without modifying the file.
 - The canonicalizer runs in a pinned, networkless, read-only container with write access only to the mounted secret directory and only the capabilities required for atomic owner-preserving replacement.
 - The normal staging validator now enforces the same canonical 32-byte base64 contract as application runtime and candidate rollout readiness.
-- This migration cannot repair an absent or malformed key and never creates a new cryptographic key automatically.
+- Missing or malformed keys remain an explicit secret-management operation. The one-time production bootstrap was completed before client use and did not expose key material in logs.
 
 ## 2026-07-22: Enable CSV Business Import On LeadVirt.com
 
