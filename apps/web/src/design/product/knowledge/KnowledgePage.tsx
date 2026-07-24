@@ -21,7 +21,13 @@ import { KnowledgeSources } from "./KnowledgeSources";
 import { KnowledgeTestPlayground } from "./KnowledgeTestPlayground";
 import { KnowledgeSettingsPanel } from "./KnowledgeSettingsPanel";
 import { PublicationHistory } from "./PublicationHistory";
-import { isKnowledgeView, knowledgeViews, type KnowledgeViewId } from "./knowledge-views";
+import { ServiceVerificationPanel } from "./ServiceVerificationPanel";
+import {
+  isKnowledgeView,
+  knowledgeViews,
+  type KnowledgeNavigationTarget,
+  type KnowledgeViewId,
+} from "./knowledge-views";
 
 const OVERVIEW_REFRESH_INTERVAL_MS = 15_000;
 
@@ -96,10 +102,35 @@ export function KnowledgePage() {
     };
   }, [refresh]);
 
-  function navigate(nextView: KnowledgeViewId) {
+  function navigate(next: KnowledgeViewId | KnowledgeNavigationTarget) {
+    const target = typeof next === "string" ? { view: next } : next;
     const params = new URLSearchParams(searchParams.toString());
-    params.set("view", nextView);
+    params.set("view", target.view);
     params.delete("welcome");
+    params.delete("task");
+    params.delete("factId");
+    params.delete("sourceId");
+    params.delete("documentId");
+    params.delete("revisionId");
+    params.delete("ruleId");
+    params.delete("capabilityId");
+    if (target.task) params.set("task", target.task);
+    if (target.sourceId) params.set("sourceId", target.sourceId);
+    if (target.documentId) params.set("documentId", target.documentId);
+    if (target.revisionId) params.set("revisionId", target.revisionId);
+    if (target.resourceId) {
+      if (target.resourceType === "FACT") params.set("factId", target.resourceId);
+      else if (target.resourceType === "GUIDANCE_RULE") params.set("ruleId", target.resourceId);
+      else if (target.resourceType === "CAPABILITY") {
+        params.set("capabilityId", target.resourceId);
+      } else if (target.resourceType === "SOURCE" || target.resourceType === "ARTIFACT") {
+        params.set("sourceId", target.resourceId);
+      } else if (target.resourceType === "DOCUMENT") {
+        params.set("documentId", target.resourceId);
+      } else if (target.resourceType === "REVISION") {
+        params.set("revisionId", target.resourceId);
+      }
+    }
     router.push(`${pathname}?${params.toString()}`);
   }
 
@@ -279,10 +310,36 @@ function KnowledgeView({
 }: {
   view: KnowledgeViewId;
   overview: KnowledgeV2OverviewView;
-  onNavigate: (view: KnowledgeViewId) => void;
+  onNavigate: (target: KnowledgeViewId | KnowledgeNavigationTarget) => void;
   onChanged: () => void;
 }) {
   const { t } = useI18n();
+  const searchParams = useSearchParams();
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const task = searchParams.get("task");
+  const factId = searchParams.get("factId");
+
+  React.useEffect(() => {
+    if (view === "business" && task === "verify-fact") setAdvancedOpen(true);
+  }, [task, view]);
+
+  const serviceBlockerFactIds = React.useMemo(
+    () =>
+      (overview.readiness.draft.blockers ?? [])
+        .filter(
+          (blocker) =>
+            blocker.code === "KNOWLEDGE_PUBLICATION_HIGH_RISK_FACT_EVIDENCE_REQUIRED" &&
+            blocker.remediation?.destination?.task === "verify-services",
+        )
+        .map(
+          (blocker) =>
+            blocker.remediation?.destination?.resource?.id ??
+            blocker.remediation?.resource?.id ??
+            blocker.resource?.id,
+        )
+        .filter((id): id is string => Boolean(id)),
+    [overview.readiness.draft.blockers],
+  );
 
   if (view === "overview") {
     return <KnowledgeOverview overview={overview} onNavigate={onNavigate} onRefresh={onChanged} />;
@@ -290,8 +347,15 @@ function KnowledgeView({
   if (view === "business") {
     return (
       <div className="space-y-5">
+        <ServiceVerificationPanel
+          blockingFactIds={serviceBlockerFactIds}
+          canVerify={overview.permissions.canVerifyHighRisk}
+          onChanged={onChanged}
+        />
         <BusinessProfileEditor canEdit={overview.permissions.canEdit} onChanged={onChanged} />
         <details
+          open={advancedOpen}
+          onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
           className="group min-w-0 overflow-hidden rounded-lg border border-white/10 bg-zinc-950/20"
           data-testid="knowledge-business-advanced"
         >
@@ -307,13 +371,15 @@ function KnowledgeView({
             <ChevronDown className="h-4 w-4 shrink-0 text-zinc-500 transition-transform group-open:rotate-180" />
           </summary>
           <div className="min-w-0 space-y-5 border-t border-white/10 p-4 sm:p-5">
-            <KnowledgeSettingsPanel
-              canEdit={overview.permissions.canManageSettings}
-              onChanged={onChanged}
-            />
             <BusinessFactsEditor
               canEdit={overview.permissions.canEdit}
               canVerifyHighRisk={overview.permissions.canVerifyHighRisk}
+              focusedFactId={task === "verify-fact" ? factId : null}
+              initialVerificationFilter="ALL"
+              onChanged={onChanged}
+            />
+            <KnowledgeSettingsPanel
+              canEdit={overview.permissions.canManageSettings}
               onChanged={onChanged}
             />
           </div>

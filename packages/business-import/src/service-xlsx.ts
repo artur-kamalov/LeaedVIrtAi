@@ -4,6 +4,7 @@ import { SaxesParser, type SaxesTagNS } from "saxes";
 import type { AcceptedBusinessImportFile } from "./file-admission.js";
 import {
   BUSINESS_SERVICES_CSV_HEADERS,
+  BUSINESS_IMPORT_SERVICE_LIMIT,
   BUSINESS_SERVICES_CSV_SCHEMA_VERSION,
   parseBusinessServiceRow,
   resolveBusinessServiceHeader,
@@ -94,7 +95,7 @@ const DEFAULT_LIMITS: BusinessServicesXlsxLimits = {
   maxColumns: 100,
   maxCellCharacters: 8 * 1024,
   maxTotalCharacters: 1_000_000,
-  maxServices: 200,
+  maxServices: BUSINESS_IMPORT_SERVICE_LIMIT,
   maxXmlDepth: 64,
   maxXmlPartBytes: 50 * 1024 * 1024,
 };
@@ -242,10 +243,7 @@ function parseXml(
   }
 }
 
-function extractArchive(
-  accepted: AcceptedBusinessImportFile,
-  limits: BusinessServicesXlsxLimits,
-) {
+function extractArchive(accepted: AcceptedBusinessImportFile, limits: BusinessServicesXlsxLimits) {
   if (
     accepted.provenance.extension !== "xlsx" ||
     accepted.provenance.detectedMimeType !== XLSX_MIME ||
@@ -350,9 +348,10 @@ function parseWorkbook(bytes: Uint8Array, limits: BusinessServicesXlsxLimits) {
       if (tag.local !== "definedName") return;
       if (definedName === "_LeadVirtSchemaVersion") {
         const value = definedNameValue.trim();
-        templateSchemaVersion = value.startsWith('"') && value.endsWith('"')
-          ? value.slice(1, -1).replace(/""/gu, '"')
-          : value;
+        templateSchemaVersion =
+          value.startsWith('"') && value.endsWith('"')
+            ? value.slice(1, -1).replace(/""/gu, '"')
+            : value;
       }
       definedName = null;
       definedNameValue = "";
@@ -382,10 +381,7 @@ function parseRelationships(
         }
         rootSeen = true;
       }
-      if (
-        tag.local !== "Relationship" ||
-        !PACKAGE_RELATIONSHIP_NAMESPACES.has(tag.uri)
-      ) return;
+      if (tag.local !== "Relationship" || !PACKAGE_RELATIONSHIP_NAMESPACES.has(tag.uri)) return;
       const id = attribute(tag, "Id") ?? "";
       const type = attribute(tag, "Type") ?? "";
       const target = attribute(tag, "Target") ?? "";
@@ -430,9 +426,7 @@ function resolveInternalPart(basePart: string, rawTarget: string) {
     fail("BUSINESS_IMPORT_XLSX_RELATIONSHIP_INVALID", "An XLSX relationship target is unsafe.");
   }
   const packageAbsolute = target.startsWith("/");
-  const candidate = packageAbsolute
-    ? target.slice(1)
-    : posix.join(posix.dirname(basePart), target);
+  const candidate = packageAbsolute ? target.slice(1) : posix.join(posix.dirname(basePart), target);
   const normalized = posix.normalize(candidate);
   if (
     !normalized ||
@@ -540,7 +534,10 @@ function columnLetters(column: number) {
 function cellReference(value: string, limits: BusinessServicesXlsxLimits) {
   const match = CELL_REFERENCE.exec(value);
   if (!match) {
-    fail("BUSINESS_IMPORT_XLSX_CELL_REFERENCE_INVALID", "The XLSX contains an invalid cell reference.");
+    fail(
+      "BUSINESS_IMPORT_XLSX_CELL_REFERENCE_INVALID",
+      "The XLSX contains an invalid cell reference.",
+    );
   }
   const column = columnNumber(match[1] ?? "");
   const row = Number(match[2]);
@@ -638,7 +635,10 @@ function decodeCell(
     case "e":
       return fail("BUSINESS_IMPORT_XLSX_CELL_ERROR", "The XLSX contains a cell error value.");
     default:
-      fail("BUSINESS_IMPORT_XLSX_CELL_TYPE_UNSUPPORTED", "The XLSX contains an unsupported cell type.");
+      fail(
+        "BUSINESS_IMPORT_XLSX_CELL_TYPE_UNSUPPORTED",
+        "The XLSX contains an unsupported cell type.",
+      );
   }
   if (value.length > limits.maxCellCharacters) {
     fail(
@@ -826,12 +826,13 @@ function parseWorksheet(input: {
   if (!rootSeen || !sheetDataSeen || insideSheetData || currentRow || currentCell) {
     fail("BUSINESS_IMPORT_XLSX_WORKSHEET_INVALID", "The XLSX worksheet is incomplete.");
   }
-  const range = maximumRow === 0
-    ? sheetRange(input.sheetName, "A1")
-    : sheetRange(
-        input.sheetName,
-        `${columnLetters(minimumColumn)}${minimumRow}:${columnLetters(maximumColumn)}${maximumRow}`,
-      );
+  const range =
+    maximumRow === 0
+      ? sheetRange(input.sheetName, "A1")
+      : sheetRange(
+          input.sheetName,
+          `${columnLetters(minimumColumn)}${minimumRow}:${columnLetters(maximumColumn)}${maximumRow}`,
+        );
   return { rows, physicalRows: rows.length, range } satisfies RawSheet;
 }
 
@@ -1017,7 +1018,8 @@ export function parseBusinessServicesXlsx(
           diagnostics.push({
             severity: "WARNING",
             code: "BUSINESS_IMPORT_XLSX_CACHED_FORMULA_USED",
-            message: "LeadVirt used the workbook's cached formula value and did not evaluate the formula.",
+            message:
+              "LeadVirt used the workbook's cached formula value and did not evaluate the formula.",
             sheet: sheet.name,
             cell: cell.reference,
             range: sheetRange(sheet.name, cell.reference),
@@ -1159,7 +1161,11 @@ function instructionsWorksheet(locale: BusinessServicesXlsxTemplateLocale) {
     .map((row, rowIndex) => {
       const cells = row
         .map((value, columnIndex) =>
-          inlineCell(`${columnLetters(columnIndex + 1)}${rowIndex + 1}`, value, rowIndex === 0 ? 1 : 0),
+          inlineCell(
+            `${columnLetters(columnIndex + 1)}${rowIndex + 1}`,
+            value,
+            rowIndex === 0 ? 1 : 0,
+          ),
         )
         .join("");
       return `<row r="${rowIndex + 1}">${cells}</row>`;

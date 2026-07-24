@@ -1,5 +1,32 @@
 # Decision Log
 
+## 2026-07-24: Treat Service Files As A Workspace Catalog Lifecycle
+
+Decision: Every service-file import has an immutable `ADD` or global `REPLACE` mode. `REPLACE` reconciles all imported services in the workspace, regardless of filename or source lineage, while current manual field ownership and fully manual services survive. Applying a replacement retires prior imported catalog lineages and bindings. The operation is fenced by the exact candidate manifest, global replacement scope, business revision, ETags, idempotency, and one catalog advisory lock.
+
+Context: Repeated uploads created parallel catalogs and duplicated services. The old source-local diff could not express “this file is now the complete imported catalog,” and filename matching was an unsafe proxy for the user’s intent.
+
+Consequences:
+
+- The first import defaults compatibly to `ADD`; once imported catalogs exist, the UI must expose both modes and defaults to the safer explicit replacement choice.
+- `ADD` never deletes omissions. `REPLACE` creates reviewable archive/unlink candidates for omissions and requires owner approval for every priced mutation, including exact links.
+- Preview and apply fail closed when catalog ownership, manual attribution, the global binding set, or another active import changes.
+- Both actual mutations and the resulting active structured-service catalog are capped at 400; review transport may include up to 800 add/update/link/archive candidates.
+- An unchanged, still-current owner-verified price keeps its immutable verification evidence during later unrelated projections. Invalid future price windows are blocked before commit.
+
+## 2026-07-24: Archive Catalog Sources Without Breaking Published Or Retained Knowledge
+
+Decision: Deleting a service catalog archives its source lineage and changes only unpublished canonical Business Information. It removes only exclusively source-owned services, detaches shared/manual services, supersedes every current attribution from the archived source, and writes revision-bound source-independent SYSTEM provenance for the resulting canonical fields. The active Knowledge publication remains unchanged until a later explicit publication.
+
+Context: A direct row or object deletion could leave retained facts citing archived evidence, erase manual edits, or change customer answers without review.
+
+Consequences:
+
+- Owner/admin deletion requires an impact preview, exact source ETag, idempotency key, and the same tenant catalog lock used by import creation/application.
+- Active or resumable imports block deletion and return an exact import link; the UI refreshes this preview when the conflict appears after confirmation.
+- Encrypted raw, parsed, evidence, and preview objects become immediately sweep-eligible, while ledger rows, hashes, audit events, and revision history remain.
+- Readiness groups repeated repair work and deep-links to exact services, facts, rules, sources, and capabilities. Unknown gates show localized details in place instead of raw API copy or an unrelated History redirect.
+
 ## 2026-07-23: Present Service Catalogs As First-Class Knowledge Sources
 
 Decision: The client-facing Sources view inventories both document sources and structured service-catalog lineages. Service catalogs remain backed by `BusinessImportSource` and expose their latest import, service count, and import workflow; they are not converted into `KnowledgeV2Source` documents or given website/document actions. A generic service-file upload checks for an exact normalized catalog-name match and defaults to a new version of the newest match. Creating a separate same-name catalog requires an explicit warned choice.

@@ -16,6 +16,8 @@ import type {
   KnowledgeV2EvaluationRunMutationResult,
   KnowledgeV2BatchEvaluationRunPage,
   KnowledgeV2BatchEvaluationRunView,
+  KnowledgeV2BulkFactVerificationMutationResult,
+  KnowledgeV2BulkFactVerificationRequest,
   KnowledgeV2CapabilityListView,
   KnowledgeV2CapabilityType,
   KnowledgeV2CapabilityView,
@@ -603,6 +605,20 @@ export function verifyKnowledgeV2Fact(
     {
       method: "POST",
       headers: updateHeaders(headers),
+      ...jsonBody(body),
+    },
+  );
+}
+
+export function bulkVerifyKnowledgeV2Facts(
+  body: KnowledgeV2BulkFactVerificationRequest,
+  headers: KnowledgeV2CreateHeaders,
+) {
+  return apiDataResponse<KnowledgeV2BulkFactVerificationMutationResult>(
+    `${basePath}/facts/bulk-verify`,
+    {
+      method: "POST",
+      headers: createHeaders(headers),
       ...jsonBody(body),
     },
   );

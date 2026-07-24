@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import type {
+  BusinessImportSourceArchivePreview,
   BusinessImportSourceView,
   KnowledgeV2DocumentView,
   KnowledgeV2JobView,
@@ -47,6 +48,8 @@ interface SourceMockState {
     cookie?: string;
     bytes: number;
   }>;
+  catalogArchiveBlocked: boolean;
+  catalogArchivePreviewGets: number;
 }
 
 const scope = {
@@ -179,10 +182,12 @@ function catalogSource(): BusinessImportSourceView {
     id: "catalog-teplodom",
     displayName: "Teplodom services",
     status: "ACTIVE",
+    etag: '"catalog-teplodom-2"',
     latestImport: {
       id: "import-teplodom-v2",
       sourceId: "catalog-teplodom",
       sourceName: "Teplodom services",
+      mode: "ADD",
       format: "CSV",
       state: "APPLIED",
       generation: 2,
@@ -196,6 +201,7 @@ function catalogSource(): BusinessImportSourceView {
         invalid: 0,
         additions: 30,
         updates: 0,
+        removals: 0,
         linked: 0,
         unchanged: 0,
         conflicts: 0,
@@ -226,6 +232,7 @@ function catalogSource(): BusinessImportSourceView {
       reviewReadyAt: "2026-07-23T12:01:00.000Z",
       appliedAt: "2026-07-23T12:03:00.000Z",
     },
+    archivedAt: null,
     createdAt: "2026-07-23T12:00:00.000Z",
     updatedAt: "2026-07-23T12:03:00.000Z",
   };
@@ -404,6 +411,8 @@ async function installMocks(
     conflictNextPause?: boolean;
     conflictNextPatch?: boolean;
     fileFailure?: SourceMockState["fileFailure"];
+    catalogArchiveBlocked?: boolean;
+    catalogArchiveRace?: boolean;
   } = {},
 ) {
   const state: SourceMockState = {
@@ -423,11 +432,104 @@ async function installMocks(
     fileCompleteCount: 0,
     fileFailure: options.fileFailure ?? "NONE",
     fileUploads: [],
+    catalogArchiveBlocked: options.catalogArchiveBlocked ?? false,
+    catalogArchivePreviewGets: 0,
   };
 
   await page.route("**/api/business-profile/imports/sources**", async (route) => {
     const request = route.request();
-    if (request.method() !== "GET") {
+    const method = request.method();
+    const pathname = new URL(request.url()).pathname;
+    if (
+      pathname === "/api/business-profile/imports/sources/catalog-teplodom/archive-preview" &&
+      method === "GET"
+    ) {
+      state.catalogArchivePreviewGets += 1;
+      const preview: BusinessImportSourceArchivePreview = {
+        sourceId: "catalog-teplodom",
+        sourceEtag: '"catalog-teplodom-2"',
+        status: "ACTIVE",
+        canArchive: !state.catalogArchiveBlocked,
+        impact: {
+          detachedOfferingBindings: 30,
+          removeOfferings: 25,
+          retainedOfferings: 5,
+          sharedOfferings: 3,
+          manualOfferings: 2,
+          objectsScheduledForDeletion: 1,
+        },
+        activeImports: state.catalogArchiveBlocked
+          ? {
+              count: 1,
+              items: [
+                {
+                  id: "import-teplodom-active",
+                  state: "REVIEW_READY",
+                  displayName: "Teplodom services update",
+                  href: "/app/knowledge/imports/import-teplodom-active",
+                },
+              ],
+            }
+          : { count: 0, items: [] },
+      };
+      await fulfill(route, { data: preview });
+      return;
+    }
+    if (
+      pathname === "/api/business-profile/imports/sources/catalog-teplodom" &&
+      method === "DELETE"
+    ) {
+      state.mutations.push(mutation(request));
+      if (options.catalogArchiveRace && !state.catalogArchiveBlocked) {
+        state.catalogArchiveBlocked = true;
+        await fulfill(
+          route,
+          {
+            error: {
+              code: "BUSINESS_IMPORT_SOURCE_BUSY",
+              message: "An active import must finish first.",
+              retryable: true,
+            },
+          },
+          409,
+        );
+        return;
+      }
+      if (state.catalogArchiveBlocked) {
+        await fulfill(
+          route,
+          {
+            error: {
+              code: "BUSINESS_IMPORT_SOURCE_BUSY",
+              message: "An active import must finish first.",
+              retryable: false,
+            },
+          },
+          409,
+        );
+        return;
+      }
+      state.catalogSource = null;
+      await fulfill(route, {
+        data: {
+          sourceId: "catalog-teplodom",
+          status: "ARCHIVED",
+          sourceEtag: '"catalog-teplodom-3"',
+          archivedAt: "2026-07-24T12:00:00.000Z",
+          detachedOfferingBindings: 30,
+          archivedOfferings: 25,
+          retainedOfferings: 5,
+          sharedOfferings: 3,
+          manualOfferings: 2,
+          objectsScheduledForDeletion: 1,
+          businessInformationRevisionId: "business-information-revision-4",
+          businessInformationRevision: 4,
+          projectionQueued: true,
+        },
+      });
+      return;
+    }
+    if (pathname !== "/api/business-profile/imports/sources" || method !== "GET") {
       await fulfill(route, { error: { code: "HTTP_ERROR", message: "Method not allowed" } }, 405);
       return;
     }
@@ -798,6 +900,10 @@ async function installMocks(
       });
       return;
     }
+    if (pathname === "/api/knowledge/v2/documents/document-home" && method === "GET") {
+      await fulfill(route, { data: state.document }, 200, { etag: state.document.etag });
+      return;
+    }
     if (pathname === "/api/knowledge/v2/documents/document-home/revisions" && method === "GET") {
       await fulfill(route, {
         data: {
@@ -900,6 +1006,126 @@ test("structured service catalog remains visible when document sources are empty
 
   await catalog.getByRole("link", { name: "Open import" }).click();
   await expect(page).toHaveURL(/\/app\/knowledge\/imports\/import-teplodom-v2$/u);
+});
+
+test("source remediation deep-link selects the exact source, document, and revision", async ({
+  page,
+}) => {
+  await authenticate(page);
+  await installMocks(page);
+  await page.goto(
+    `${webBase}/app/knowledge?view=sources&sourceId=source-site&documentId=document-home&revisionId=revision-home-1`,
+    { waitUntil: "domcontentloaded" },
+  );
+
+  const sourceRow = page.getByTestId("knowledge-source-source-site");
+  await expect(sourceRow).toHaveAttribute("aria-current", "true");
+  const documentRow = page.locator("[data-knowledge-document-id]").filter({ hasText: "Home page" });
+  await expect(documentRow).toHaveAttribute("aria-current", "true");
+  const revisionRow = page.locator("[data-knowledge-revision-id]");
+  await expect(revisionRow).toBeVisible();
+  await expect(revisionRow).toBeFocused();
+});
+
+test("catalog deletion previews retained services and returns an unpublished-change receipt", async ({
+  page,
+}) => {
+  await authenticate(page);
+  const state = await installMocks(page, { empty: true, catalog: true });
+  await page.goto(`${webBase}/app/knowledge?view=sources&sourceId=catalog-teplodom`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  const catalog = page.getByTestId("knowledge-catalog-source-catalog-teplodom");
+  await expect(catalog).toBeVisible({ timeout: 15_000 });
+  await expect(catalog).toBeFocused();
+  await page.getByTestId("knowledge-catalog-source-archive-catalog-teplodom").click();
+
+  const dialog = page.getByRole("dialog", { name: "Delete service catalog" });
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => state.catalogArchivePreviewGets).toBe(1);
+  await expect(dialog).toContainText("Services removed from unpublished changes");
+  await expect(dialog).toContainText("25");
+  await expect(dialog).toContainText("Manual or shared services retained");
+  await expect(dialog).toContainText("5");
+  await expect(dialog).toContainText("Uploaded files scheduled for cleanup");
+  await expect(dialog).toContainText("1");
+  await expect(dialog).toContainText(
+    "Customer answers will not change until these unpublished changes are reviewed and published.",
+  );
+
+  await page.getByTestId("knowledge-catalog-source-archive-confirm").click();
+  await expect
+    .poll(() => state.mutations.filter((item) => item.method === "DELETE").length)
+    .toBe(1);
+  const deletion = state.mutations.find((item) => item.method === "DELETE")!;
+  expect(deletion.pathname).toBe("/api/business-profile/imports/sources/catalog-teplodom");
+  expect(deletion.ifMatch).toBe('"catalog-teplodom-2"');
+  expect(deletion.idempotencyKey).toMatch(/^business-import:/);
+
+  const receipt = page.getByTestId("knowledge-catalog-archive-receipt");
+  await expect(receipt).toContainText("Catalog deleted. Removed 25 services; retained 5.");
+  await expect(receipt.getByRole("link", { name: "Review and publish" })).toHaveAttribute(
+    "href",
+    "/app/knowledge?view=overview",
+  );
+  await expect(page.getByTestId("knowledge-catalog-source-catalog-teplodom")).toHaveCount(0);
+});
+
+test("catalog deletion is blocked by an active import and links to that import", async ({
+  page,
+}) => {
+  await authenticate(page);
+  const state = await installMocks(page, {
+    empty: true,
+    catalog: true,
+    catalogArchiveBlocked: true,
+  });
+  await page.goto(`${webBase}/app/knowledge?view=sources`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await page.getByTestId("knowledge-catalog-source-archive-catalog-teplodom").click();
+  const dialog = page.getByRole("dialog", { name: "Delete service catalog" });
+  await expect(dialog).toContainText(
+    "Finish or cancel the active import before deleting this catalog.",
+  );
+  await expect(dialog.getByRole("link", { name: "Open active import" })).toHaveAttribute(
+    "href",
+    "/app/knowledge/imports/import-teplodom-active",
+  );
+  await expect(page.getByTestId("knowledge-catalog-source-archive-confirm")).toBeDisabled();
+  expect(state.mutations.filter((item) => item.method === "DELETE")).toHaveLength(0);
+});
+
+test("catalog deletion refreshes a preview when an import starts concurrently", async ({
+  page,
+}) => {
+  await authenticate(page);
+  const state = await installMocks(page, {
+    empty: true,
+    catalog: true,
+    catalogArchiveRace: true,
+  });
+  await page.goto(`${webBase}/app/knowledge?view=sources`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await page.getByTestId("knowledge-catalog-source-archive-catalog-teplodom").click();
+  await expect(page.getByTestId("knowledge-catalog-source-archive-confirm")).toBeEnabled();
+  await page.getByTestId("knowledge-catalog-source-archive-confirm").click();
+
+  await expect.poll(() => state.catalogArchivePreviewGets).toBe(2);
+  const dialog = page.getByRole("dialog", { name: "Delete service catalog" });
+  await expect(dialog).toContainText(
+    "Finish or cancel the active import before deleting this catalog.",
+  );
+  await expect(dialog.getByRole("link", { name: "Open active import" })).toHaveAttribute(
+    "href",
+    "/app/knowledge/imports/import-teplodom-active",
+  );
+  await expect(page.getByTestId("knowledge-catalog-source-archive-confirm")).toBeDisabled();
+  expect(state.mutations.filter((item) => item.method === "DELETE")).toHaveLength(1);
 });
 
 test("website source stays an unpublished draft and revision exclusion uses ETag and idempotency", async ({

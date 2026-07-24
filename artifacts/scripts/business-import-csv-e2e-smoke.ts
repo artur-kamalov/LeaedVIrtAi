@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import type { BusinessImportFileScanner } from "@leadvirt/business-import";
 import { Prisma, PrismaClient } from "@leadvirt/db";
+import { HttpException } from "@nestjs/common";
 import {
   decodeKnowledgeObjectEncryptionKey,
   EncryptedFileKnowledgeObjectStore,
@@ -67,6 +68,61 @@ const csv = new TextEncoder().encode(
     "svc-e2e,Consulting,Strategy Session,Deep strategy review,FIXED,125.00,,,EUR,session,VAT included,60,75,,Bring goals,true,2026-07-01,,en",
   ].join("\n"),
 );
+const replacementCsv = new TextEncoder().encode(
+  [
+    "external_id,category,name,price_type,price_amount,price_from,price_to,currency,price_unit,tax_note,duration_minutes,duration_max_minutes,location_external_id,booking_notes,active,valid_from,valid_until,language",
+    [
+      "svc-e2e",
+      "Consulting",
+      "Strategy Session",
+      "FIXED",
+      "130.00",
+      "",
+      "",
+      "EUR",
+      "session",
+      "VAT included",
+      "60",
+      "75",
+      "",
+      "Bring goals",
+      "true",
+      "2026-07-01",
+      "",
+      "en",
+    ].join(","),
+    ...Array.from({ length: 29 }, (_, index) =>
+      [
+        `svc-replacement-${index + 1}`,
+        "Replacement",
+        `Replacement Service ${index + 1}`,
+        "FIXED",
+        (175 + index).toFixed(2),
+        "",
+        "",
+        "EUR",
+        "session",
+        "VAT included",
+        "45",
+        "60",
+        "",
+        "Bring context",
+        "true",
+        "2026-07-15",
+        "",
+        "en",
+      ].join(","),
+    ),
+  ].join("\n"),
+);
+
+function responseCode(error: unknown) {
+  if (!(error instanceof HttpException)) return null;
+  const response = error.getResponse();
+  return typeof response === "object" && response !== null && "code" in response
+    ? response.code
+    : null;
+}
 const malformedCsv = new TextEncoder().encode('external_id,name\nsvc-bad,"unterminated\n');
 const arbitraryCsv = new TextEncoder().encode(
   ["Код;Услуга;Цена;Время", "mapped-e2e;Mapped Advisory;от 50 EUR;45 минут"].join("\n"),
@@ -130,11 +186,13 @@ const scanner: BusinessImportFileScanner = {
     const expectedBytes =
       input.filename === "services.csv"
         ? csv
-        : input.filename === "arbitrary-services.csv"
-          ? arbitraryCsv
-          : input.filename === "malformed-services.csv"
-            ? malformedCsv
-            : null;
+        : input.filename === "replacement-services.csv"
+          ? replacementCsv
+          : input.filename === "arbitrary-services.csv"
+            ? arbitraryCsv
+            : input.filename === "malformed-services.csv"
+              ? malformedCsv
+              : null;
     assert(expectedBytes, `Unexpected scanner fixture: ${input.filename}`);
     assert.equal(input.mimeType, "text/csv");
     assert.deepEqual(input.bytes, expectedBytes);
@@ -241,6 +299,80 @@ async function main() {
         defaultCurrency: "EUR",
       },
     });
+    const seededBaseState = await informationState.get(context);
+    const seedCatalog = async (index: number) => {
+      const source = await prisma!.businessImportSource.create({
+        data: {
+          tenantId: tenant.id,
+          lineageKey: `csv-e2e-seeded-${index}`,
+          displayName: `Seeded catalog ${index}`,
+          createdByUserId: user.id,
+        },
+      });
+      const importRecord = await prisma!.businessImport.create({
+        data: {
+          tenantId: tenant.id,
+          sourceId: source.id,
+          purpose: "SERVICES",
+          catalogMode: "ADD",
+          format: "CSV",
+          state: "CANCELLED",
+          displayName: source.displayName,
+          originalFilename: `seeded-${index}.csv`,
+          declaredMimeType: "text/csv",
+          expectedByteSize: 1n,
+          uploadTokenHash: randomBytes(32).toString("hex"),
+          baseBusinessRevisionId: seededBaseState.currentRevisionId,
+          baseInformationRevision: seededBaseState.revision,
+          baseInformationHash: seededBaseState.canonicalHash,
+          selectedCategories: ["OFFERINGS"],
+          schemaVersion: "leadvirt.services.v1",
+          expiresAt: new Date(Date.now() + 24 * 60 * 60_000),
+          cancelledAt: new Date(),
+          cancelledByUserId: user.id,
+          createdByUserId: user.id,
+        },
+      });
+      const offering = await prisma!.businessOffering.create({
+        data: {
+          tenantId: tenant.id,
+          category: "Legacy",
+          name: `Legacy imported service ${index}`,
+          description: `Legacy catalog ${index}`,
+          locale: "en",
+          active: true,
+        },
+      });
+      await prisma!.businessOfferingSourceBinding.create({
+        data: {
+          tenantId: tenant.id,
+          sourceId: source.id,
+          offeringId: offering.id,
+          externalKey: `legacy-${index}`,
+          normalizedCandidateKey: randomBytes(32).toString("hex"),
+          firstSeenImportId: importRecord.id,
+          lastSeenImportId: importRecord.id,
+          lastSeenSourceValueHash: randomBytes(32).toString("hex"),
+          active: true,
+        },
+      });
+      await prisma!.businessImportSource.update({
+        where: { id: source.id },
+        data: { latestImportId: importRecord.id },
+      });
+      return { source, importRecord, offering };
+    };
+    const seededCatalogs = await Promise.all([seedCatalog(2), seedCatalog(3)]);
+    const standaloneManualOffering = await prisma.businessOffering.create({
+      data: {
+        tenantId: tenant.id,
+        category: "Manual",
+        name: "Owner-created manual service",
+        description: "This service is not owned by an import.",
+        locale: "en",
+        active: true,
+      },
+    });
 
     const activePublication = await prisma.knowledgePublication.create({
       data: {
@@ -276,12 +408,13 @@ async function main() {
       filename: "services.csv",
       declaredMimeType: "text/csv",
       byteSize: csv.byteLength,
+      mode: "ADD",
       sourceName: "CSV E2E services",
     } as const;
     const intent = await upload.createIntent(context, intentInput, "csv-e2e-intent");
     const intentReplay = await upload.createIntent(context, intentInput, "csv-e2e-intent");
     assert.equal(intentReplay.importId, intent.importId);
-    assert.equal(await prisma.businessImport.count({ where: { tenantId: tenant.id } }), 1);
+    assert.equal(await prisma.businessImport.count({ where: { tenantId: tenant.id } }), 3);
 
     const authorization = intent.headers.Authorization;
     const uploadReceipt = await upload.upload(
@@ -431,7 +564,7 @@ async function main() {
     );
     assert.equal(await prisma.businessImportApplication.count(), 0);
     assert.equal(await prisma.businessInformationRevision.count(), 0);
-    assert.equal(await prisma.businessOffering.count(), 0);
+    assert.equal(await prisma.businessOffering.count(), 3);
     assert.equal(await prisma.knowledgeV2Fact.count(), 0);
 
     const approvalRequest = await review.requestApproval(
@@ -507,7 +640,7 @@ async function main() {
     assert.equal(applicationReplay.id, application.id);
     assert.equal(await prisma.businessImportApplication.count(), 1);
     assert.equal(await prisma.businessInformationRevision.count(), 1);
-    assert.equal(await prisma.businessOffering.count(), 1);
+    assert.equal(await prisma.businessOffering.count(), 4);
     assert.equal(await prisma.businessOfferingPrice.count(), 1);
 
     const storedApplication = await prisma.businessImportApplication.findUniqueOrThrow({
@@ -542,7 +675,7 @@ async function main() {
     assert.equal(projection.importState, "APPLIED");
 
     const offering = await prisma.businessOffering.findFirstOrThrow({
-      where: { tenantId: tenant.id },
+      where: { tenantId: tenant.id, name: "Strategy Session" },
       include: { prices: true, duration: true },
     });
     const fact = await prisma.knowledgeV2Fact.findUniqueOrThrow({
@@ -676,6 +809,381 @@ async function main() {
       where: { id: intent.importId },
     });
     assert.equal(finalImport.state, "APPLIED");
+    assert.equal(
+      await prisma.businessImportSource.count({
+        where: {
+          id: { in: [finalImport.sourceId, ...seededCatalogs.map((item) => item.source.id)] },
+          status: "ACTIVE",
+        },
+      }),
+      3,
+    );
+    assert.equal(
+      await prisma.businessOffering.count({
+        where: {
+          id: { in: seededCatalogs.map((item) => item.offering.id) },
+          active: true,
+          archivedAt: null,
+        },
+      }),
+      2,
+    );
+    const currentRevision = await prisma.businessInformationState.findUniqueOrThrow({
+      where: { tenantId: tenant.id },
+    });
+    assert(currentRevision.currentRevisionId);
+    const markManual = async (offeringId: string, fieldPath: string, currentValue: unknown) => {
+      await prisma!.businessInformationAttribution.updateMany({
+        where: {
+          tenantId: tenant.id,
+          resourceType: "OFFERING",
+          resourceKey: offeringId,
+          fieldPath,
+          supersededAt: null,
+        },
+        data: { supersededAt: new Date() },
+      });
+      await prisma!.businessInformationAttribution.create({
+        data: {
+          tenantId: tenant.id,
+          resourceType: "OFFERING",
+          resourceKey: offeringId,
+          offeringId,
+          fieldPath,
+          currentValueHash: createHash("sha256").update(JSON.stringify(currentValue)).digest("hex"),
+          authority: "MANUAL",
+          businessRevisionId: currentRevision.currentRevisionId!,
+          businessRevision: currentRevision.revision,
+          businessRevisionHash: currentRevision.canonicalHash,
+        },
+      });
+    };
+    await markManual(offering.id, "/description", offering.description);
+    await markManual(
+      standaloneManualOffering.id,
+      "/description",
+      standaloneManualOffering.description,
+    );
+    await markManual(
+      seededCatalogs[0]!.offering.id,
+      "/description",
+      seededCatalogs[0]!.offering.description,
+    );
+    await prisma.businessImportSource.update({
+      where: { id: seededCatalogs[1]!.source.id },
+      data: { status: "PAUSED" },
+    });
+
+    const replacementIntent = await upload.createIntent(
+      context,
+      {
+        filename: "replacement-services.csv",
+        declaredMimeType: "text/csv",
+        byteSize: replacementCsv.byteLength,
+        mode: "REPLACE",
+        sourceName: "Replacement catalog with renamed file",
+      },
+      "csv-e2e-replacement-intent",
+    );
+    await upload.upload(
+      replacementIntent.importId,
+      replacementIntent.headers.Authorization,
+      "text/csv",
+      String(replacementCsv.byteLength),
+      Readable.from([replacementCsv]),
+    );
+    await workflow.finalize(context, replacementIntent.importId, "csv-e2e-replacement-finalize");
+    const replacementParseOutbox = await prisma.runtimeOutbox.findUniqueOrThrow({
+      where: {
+        tenantId_dedupeKey: {
+          tenantId: tenant.id,
+          dedupeKey: `business-import:${replacementIntent.importId}:1`,
+        },
+      },
+    });
+    await prisma.runtimeOutbox.update({
+      where: { id: replacementParseOutbox.id },
+      data: { status: "PUBLISHED", publishedAt: new Date() },
+    });
+    const replacementParseEnvelope = parseRuntimeQueueEnvelope(replacementParseOutbox.payload);
+    const replacementParseData = {
+      ...(replacementParseEnvelope.data as unknown as BusinessImportParseJobData),
+      runtimeEventId: replacementParseOutbox.id,
+      runtimeGeneration: replacementParseOutbox.generation,
+    } satisfies BusinessImportRuntimeData;
+    const replacementProcessed = await processBusinessImportJob(
+      {
+        id: replacementParseEnvelope.jobId,
+        name: replacementParseEnvelope.jobName,
+        data: replacementParseData,
+        signal: new AbortController().signal,
+      },
+      processorDependencies,
+    );
+    assert.equal(replacementProcessed.status, "succeeded");
+    assert.equal(replacementProcessed.state, "READY_FOR_REVIEW");
+    assert.equal(replacementProcessed.candidateCount, 32);
+    const replacementView = await views.get(context, replacementIntent.importId);
+    assert.equal(replacementView.mode, "REPLACE");
+    assert.equal(replacementView.counts.additions, 29);
+    assert.equal(replacementView.counts.updates, 1);
+    assert.equal(replacementView.counts.removals, 1);
+    const replacementCandidates = await prisma.businessImportCandidate.findMany({
+      where: { tenantId: tenant.id, importId: replacementIntent.importId },
+      orderBy: { id: "asc" },
+    });
+    assert.equal(replacementCandidates.filter((item) => item.action === "ADD").length, 29);
+    assert.equal(replacementCandidates.filter((item) => item.action === "UPDATE").length, 1);
+    assert.equal(replacementCandidates.filter((item) => item.action === "ARCHIVE").length, 2);
+    const replacementBeforeDecision = await prisma.businessImport.findUniqueOrThrow({
+      where: { id: replacementIntent.importId },
+    });
+    await review.bulkDecide(
+      context,
+      replacementIntent.importId,
+      {
+        candidates: replacementCandidates.map((item) => ({
+          id: item.id,
+          etag: businessImportCandidateEtag(item.id, item.etag),
+          decision: "ACCEPTED",
+        })),
+      },
+      businessImportEtag(replacementIntent.importId, replacementBeforeDecision.etag),
+      "csv-e2e-replacement-decisions",
+    );
+    const acceptedReplacementCandidates = await prisma.businessImportCandidate.findMany({
+      where: { tenantId: tenant.id, importId: replacementIntent.importId },
+      orderBy: { id: "asc" },
+    });
+    const replacementApprovalCandidates = acceptedReplacementCandidates.filter(
+      (item) => item.requiresApproval,
+    );
+    const replacementBeforeBulkApproval = await prisma.businessImport.findUniqueOrThrow({
+      where: { id: replacementIntent.importId },
+    });
+    const bulkApproval = await review.bulkApprove(
+      context,
+      replacementIntent.importId,
+      {
+        candidates: replacementApprovalCandidates.map((item) => ({
+          id: item.id,
+          version: item.version,
+          etag: businessImportCandidateEtag(item.id, item.etag),
+        })),
+      },
+      businessImportEtag(replacementIntent.importId, replacementBeforeBulkApproval.etag),
+      "csv-e2e-replacement-bulk-approval",
+    );
+    assert.equal(bulkApproval.summary.newlyApproved, 32);
+    const replacementRemovals = await prisma.businessImportCandidate.findMany({
+      where: {
+        tenantId: tenant.id,
+        importId: replacementIntent.importId,
+        action: "ARCHIVE",
+      },
+      orderBy: { id: "asc" },
+    });
+    const removalApprovals = await prisma.businessImportCandidateApproval.findMany({
+      where: {
+        tenantId: tenant.id,
+        importId: replacementIntent.importId,
+        candidateId: { in: replacementRemovals.map((item) => item.id) },
+        state: "APPROVED",
+      },
+      orderBy: { id: "asc" },
+    });
+    assert.equal(removalApprovals.length, 2);
+    const replacementForApply = await prisma.businessImport.findUniqueOrThrow({
+      where: { id: replacementIntent.importId },
+    });
+    const replacementInformation = await informationState.get(context);
+    const replacementCandidateIds = replacementCandidates.map((item) => item.id);
+    const replacementImportMatch = businessImportEtag(
+      replacementIntent.importId,
+      replacementForApply.etag,
+    );
+    const replacementInformationMatch = businessInformationEtag(
+      tenant.id,
+      replacementInformation.etag,
+    );
+    await prisma.businessImport.update({
+      where: { id: finalImport.id },
+      data: { state: "PARTIALLY_APPLIED" },
+    });
+    await assert.rejects(
+      () =>
+        applications.preview(
+          context,
+          replacementIntent.importId,
+          { candidateIds: replacementCandidateIds },
+          replacementImportMatch,
+          replacementInformationMatch,
+          "csv-e2e-replacement-partial-import-conflict",
+        ),
+      (error: unknown) => responseCode(error) === "BUSINESS_IMPORT_REPLACE_ACTIVE_IMPORT_CONFLICT",
+      "REPLACE did not block a concurrent partially applied import.",
+    );
+    await prisma.businessImport.update({
+      where: { id: finalImport.id },
+      data: { state: "APPLIED" },
+    });
+    const replacementPreview = await applications.preview(
+      context,
+      replacementIntent.importId,
+      { candidateIds: replacementCandidateIds },
+      replacementImportMatch,
+      replacementInformationMatch,
+      "csv-e2e-replacement-preview",
+    );
+    assert.equal(replacementPreview.counts.additions, 29);
+    assert.equal(replacementPreview.counts.updates, 1);
+    assert.equal(replacementPreview.counts.removals, 1);
+    assert.equal(replacementPreview.diagnostics.length, 0);
+    const replacementApplication = await applications.apply(
+      context,
+      replacementIntent.importId,
+      {
+        candidateIds: replacementCandidateIds,
+        manifestHash: replacementPreview.manifestHash,
+      },
+      replacementImportMatch,
+      replacementInformationMatch,
+      "csv-e2e-replacement-apply",
+    );
+    assert.equal(replacementApplication.counts.additions, 29);
+    assert.equal(replacementApplication.counts.updates, 1);
+    assert.equal(replacementApplication.counts.removals, 1);
+    const replacementImportRecord = await prisma.businessImport.findUniqueOrThrow({
+      where: { id: replacementIntent.importId },
+    });
+    assert.equal(
+      await prisma.businessImportSource.count({
+        where: { tenantId: tenant.id, status: "ACTIVE" },
+      }),
+      1,
+    );
+    assert.equal(
+      await prisma.businessImportSource.count({
+        where: {
+          id: {
+            in: [finalImport.sourceId, ...seededCatalogs.map((item) => item.source.id)],
+          },
+          status: "ARCHIVED",
+        },
+      }),
+      3,
+    );
+    assert.equal(
+      await prisma.businessOfferingSourceBinding.count({
+        where: {
+          tenantId: tenant.id,
+          sourceId: replacementImportRecord.sourceId,
+          active: true,
+        },
+      }),
+      30,
+    );
+    assert.equal(
+      await prisma.businessOfferingSourceBinding.count({
+        where: { tenantId: tenant.id, active: true },
+      }),
+      30,
+    );
+    const retainedManualImportOffering = await prisma.businessOffering.findUniqueOrThrow({
+      where: { id: offering.id },
+      include: { prices: { orderBy: { createdAt: "desc" }, take: 1 } },
+    });
+    assert.equal(retainedManualImportOffering.active, true);
+    assert.equal(retainedManualImportOffering.archivedAt, null);
+    assert.equal(retainedManualImportOffering.description, offering.description);
+    assert.equal(retainedManualImportOffering.prices[0]?.amount?.toString(), "130");
+    assert.equal(
+      await prisma.businessOfferingSourceBinding.count({
+        where: { tenantId: tenant.id, offeringId: offering.id, active: true },
+      }),
+      1,
+    );
+    assert.equal(
+      await prisma.businessOffering.count({
+        where: {
+          id: { in: seededCatalogs.map((item) => item.offering.id) },
+          active: false,
+          archivedAt: { not: null },
+        },
+      }),
+      1,
+    );
+    assert.equal(
+      await prisma.businessOffering.count({
+        where: {
+          tenantId: tenant.id,
+          name: { startsWith: "Replacement Service " },
+          active: true,
+          archivedAt: null,
+        },
+      }),
+      29,
+    );
+    assert.equal(
+      (
+        await prisma.businessOffering.findUniqueOrThrow({
+          where: { id: seededCatalogs[0]!.offering.id },
+        })
+      ).active,
+      true,
+    );
+    assert.equal(
+      await prisma.businessOfferingSourceBinding.count({
+        where: {
+          tenantId: tenant.id,
+          offeringId: seededCatalogs[0]!.offering.id,
+          active: true,
+        },
+      }),
+      0,
+    );
+    assert.equal(
+      (
+        await prisma.businessOffering.findUniqueOrThrow({
+          where: { id: standaloneManualOffering.id },
+        })
+      ).active,
+      true,
+    );
+    const storedReplacementApplication = await prisma.businessImportApplication.findUniqueOrThrow({
+      where: { id: replacementApplication.id },
+      include: { projectionOutbox: true },
+    });
+    assert(storedReplacementApplication.projectionOutbox);
+    await prisma.runtimeOutbox.update({
+      where: { id: storedReplacementApplication.projectionOutbox.id },
+      data: { status: "PUBLISHED", publishedAt: new Date() },
+    });
+    const replacementProjectionEnvelope = parseRuntimeQueueEnvelope(
+      storedReplacementApplication.projectionOutbox.payload,
+    );
+    const replacementProjection = await processBusinessInformationProjectionJob(
+      {
+        id: replacementProjectionEnvelope.jobId,
+        name: replacementProjectionEnvelope.jobName,
+        data: projectionData({
+          ...replacementProjectionEnvelope.data,
+          runtimeEventId: storedReplacementApplication.projectionOutbox.id,
+          runtimeGeneration: storedReplacementApplication.projectionOutbox.generation,
+        }),
+        signal: new AbortController().signal,
+      },
+      projectionDependencies,
+    );
+    assert.equal(replacementProjection.status, "succeeded");
+    assert.equal(replacementProjection.importState, "APPLIED");
+    assert.deepEqual(
+      await prisma.activeKnowledgePublication.findUniqueOrThrow({
+        where: { tenantId_targetKey: { tenantId: tenant.id, targetKey: "workspace-v2" } },
+        select: { publicationId: true, sequence: true, etag: true },
+      }),
+      activePointerBefore,
+    );
 
     const arbitraryIntent = await upload.createIntent(
       context,
@@ -683,6 +1191,7 @@ async function main() {
         filename: "arbitrary-services.csv",
         declaredMimeType: "text/csv",
         byteSize: arbitraryCsv.byteLength,
+        mode: "ADD",
         sourceName: "Customer price list",
       },
       "csv-e2e-arbitrary-intent",
@@ -886,6 +1395,7 @@ async function main() {
         filename: "malformed-services.csv",
         declaredMimeType: "text/csv",
         byteSize: malformedCsv.byteLength,
+        mode: "ADD",
         sourceName: "Malformed CSV E2E services",
       },
       "csv-e2e-failed-intent",

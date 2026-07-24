@@ -117,6 +117,7 @@ const importRow = (id: string, sourceId: string, sourceName: string, filename: s
   id,
   tenantId: "tenant-catalog",
   sourceId,
+  catalogMode: "ADD",
   format: "CSV",
   state: "APPLIED",
   generation: 2,
@@ -131,6 +132,7 @@ const importRow = (id: string, sourceId: string, sourceName: string, filename: s
       invalid: 0,
       additions: 30,
       updates: 0,
+      removals: 0,
       linked: 0,
       unchanged: 0,
       conflicts: 0,
@@ -159,6 +161,8 @@ const sourceRows = [
     tenantId: "tenant-catalog",
     displayName: "Teplodom services",
     status: "ACTIVE",
+    etag: 4,
+    archivedAt: null,
     createdAt: importedAt,
     updatedAt: new Date("2026-07-23T12:03:00.000Z"),
     latestImport: importRow(
@@ -173,6 +177,8 @@ const sourceRows = [
     tenantId: "tenant-catalog",
     displayName: "Installation",
     status: "ACTIVE",
+    etag: 2,
+    archivedAt: null,
     createdAt: importedAt,
     updatedAt: new Date("2026-07-23T12:02:00.000Z"),
     latestImport: importRow("import-b-v1", "catalog-b", "Installation", "installation.csv"),
@@ -182,6 +188,8 @@ const sourceRows = [
     tenantId: "tenant-catalog",
     displayName: "Archived list",
     status: "ARCHIVED",
+    etag: 7,
+    archivedAt: new Date("2026-07-23T12:01:00.000Z"),
     createdAt: importedAt,
     updatedAt: new Date("2026-07-23T12:01:00.000Z"),
     latestImport: null,
@@ -232,15 +240,19 @@ assert.deepEqual(
   ],
 );
 assert.equal(catalogPage.items[0]?.latestImport?.counts.total, 30);
+assert.match(catalogPage.items[0]?.etag ?? "", /^"kv2-[a-f0-9]{64}"$/u);
+assert.equal(catalogPage.items[0]?.archivedAt, null);
 assert.ok(catalogPage.nextCursor);
 const firstSourceQuery = sourceQueries[0] as {
   where: {
     tenantId: string;
+    status: { in: string[] };
     OR: Array<Record<string, unknown>>;
   };
   take: number;
 };
 assert.equal(firstSourceQuery.where.tenantId, "tenant-catalog");
+assert.deepEqual(firstSourceQuery.where.status, { in: ["ACTIVE", "PAUSED"] });
 assert.equal(firstSourceQuery.where.OR.length, 2);
 assert.equal(firstSourceQuery.take, 3);
 

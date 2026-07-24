@@ -25,6 +25,7 @@ import {
   businessImportCandidateEtag,
   businessImportEtag,
   businessImportError,
+  businessImportSourceEtag,
   decodeBusinessImportCursor,
   encodeBusinessImportCursor,
 } from "./business-import-http.js";
@@ -233,6 +234,7 @@ function summary(importRecord: ImportRecord) {
       invalid: number("invalid"),
       additions: number("additions"),
       updates: number("updates"),
+      removals: number("removals"),
       linked: number("linked"),
       unchanged: number("unchanged"),
       conflicts: number("conflicts"),
@@ -347,7 +349,7 @@ export class BusinessImportViewService {
     const rows: SourceRecord[] = await this.prisma.businessImportSource.findMany({
       where: {
         tenantId: context.tenantId,
-        ...(query.status ? { status: query.status } : {}),
+        status: query.status ?? { in: ["ACTIVE", "PAUSED"] },
         ...(search
           ? {
               OR: [
@@ -392,7 +394,9 @@ export class BusinessImportViewService {
         id: row.id,
         displayName: row.displayName,
         status: row.status,
+        etag: businessImportSourceEtag(row.id, row.etag),
         latestImport: row.latestImport ? await this.toView(row.latestImport, false, canEdit) : null,
+        archivedAt: row.archivedAt?.toISOString() ?? null,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
       })),
@@ -555,6 +559,7 @@ export class BusinessImportViewService {
           select: {
             id: true,
             action: true,
+            targetOfferingId: true,
             decision: true,
             risk: true,
             requiresApproval: true,
@@ -580,6 +585,34 @@ export class BusinessImportViewService {
           },
         })
       : [];
+    const manualOfferingIds =
+      exactCounts && row.catalogMode === "REPLACE"
+        ? new Set(
+            (
+              await this.prisma.businessInformationAttribution.findMany({
+                where: {
+                  tenantId: row.tenantId,
+                  authority: "MANUAL",
+                  supersededAt: null,
+                  resourceType: {
+                    in: ["OFFERING", "OFFERING_PRICE", "OFFERING_DURATION"],
+                  },
+                },
+                select: {
+                  offeringId: true,
+                  offeringPrice: { select: { offeringId: true } },
+                  offeringDuration: { select: { offeringId: true } },
+                },
+              })
+            ).flatMap((attribution) =>
+              [
+                attribution.offeringId,
+                attribution.offeringPrice?.offeringId,
+                attribution.offeringDuration?.offeringId,
+              ].filter((offeringId): offeringId is string => Boolean(offeringId)),
+            ),
+          )
+        : new Set<string>();
     const counts = exactCounts
       ? {
           total: candidates.length,
@@ -587,6 +620,12 @@ export class BusinessImportViewService {
           invalid: candidates.filter((item) => item.action === "INVALID").length,
           additions: candidates.filter((item) => item.action === "ADD").length,
           updates: candidates.filter((item) => item.action === "UPDATE").length,
+          removals: candidates.filter(
+            (item) =>
+              item.action === "ARCHIVE" &&
+              item.targetOfferingId !== null &&
+              !manualOfferingIds.has(item.targetOfferingId),
+          ).length,
           linked: candidates.filter((item) => item.action === "LINK").length,
           unchanged: candidates.filter((item) => item.action === "UNCHANGED").length,
           conflicts: candidates.filter((item) => item.action === "CONFLICT").length,
@@ -673,6 +712,7 @@ export class BusinessImportViewService {
       id: row.id,
       sourceId: row.sourceId,
       sourceName: row.source.displayName,
+      mode: row.catalogMode,
       format: row.format,
       state: row.state,
       generation: row.generation,

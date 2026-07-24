@@ -220,7 +220,7 @@ assert.equal(russianHeaders.rows[0]?.name, "Аудит");
 
 const excessiveServices = [
   "name",
-  ...Array.from({ length: 201 }, (_, index) => `Service ${index + 1}`),
+  ...Array.from({ length: 401 }, (_, index) => `Service ${index + 1}`),
 ].join("\n");
 await assert.rejects(
   parseBusinessServicesCsv(bytes(excessiveServices)),

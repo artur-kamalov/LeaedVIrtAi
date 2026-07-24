@@ -1,4 +1,5 @@
 import { Type } from "class-transformer";
+import { BUSINESS_IMPORT_SERVICE_LIMIT } from "@leadvirt/business-import";
 import {
   ArrayMaxSize,
   ArrayUnique,
@@ -55,7 +56,7 @@ export class OnboardingCompanyInfoDto {
 
   @ValidateIf((_object, value: unknown) => value !== undefined)
   @IsArray()
-  @ArrayMaxSize(200)
+  @ArrayMaxSize(BUSINESS_IMPORT_SERVICE_LIMIT)
   @ArrayUnique((service: BusinessProfileServiceItemDto) => service.id)
   @ValidateNested({ each: true })
   @Type(() => BusinessProfileServiceItemDto)

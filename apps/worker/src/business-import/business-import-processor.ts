@@ -4,14 +4,19 @@ import { Readable } from "node:stream";
 import {
   admitBusinessImportFile,
   analyzeBusinessServicesCsv,
+  applyBusinessServiceCatalogMode,
+  BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT,
   BUSINESS_SERVICES_CSV_SCHEMA_VERSION,
   BusinessImportFileAdmissionError,
   BusinessServicesCsvError,
   BusinessServicesXlsxError,
+  businessImportCandidateRequiresApproval,
   businessImportEvidenceRecordHash,
+  businessImportManualFieldsByOffering,
   businessOfferingIdentityKey,
   businessOfferingValueHash,
   createBusinessImportFieldProvenance,
+  countBusinessImportCatalogMutations,
   diffBusinessServiceRows,
   isExactBusinessServicesCsvContract,
   parseMappedBusinessServicesCsv,
@@ -156,6 +161,7 @@ type BusinessImportMappingNumberFormat = "DECIMAL_DOT" | "DECIMAL_COMMA";
 
 interface ImportSnapshot {
   mode: "INITIAL" | "MAPPED";
+  catalogMode: "ADD" | "REPLACE";
   tenantId: string;
   sourceId: string;
   sourceLineageId: string;
@@ -1742,6 +1748,7 @@ async function beginImport(
           : null;
       return {
         mode,
+        catalogMode: value.catalogMode,
         tenantId: value.tenantId,
         sourceId: value.sourceId,
         sourceLineageId: value.source.lineageKey,
@@ -1943,17 +1950,39 @@ async function existingOfferingDiffContext(
   snapshot: ImportSnapshot,
   dependencies: BusinessImportProcessorDependencies,
 ) {
-  const offerings = await dependencies.prisma.businessOffering.findMany({
-    where: { tenantId: snapshot.tenantId, archivedAt: null },
-    include: {
-      prices: { orderBy: { createdAt: "desc" }, take: 1 },
-      duration: true,
-      sourceBindings: { where: { sourceId: snapshot.sourceId, active: true } },
-    },
-  });
+  const [offerings, manualAttributions] = await Promise.all([
+    dependencies.prisma.businessOffering.findMany({
+      where: { tenantId: snapshot.tenantId, archivedAt: null },
+      include: {
+        prices: { orderBy: { createdAt: "desc" }, take: 1 },
+        duration: true,
+        sourceBindings: {
+          where: { active: true },
+          orderBy: [{ sourceId: "asc" }, { externalKey: "asc" }],
+        },
+      },
+    }),
+    dependencies.prisma.businessInformationAttribution.findMany({
+      where: {
+        tenantId: snapshot.tenantId,
+        authority: "MANUAL",
+        supersededAt: null,
+        resourceType: { in: ["OFFERING", "OFFERING_PRICE", "OFFERING_DURATION"] },
+      },
+      select: {
+        resourceType: true,
+        fieldPath: true,
+        offeringId: true,
+        offeringPrice: { select: { offeringId: true } },
+        offeringDuration: { select: { offeringId: true } },
+      },
+    }),
+  ]);
   const existing = offerings.map((offering) => {
     const price = offering.prices[0];
-    const binding = offering.sourceBindings[0];
+    const binding = offering.sourceBindings.find(
+      (candidate) => candidate.sourceId === snapshot.sourceId,
+    );
     const value: ParsedBusinessServiceRow = {
       sourceRow: 0,
       externalId: binding?.externalKey ?? null,
@@ -1991,22 +2020,54 @@ async function existingOfferingDiffContext(
   });
   const byId = new Map(existing.map((item) => [item.id, item]));
   const sourceBindings = offerings.flatMap((offering) =>
+    offering.sourceBindings
+      .filter((binding) => binding.sourceId === snapshot.sourceId)
+      .map((binding) => ({
+        offeringId: offering.id,
+        externalKey: binding.externalKey,
+        identityKey: businessOfferingIdentityKey(
+          byId.get(offering.id)?.value ??
+            existing[0]?.value ?? {
+              category: null,
+              name: "",
+              locationExternalId: null,
+              language: null,
+            },
+        ),
+        sourceValueHash: binding.lastSeenSourceValueHash,
+      })),
+  );
+  const replacementScopeBindings = offerings.flatMap((offering) =>
     offering.sourceBindings.map((binding) => ({
       offeringId: offering.id,
       externalKey: binding.externalKey,
-      identityKey: businessOfferingIdentityKey(
-        byId.get(offering.id)?.value ??
-          existing[0]?.value ?? {
-            category: null,
-            name: "",
-            locationExternalId: null,
-            language: null,
-          },
-      ),
+      identityKey: businessOfferingIdentityKey(byId.get(offering.id)!.value),
       sourceValueHash: binding.lastSeenSourceValueHash,
     })),
   );
-  return { existing, sourceBindings };
+  const manualFieldsByOfferingId = businessImportManualFieldsByOffering(
+    manualAttributions.flatMap((attribution) => {
+      const offeringId =
+        attribution.offeringId ??
+        attribution.offeringPrice?.offeringId ??
+        attribution.offeringDuration?.offeringId;
+      return offeringId
+        ? [
+            {
+              offeringId,
+              resourceType: attribution.resourceType,
+              fieldPath: attribution.fieldPath,
+            },
+          ]
+        : [];
+    }),
+  );
+  return {
+    existing,
+    sourceBindings,
+    replacementScopeBindings,
+    manualFieldsByOfferingId,
+  };
 }
 
 function coalesceDiffCandidates(candidates: BusinessServiceDiffCandidate[]) {
@@ -2138,6 +2199,7 @@ async function prepareEvidence(
 function candidateReasonCodes(candidate: BusinessServiceDiffCandidate) {
   return [
     ...(candidate.action === "MISSING" ? ["BUSINESS_IMPORT_MISSING_FROM_REVISION"] : []),
+    ...(candidate.action === "ARCHIVE" ? ["BUSINESS_IMPORT_REPLACEMENT_REMOVAL"] : []),
     ...(candidate.action === "CONFLICT" ? ["BUSINESS_IMPORT_REVIEW_CONFLICT"] : []),
     ...(candidate.action === "INVALID" ? ["BUSINESS_IMPORT_INVALID_ROW"] : []),
   ];
@@ -2196,13 +2258,33 @@ async function preparePublication(
   if (parsed.rows.length) {
     const context = await existingOfferingDiffContext(snapshot, dependencies);
     const diff = coalesceDiffCandidates(
-      diffBusinessServiceRows({
-        sourceLineageId: snapshot.sourceLineageId,
-        rows: parsed.rows,
-        existing: context.existing,
-        sourceBindings: context.sourceBindings,
-      }),
+      applyBusinessServiceCatalogMode(
+        diffBusinessServiceRows({
+          sourceLineageId: snapshot.sourceLineageId,
+          rows: parsed.rows,
+          existing: context.existing,
+          sourceBindings: context.sourceBindings,
+          ...(snapshot.catalogMode === "REPLACE"
+            ? {
+                replacementScopeBindings: context.replacementScopeBindings,
+                manualFieldsByOfferingId: context.manualFieldsByOfferingId,
+              }
+            : {}),
+        }),
+        snapshot.catalogMode,
+      ),
     );
+    if (
+      countBusinessImportCatalogMutations(diff.map((item) => item.candidate)) >
+      BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT
+    ) {
+      throw new BusinessImportProcessorError(
+        "BUSINESS_IMPORT_CANDIDATE_LIMIT",
+        false,
+        "PARSING",
+        true,
+      );
+    }
     for (const { candidate, rows } of diff) {
       assertNotAborted(signal, "PERSISTING");
       const proposed = candidate.proposed ?? candidate.current?.value;
@@ -2217,8 +2299,10 @@ async function preparePublication(
         candidate.proposedValueHash ??
         candidate.current?.valueHash ??
         businessOfferingValueHash(proposed);
-      const requiresApproval =
-        candidate.riskLevel === "HIGH" && ["ADD", "UPDATE"].includes(candidate.action);
+      const requiresApproval = businessImportCandidateRequiresApproval(
+        candidate.riskLevel,
+        candidate.action,
+      );
       const preparedEvidence = await prepareEvidence(
         snapshot,
         candidate.candidateKey,
@@ -2284,6 +2368,7 @@ function summary(publication: PreparedPublication) {
       invalid: candidates.filter((item) => item.action === "INVALID").length,
       additions: candidates.filter((item) => item.action === "ADD").length,
       updates: candidates.filter((item) => item.action === "UPDATE").length,
+      removals: candidates.filter((item) => item.action === "ARCHIVE").length,
       linked: candidates.filter((item) => item.action === "LINK").length,
       unchanged: candidates.filter((item) => item.action === "UNCHANGED").length,
       conflicts: candidates.filter((item) => item.action === "CONFLICT").length,

@@ -24,7 +24,6 @@ import {
   RefreshCw,
   Save,
   ShieldCheck,
-  Trash2,
   UserRoundCheck,
 } from "lucide-react";
 import { useI18n } from "@/i18n/I18nProvider";
@@ -44,6 +43,7 @@ import {
   businessImportStateKeys,
   businessImportStateTone,
 } from "./imports/businessImportPresentation";
+import { ServiceCatalogEditor } from "./ServiceCatalogEditor";
 
 type Day = BusinessProfileScheduleDay["day"];
 
@@ -210,6 +210,29 @@ function requestKey() {
 
 function fieldKey(field: string) {
   return field.replace(/^profile\./u, "");
+}
+
+function localizedServerFieldError(field: string, t: ReturnType<typeof useI18n>["t"]): string {
+  const key = fieldKey(field);
+  if (/^services\.\d+\.name$/u.test(key)) {
+    return t("businessProfile.validation.serviceNameRequired");
+  }
+  if (/^services\.\d+\.price$/u.test(key)) {
+    return t("businessProfile.validation.servicePriceInvalid");
+  }
+  if (/^services\.\d+\.duration$/u.test(key)) {
+    return t("businessProfile.validation.serviceDurationInvalid");
+  }
+  if (/^services\.\d+\.description$/u.test(key)) {
+    return t("businessProfile.validation.serviceDescriptionInvalid");
+  }
+  if (key === "name") return t("businessProfile.validation.nameRequired");
+  if (key === "description") return t("businessProfile.validation.descriptionRequired");
+  if (key === "timezone") return t("businessProfile.validation.timezoneRequired");
+  if (/^weeklySchedule\.\d+\.(opensAt|closesAt)$/u.test(key)) {
+    return t("businessProfile.validation.timeFormat");
+  }
+  return t("businessProfile.validation.review");
 }
 
 export function BusinessProfileEditor({
@@ -560,11 +583,17 @@ export function BusinessProfileEditor({
         setSaveError(null);
       } else {
         const serverErrors: Record<string, string> = {};
-        for (const item of error.fieldErrors ?? [])
-          serverErrors[fieldKey(item.field)] = item.message;
-        if (error.field) serverErrors[fieldKey(error.field)] = error.message;
+        for (const item of error.fieldErrors ?? []) {
+          serverErrors[fieldKey(item.field)] = localizedServerFieldError(item.field, t);
+        }
+        if (error.field) {
+          serverErrors[fieldKey(error.field)] = localizedServerFieldError(error.field, t);
+        }
         if (Object.keys(serverErrors).length > 0) setFieldErrors(serverErrors);
-        setSaveError({ message: error.message, requestId: error.requestId });
+        setSaveError({
+          message: t("businessProfile.saveError.description"),
+          requestId: error.requestId,
+        });
       }
       return false;
     } finally {
@@ -1006,7 +1035,7 @@ export function BusinessProfileEditor({
               </div>
             }
           >
-            <div className="min-w-0" data-testid="business-profile-services">
+            <div className="min-w-0">
               {serviceNotesConflict ? (
                 <div
                   className="mb-4 rounded-md border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs leading-5 text-amber-200"
@@ -1015,117 +1044,13 @@ export function BusinessProfileEditor({
                   {t("businessProfile.attention.serviceNotesConflict")}
                 </div>
               ) : null}
-              {draft.services.length === 0 ? (
-                <div className="rounded-md border border-dashed border-white/10 px-4 py-8 text-center text-sm text-zinc-600">
-                  {t("businessProfile.services.empty")}
-                </div>
-              ) : (
-                <div className="divide-y divide-white/10 border-y border-white/10">
-                  {draft.services.map((service, index) => (
-                    <div
-                      key={service.id}
-                      className="min-w-0 py-5"
-                      data-testid={`business-profile-service-${index}`}
-                    >
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <h4 className="text-sm font-medium text-zinc-300">
-                          {t("businessProfile.services.item", { count: index + 1 })}
-                        </h4>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 shrink-0 text-zinc-500 hover:text-rose-400"
-                          aria-label={t("businessProfile.services.remove", { count: index + 1 })}
-                          title={t("businessProfile.services.remove", { count: index + 1 })}
-                          data-testid={`business-profile-remove-service-${index}`}
-                          onClick={() => removeService(index)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <div className="grid min-w-0 gap-4 md:grid-cols-2 lg:grid-cols-12">
-                        <FormField
-                          label={t("businessProfile.services.name")}
-                          htmlFor={`business-profile-service-${index}-name`}
-                          error={fieldErrors[`services.${index}.name`]}
-                          className="lg:col-span-5"
-                        >
-                          <input
-                            id={`business-profile-service-${index}-name`}
-                            data-testid={`business-profile-service-${index}-name`}
-                            value={service.name}
-                            maxLength={160}
-                            aria-invalid={Boolean(fieldErrors[`services.${index}.name`])}
-                            aria-describedby={
-                              fieldErrors[`services.${index}.name`]
-                                ? `business-profile-service-${index}-name-error`
-                                : undefined
-                            }
-                            className={inputClassName}
-                            onChange={(event) => updateService(index, "name", event.target.value)}
-                          />
-                        </FormField>
-                        <FormField
-                          label={t("businessProfile.services.price")}
-                          htmlFor={`business-profile-service-${index}-price`}
-                          error={fieldErrors[`services.${index}.price`]}
-                          className="lg:col-span-3"
-                        >
-                          <input
-                            id={`business-profile-service-${index}-price`}
-                            data-testid={`business-profile-service-${index}-price`}
-                            value={service.price}
-                            maxLength={160}
-                            aria-invalid={Boolean(fieldErrors[`services.${index}.price`])}
-                            placeholder={t("businessProfile.services.pricePlaceholder")}
-                            className={inputClassName}
-                            onChange={(event) => updateService(index, "price", event.target.value)}
-                          />
-                        </FormField>
-                        <FormField
-                          label={t("businessProfile.services.duration")}
-                          htmlFor={`business-profile-service-${index}-duration`}
-                          error={fieldErrors[`services.${index}.duration`]}
-                          className="lg:col-span-4"
-                        >
-                          <input
-                            id={`business-profile-service-${index}-duration`}
-                            data-testid={`business-profile-service-${index}-duration`}
-                            value={service.duration}
-                            maxLength={160}
-                            aria-invalid={Boolean(fieldErrors[`services.${index}.duration`])}
-                            placeholder={t("businessProfile.services.durationPlaceholder")}
-                            className={inputClassName}
-                            onChange={(event) =>
-                              updateService(index, "duration", event.target.value)
-                            }
-                          />
-                        </FormField>
-                        <FormField
-                          label={t("businessProfile.services.descriptionLabel")}
-                          htmlFor={`business-profile-service-${index}-description`}
-                          error={fieldErrors[`services.${index}.description`]}
-                          className="md:col-span-2 lg:col-span-12"
-                        >
-                          <textarea
-                            id={`business-profile-service-${index}-description`}
-                            data-testid={`business-profile-service-${index}-description`}
-                            value={service.description}
-                            maxLength={2_000}
-                            aria-invalid={Boolean(fieldErrors[`services.${index}.description`])}
-                            placeholder={t("businessProfile.services.descriptionPlaceholder")}
-                            className={cn(textAreaClassName, "min-h-20")}
-                            onChange={(event) =>
-                              updateService(index, "description", event.target.value)
-                            }
-                          />
-                        </FormField>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <ServiceCatalogEditor
+                services={draft.services}
+                disabled={disabled}
+                fieldErrors={fieldErrors}
+                onChange={updateService}
+                onRemove={removeService}
+              />
             </div>
           </FormSection>
 
@@ -1302,7 +1227,10 @@ export function BusinessProfileEditor({
         <div className="flex min-w-0 flex-col gap-4 border-t border-white/10 px-4 py-5 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             {saveError ? (
-              <div className="flex min-w-0 items-start gap-2 text-sm text-rose-300">
+              <div
+                className="flex min-w-0 items-start gap-2 text-sm text-rose-300"
+                data-testid="business-profile-save-error"
+              >
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div className="min-w-0">
                   <p className="break-words font-medium">{saveError.message}</p>

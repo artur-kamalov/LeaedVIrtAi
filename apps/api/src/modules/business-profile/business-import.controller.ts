@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Headers,
@@ -51,6 +52,7 @@ import { BusinessImportRebaseService } from "./business-import-rebase.service.js
 import { BusinessImportMappingService } from "./business-import-mapping.service.js";
 import { BusinessImportReviewService } from "./business-import-review.service.js";
 import { BusinessImportRuntimeService } from "./business-import-runtime.service.js";
+import { BusinessImportSourceLifecycleService } from "./business-import-source-lifecycle.service.js";
 import { BusinessImportViewService } from "./business-import-view.service.js";
 import { BusinessImportWorkflowService } from "./business-import-workflow.service.js";
 
@@ -137,6 +139,8 @@ export class BusinessImportController {
     private readonly rebases: BusinessImportRebaseService,
     @Inject(BusinessImportMappingService)
     private readonly mappings: BusinessImportMappingService,
+    @Inject(BusinessImportSourceLifecycleService)
+    private readonly sourceLifecycle: BusinessImportSourceLifecycleService,
   ) {}
 
   @Get("templates/services.csv")
@@ -186,6 +190,39 @@ export class BusinessImportController {
     @Query() query: BusinessImportSourceListQueryDto,
   ) {
     return { data: await this.views.listSources(context, query) };
+  }
+
+  @Get("sources/:sourceId/archive-preview")
+  @Roles("OWNER", "ADMIN")
+  @Header("Cache-Control", "private, no-store")
+  async archiveSourcePreview(
+    @CurrentContext() context: RequestContext,
+    @Param("sourceId") sourceId: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const value = await this.sourceLifecycle.preview(context, sourceId);
+    response.setHeader("ETag", value.sourceEtag);
+    return { data: value };
+  }
+
+  @Delete("sources/:sourceId")
+  @Roles("OWNER", "ADMIN")
+  async archiveSource(
+    @CurrentContext() context: RequestContext,
+    @Param("sourceId") sourceId: string,
+    @Headers("if-match") ifMatch: HeaderValue,
+    @Headers("idempotency-key") idempotencyKey: HeaderValue,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const value = await this.sourceLifecycle.archive(
+      context,
+      sourceId,
+      requireIdempotencyKey(idempotencyKey),
+      ifMatch,
+    );
+    response.setHeader("ETag", value.sourceEtag);
+    response.setHeader("Cache-Control", "private, no-store");
+    return { data: value };
   }
 
   @Get(":importId")

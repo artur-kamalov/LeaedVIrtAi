@@ -1,10 +1,12 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import {
+  BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT,
   businessImportCanonicalProvenancePath,
   businessImportEvidenceRecordHash,
   businessOfferingValueHash,
   compareBusinessImportDecimals,
+  countBusinessImportCatalogMutations,
   isBusinessImportCurrencyCode,
   normalizeBusinessExternalId,
   sortedBusinessImportFieldProvenance,
@@ -14,6 +16,7 @@ import {
 import { Prisma } from "@leadvirt/db";
 import {
   createDeterministicKnowledgeObjectKey,
+  knowledgeOwnerVerificationEffectiveUntil,
   type KnowledgeObjectStore,
 } from "@leadvirt/knowledge";
 import type {
@@ -48,10 +51,25 @@ import { BusinessInformationStateService } from "./business-information-state.se
 
 const PREVIEW_TTL_MS = 65 * 60 * 1000;
 const PREVIEW_IDEMPOTENCY_RETENTION_MS = 60 * 60 * 1000;
-const MAX_CANDIDATES = 200;
+const MAX_SELECTED_CANDIDATES = BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT * 2;
 const PREVIEW_RETENTION_CLASS = "BUSINESS_IMPORT_APPLICATION_PREVIEW";
 const REVISION_RETENTION_CLASS = "BUSINESS_INFORMATION_REVISION";
 const REVISION_PENDING_TTL_MS = 24 * 60 * 60_000;
+const REPLACE_ACTIVE_IMPORT_STATES = [
+  "CREATED",
+  "UPLOADING",
+  "UPLOADED",
+  "SCANNING",
+  "PARSING",
+  "MAPPING_REQUIRED",
+  "EXTRACTING",
+  "READY_FOR_REVIEW",
+  "AWAITING_APPROVAL",
+  "PARTIALLY_APPLIED",
+  "APPLYING",
+  "PROJECTING",
+  "FAILED_RETRYABLE",
+] as const;
 
 type ApplicationRecord = Prisma.BusinessImportApplicationGetPayload<{
   include: { projectionReceipt: true; projectionOutbox: true };
@@ -119,10 +137,12 @@ interface PreviewCandidate {
 }
 
 interface PreviewManifestUnsigned {
-  schema: "leadvirt.business-import-application-preview.v4";
+  schema: "leadvirt.business-import-application-preview.v5";
   tenantId: string;
   sourceId: string;
   importId: string;
+  catalogMode: "ADD" | "REPLACE";
+  replacementScopeHash: string | null;
   importGeneration: number;
   importEtag: number;
   parsedRevisionId: string;
@@ -145,6 +165,7 @@ interface PreviewManifestUnsigned {
   counts: {
     additions: number;
     updates: number;
+    removals: number;
     linked: number;
     unchanged: number;
     conflicts: number;
@@ -231,15 +252,23 @@ interface FieldMutation {
   value: unknown;
 }
 
+interface ManualOwnership {
+  offeringIds: ReadonlySet<string>;
+  fieldKeys: ReadonlySet<string>;
+  resourceKeys: ReadonlySet<string>;
+}
+
 interface OfferingMutation {
   candidateId: string;
   offeringId: string;
   priceId: string | null;
   durationId: string | null;
-  kind: "ADD" | "UPDATE" | "LINK" | "ARCHIVE";
+  kind: "ADD" | "UPDATE" | "LINK" | "ARCHIVE" | "UNLINK";
   expectedOfferingVersion: number | null;
   expectedPriceVersion: number | null;
   expectedDurationVersion: number | null;
+  preservePrice: boolean;
+  preserveDuration: boolean;
   value: BusinessImportOfferingValue;
   fields: FieldMutation[];
 }
@@ -251,7 +280,78 @@ interface ApplicationPlan {
   resultingHash: string;
   mutations: OfferingMutation[];
   changedFields: FieldMutation[];
-  counts: { additions: number; updates: number; linked: number; unchanged: number };
+  counts: {
+    additions: number;
+    updates: number;
+    removals: number;
+    linked: number;
+    unchanged: number;
+  };
+}
+
+interface ReplaceSelectionCandidate {
+  id: string;
+  action: string;
+  decision: string;
+  targetOfferingId: string | null;
+}
+
+export function businessImportReplacementRemovalKind(manuallyOwned: boolean) {
+  return manuallyOwned ? ("UNLINK" as const) : ("ARCHIVE" as const);
+}
+
+export function businessImportReplaceSelectionIssue(input: {
+  catalogMode: "ADD" | "REPLACE";
+  candidates: ReplaceSelectionCandidate[];
+  selectedCandidateIds: string[];
+  activeReplacementOfferingIds: string[];
+}) {
+  if (input.catalogMode === "ADD") return null;
+  const unsupported = input.candidates.filter((candidate) =>
+    ["CONFLICT", "INVALID", "MISSING"].includes(candidate.action),
+  );
+  if (unsupported.length) {
+    return {
+      code: "BUSINESS_IMPORT_REPLACE_REVIEW_INCOMPLETE" as const,
+      message: "Resolve every invalid or conflicting row before replacing the catalog.",
+      details: { blockingCandidates: unsupported.length },
+    };
+  }
+  const selected = new Set(input.selectedCandidateIds);
+  const required = input.candidates.filter((candidate) =>
+    ["ADD", "UPDATE", "LINK", "ARCHIVE"].includes(candidate.action),
+  );
+  const omitted = required.filter(
+    (candidate) =>
+      !selected.has(candidate.id) ||
+      !["ACCEPTED", "EDITED", "SUBMITTED_FOR_APPROVAL"].includes(candidate.decision),
+  );
+  if (omitted.length) {
+    return {
+      code: "BUSINESS_IMPORT_REPLACE_SELECTION_INCOMPLETE" as const,
+      message: "Replacing a catalog requires accepting every service change and removal.",
+      details: { omittedCandidates: omitted.length },
+    };
+  }
+  const coveredOfferingIds = new Set(
+    input.candidates.flatMap((candidate) =>
+      candidate.targetOfferingId &&
+      ["UPDATE", "LINK", "UNCHANGED", "ARCHIVE"].includes(candidate.action)
+        ? [candidate.targetOfferingId]
+        : [],
+    ),
+  );
+  const uncovered = [...new Set(input.activeReplacementOfferingIds)].filter(
+    (offeringId) => !coveredOfferingIds.has(offeringId),
+  );
+  if (uncovered.length) {
+    return {
+      code: "BUSINESS_IMPORT_REPLACE_REBASE_REQUIRED" as const,
+      message: "The current catalog changed after this replacement was prepared.",
+      details: { uncoveredOfferings: uncovered.length },
+    };
+  }
+  return null;
 }
 
 interface PreparedApplyMutation {
@@ -564,6 +664,124 @@ function candidateManifestHash(candidates: PreviewCandidate[]) {
   );
 }
 
+async function replacementScopeHash(
+  client: PrismaService | Prisma.TransactionClient,
+  tenantId: string,
+) {
+  const database = client;
+  const [sources, bindings, manualAttributions] = await Promise.all([
+    database.businessImportSource.findMany({
+      where: {
+        tenantId,
+        status: { in: ["ACTIVE", "PAUSED"] },
+        imports: { some: { purpose: "SERVICES" } },
+      },
+      select: { id: true, etag: true, latestImportId: true },
+      orderBy: { id: "asc" },
+    }),
+    database.businessOfferingSourceBinding.findMany({
+      where: {
+        tenantId,
+        active: true,
+        offering: { archivedAt: null },
+      },
+      select: {
+        id: true,
+        sourceId: true,
+        offeringId: true,
+        externalKey: true,
+        normalizedCandidateKey: true,
+        lastSeenImportId: true,
+        lastSeenSourceValueHash: true,
+      },
+      orderBy: [{ sourceId: "asc" }, { offeringId: "asc" }, { id: "asc" }],
+    }),
+    database.businessInformationAttribution.findMany({
+      where: {
+        tenantId,
+        authority: "MANUAL",
+        supersededAt: null,
+        resourceType: { in: ["OFFERING", "OFFERING_PRICE", "OFFERING_DURATION"] },
+      },
+      select: {
+        id: true,
+        resourceType: true,
+        resourceKey: true,
+        fieldPath: true,
+        currentValueHash: true,
+        offeringId: true,
+        offeringPriceId: true,
+        offeringDurationId: true,
+      },
+      orderBy: { id: "asc" },
+    }),
+  ]);
+  return businessImportManifestHash({
+    schema: "leadvirt.business-import-replacement-scope.v2",
+    tenantId,
+    sources,
+    bindings,
+    manualAttributions,
+  });
+}
+
+function manualFieldKey(
+  resourceType: FieldMutation["resourceType"],
+  resourceKey: string,
+  fieldPath: string,
+) {
+  return `${resourceType}\u0000${resourceKey}\u0000${fieldPath}`;
+}
+
+function manualResourceKey(resourceType: FieldMutation["resourceType"], resourceKey: string) {
+  return `${resourceType}\u0000${resourceKey}`;
+}
+
+async function manualOwnership(
+  client: PrismaService | Prisma.TransactionClient,
+  tenantId: string,
+): Promise<ManualOwnership> {
+  const database = client;
+  const rows = await database.businessInformationAttribution.findMany({
+    where: { tenantId, authority: "MANUAL", supersededAt: null },
+    select: {
+      resourceType: true,
+      resourceKey: true,
+      fieldPath: true,
+      offeringId: true,
+      offeringPrice: { select: { offeringId: true } },
+      offeringDuration: { select: { offeringId: true } },
+    },
+  });
+  return {
+    offeringIds: new Set(
+      rows.flatMap((row) =>
+        [row.offeringId, row.offeringPrice?.offeringId, row.offeringDuration?.offeringId].filter(
+          (value): value is string => Boolean(value),
+        ),
+      ),
+    ),
+    fieldKeys: new Set(
+      rows.flatMap((row) =>
+        row.resourceType === "OFFERING" ||
+        row.resourceType === "OFFERING_PRICE" ||
+        row.resourceType === "OFFERING_DURATION"
+          ? [manualFieldKey(row.resourceType, row.resourceKey, row.fieldPath)]
+          : [],
+      ),
+    ),
+    resourceKeys: new Set(
+      rows.flatMap((row) =>
+        row.resourceType === "OFFERING" ||
+        row.resourceType === "OFFERING_PRICE" ||
+        row.resourceType === "OFFERING_DURATION"
+          ? [manualResourceKey(row.resourceType, row.resourceKey)]
+          : [],
+      ),
+    ),
+  };
+}
+
 function previewDiagnostics(candidates: PreviewCandidate[]) {
   const diagnostics: BusinessImportDiagnosticView[] = [];
   const targets = new Set<string>();
@@ -611,6 +829,20 @@ function previewDiagnostics(candidates: PreviewCandidate[]) {
     ) {
       error("BUSINESS_IMPORT_PRICE_DATES_INVALID", "Price dates require a typed price.", "price");
     }
+    if (
+      candidate.normalizedValue.price &&
+      !businessImportPriceEffectiveWindowIsValid({
+        validFrom: candidate.normalizedValue.validFrom ?? null,
+        validUntil: candidate.normalizedValue.validUntil ?? null,
+        approvalGrantedAt: candidate.approvalGrantedAt,
+      })
+    ) {
+      error(
+        "BUSINESS_IMPORT_PRICE_EFFECTIVE_WINDOW_INVALID",
+        "Price validity must end after it starts. Confirm the price closer to its start date or adjust the validity dates.",
+        "validFrom",
+      );
+    }
     if (candidate.targetOfferingId && ["UPDATE", "LINK", "ARCHIVE"].includes(candidate.action)) {
       if (targets.has(candidate.targetOfferingId)) {
         error("BUSINESS_IMPORT_DUPLICATE_TARGET", "Multiple candidates target the same service.");
@@ -632,6 +864,70 @@ function previewDiagnostics(candidates: PreviewCandidate[]) {
     }
   }
   return diagnostics;
+}
+
+export function businessImportPriceEffectiveWindowIsValid(input: {
+  validFrom: string | null;
+  validUntil: string | null;
+  approvalGrantedAt: string | null;
+}) {
+  const effectiveFrom = databaseDate(input.validFrom);
+  if (!effectiveFrom) return true;
+  const explicitUntil = databaseDate(input.validUntil);
+  const approvedAt = input.approvalGrantedAt ? new Date(input.approvalGrantedAt) : null;
+  if (approvedAt && !Number.isFinite(approvedAt.getTime())) return false;
+  const effectiveUntil = approvedAt
+    ? knowledgeOwnerVerificationEffectiveUntil({
+        verifiedAt: approvedAt,
+        effectiveUntil: explicitUntil,
+      })
+    : explicitUntil;
+  return !effectiveUntil || effectiveUntil > effectiveFrom;
+}
+
+export function businessImportResultingActiveCatalogCount(input: {
+  currentOfferings: ReadonlyArray<{ id: string; active: boolean }>;
+  candidates: ReadonlyArray<{
+    id: string;
+    action: string;
+    targetOfferingId: string | null;
+    normalizedValue: { active: boolean };
+  }>;
+  manualOfferingIds: ReadonlySet<string>;
+}) {
+  const active = new Set(
+    input.currentOfferings.filter((offering) => offering.active).map((offering) => offering.id),
+  );
+  for (const candidate of input.candidates) {
+    if (candidate.action === "ADD") {
+      if (candidate.normalizedValue.active) active.add(`candidate:${candidate.id}`);
+      continue;
+    }
+    if (!candidate.targetOfferingId) continue;
+    if (candidate.action === "UPDATE") {
+      if (candidate.normalizedValue.active) active.add(candidate.targetOfferingId);
+      else active.delete(candidate.targetOfferingId);
+    } else if (
+      candidate.action === "ARCHIVE" &&
+      !input.manualOfferingIds.has(candidate.targetOfferingId)
+    ) {
+      active.delete(candidate.targetOfferingId);
+    }
+  }
+  return active.size;
+}
+
+function activeCatalogLimitDiagnostic(
+  resultingActiveCatalogCount: number,
+): BusinessImportDiagnosticView | null {
+  return resultingActiveCatalogCount > BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT
+    ? {
+        severity: "ERROR",
+        code: "BUSINESS_IMPORT_ACTIVE_CATALOG_LIMIT",
+        message: `The resulting catalog cannot contain more than ${BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT} active services. Replace or remove services before applying this import.`,
+        field: "services",
+      }
+    : null;
 }
 
 function hasBlockingDiagnostics(diagnostics: BusinessImportDiagnosticView[]) {
@@ -679,15 +975,29 @@ function assertOptionalInformationIfMatch(
 
 function candidateIds(value: string[]) {
   const ids = [...new Set(value.map((item) => item.trim()).filter(Boolean))].sort();
-  if (ids.length === 0 || ids.length > MAX_CANDIDATES || ids.length !== value.length) {
+  if (ids.length === 0 || ids.length > MAX_SELECTED_CANDIDATES || ids.length !== value.length) {
     throw businessImportError(
       HttpStatus.BAD_REQUEST,
       "BUSINESS_IMPORT_CANDIDATE_SELECTION_INVALID",
-      `Select between 1 and ${MAX_CANDIDATES} distinct candidates.`,
+      `Select between 1 and ${MAX_SELECTED_CANDIDATES} distinct candidates.`,
       { field: "candidateIds" },
     );
   }
   return ids;
+}
+
+function assertCatalogMutationCount(mutationCount: number) {
+  if (mutationCount <= BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT) return;
+  throw businessImportError(
+    HttpStatus.BAD_REQUEST,
+    "BUSINESS_IMPORT_CANDIDATE_LIMIT",
+    `Select at most ${BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT} service changes.`,
+    { field: "candidateIds", details: { mutationCount } },
+  );
+}
+
+function assertCatalogMutationLimit(candidates: ReadonlyArray<{ action: string }>) {
+  assertCatalogMutationCount(countBusinessImportCatalogMutations(candidates));
 }
 
 function parseManifest(bytes: Uint8Array): PreviewManifest {
@@ -695,11 +1005,13 @@ function parseManifest(bytes: Uint8Array): PreviewManifest {
     const parsed = JSON.parse(Buffer.from(bytes).toString("utf8")) as unknown;
     const value = record(parsed);
     if (
-      value.schema !== "leadvirt.business-import-application-preview.v4" ||
+      value.schema !== "leadvirt.business-import-application-preview.v5" ||
       typeof value.signature !== "string" ||
       typeof value.tenantId !== "string" ||
       typeof value.sourceId !== "string" ||
       typeof value.importId !== "string" ||
+      !["ADD", "REPLACE"].includes(String(value.catalogMode)) ||
+      (value.replacementScopeHash !== null && typeof value.replacementScopeHash !== "string") ||
       typeof value.expiresAt !== "string" ||
       !Array.isArray(value.candidateIds) ||
       !Array.isArray(value.candidates)
@@ -845,11 +1157,80 @@ function valueHash(value: BusinessImportOfferingValue) {
   });
 }
 
+function preserveManualOfferingFields(
+  imported: BusinessImportOfferingValue,
+  existing: OfferingRow,
+  ownership: ManualOwnership,
+) {
+  const value = JSON.parse(JSON.stringify(imported)) as BusinessImportOfferingValue;
+  const owned = (
+    resourceType: FieldMutation["resourceType"],
+    resourceKey: string,
+    fieldPath: string,
+  ) => ownership.fieldKeys.has(manualFieldKey(resourceType, resourceKey, fieldPath));
+  if (owned("OFFERING", existing.id, "/category")) value.category = existing.category;
+  if (owned("OFFERING", existing.id, "/name")) value.name = existing.name;
+  if (owned("OFFERING", existing.id, "/description")) value.description = existing.description;
+  if (owned("OFFERING", existing.id, "/locale")) value.language = existing.locale;
+  if (owned("OFFERING", existing.id, "/bookingNotes")) value.bookingNotes = existing.bookingNotes;
+  if (owned("OFFERING", existing.id, "/active")) value.active = existing.active;
+  const price = primaryPrice(existing);
+  if (
+    price &&
+    !value.price &&
+    ownership.resourceKeys.has(manualResourceKey("OFFERING_PRICE", price.id))
+  ) {
+    value.price = {
+      type: price.type,
+      amount: price.amount?.toString() ?? null,
+      from: price.amountFrom?.toString() ?? null,
+      to: price.amountTo?.toString() ?? null,
+      currency: price.currency,
+      unit: price.unit,
+      taxNote: price.taxNote,
+    };
+    value.validFrom = isoDate(price.effectiveFrom);
+    value.validUntil = isoDate(price.effectiveUntil);
+  } else if (price && value.price) {
+    if (owned("OFFERING_PRICE", price.id, "/type")) value.price.type = price.type;
+    if (owned("OFFERING_PRICE", price.id, "/amount"))
+      value.price.amount = price.amount?.toString() ?? null;
+    if (owned("OFFERING_PRICE", price.id, "/amountFrom"))
+      value.price.from = price.amountFrom?.toString() ?? null;
+    if (owned("OFFERING_PRICE", price.id, "/amountTo"))
+      value.price.to = price.amountTo?.toString() ?? null;
+    if (owned("OFFERING_PRICE", price.id, "/currency")) value.price.currency = price.currency;
+    if (owned("OFFERING_PRICE", price.id, "/unit")) value.price.unit = price.unit;
+    if (owned("OFFERING_PRICE", price.id, "/taxNote")) value.price.taxNote = price.taxNote;
+    if (owned("OFFERING_PRICE", price.id, "/effectiveFrom"))
+      value.validFrom = isoDate(price.effectiveFrom);
+    if (owned("OFFERING_PRICE", price.id, "/effectiveUntil"))
+      value.validUntil = isoDate(price.effectiveUntil);
+  }
+  if (
+    existing.duration &&
+    !value.duration &&
+    ownership.resourceKeys.has(manualResourceKey("OFFERING_DURATION", existing.duration.id))
+  ) {
+    value.duration = {
+      minimumMinutes: existing.duration.minimumMinutes,
+      maximumMinutes: existing.duration.maximumMinutes,
+    };
+  } else if (existing.duration && value.duration) {
+    if (owned("OFFERING_DURATION", existing.duration.id, "/minimumMinutes"))
+      value.duration.minimumMinutes = existing.duration.minimumMinutes;
+    if (owned("OFFERING_DURATION", existing.duration.id, "/maximumMinutes"))
+      value.duration.maximumMinutes = existing.duration.maximumMinutes;
+  }
+  return value;
+}
+
 function planApplication(
   identity: CanonicalIdentitySnapshot,
   offerings: OfferingRow[],
   manifest: PreviewManifest,
   committedAt: string,
+  manual: ManualOwnership,
 ) {
   const before = canonicalSnapshot(identity, offerings);
   const after = cloneSnapshot(before);
@@ -867,8 +1248,23 @@ function planApplication(
     )
       applicationBlocked();
     const action = candidate.action;
-    const value = candidate.normalizedValue;
     const existing = candidate.targetOfferingId ? rowById.get(candidate.targetOfferingId) : null;
+    const value =
+      action === "UPDATE" && existing
+        ? preserveManualOfferingFields(candidate.normalizedValue, existing, manual)
+        : candidate.normalizedValue;
+    const currentPrice = existing ? primaryPrice(existing) : undefined;
+    const preservePrice =
+      action === "UPDATE" &&
+      currentPrice !== undefined &&
+      candidate.normalizedValue.price === null &&
+      manual.resourceKeys.has(manualResourceKey("OFFERING_PRICE", currentPrice.id));
+    const preserveDuration =
+      action === "UPDATE" &&
+      existing?.duration !== null &&
+      existing?.duration !== undefined &&
+      candidate.normalizedValue.duration === null &&
+      manual.resourceKeys.has(manualResourceKey("OFFERING_DURATION", existing.duration.id));
     if (candidate.action === "ADD" && existing) applicationIntegrityConflict();
     if (candidate.action !== "ADD" && !existing) applicationIntegrityConflict();
     if (
@@ -878,6 +1274,27 @@ function planApplication(
           candidate.currentFingerprint)
     )
       applicationIntegrityConflict();
+    if (
+      candidate.action === "ARCHIVE" &&
+      existing &&
+      businessImportReplacementRemovalKind(manual.offeringIds.has(existing.id)) === "UNLINK"
+    ) {
+      mutations.push({
+        candidateId: candidate.id,
+        offeringId: existing.id,
+        priceId: primaryPrice(existing)?.id ?? null,
+        durationId: existing.duration?.id ?? null,
+        kind: "UNLINK",
+        expectedOfferingVersion: existing.rowVersion,
+        expectedPriceVersion: primaryPrice(existing)?.rowVersion ?? null,
+        expectedDurationVersion: existing.duration?.rowVersion ?? null,
+        preservePrice: false,
+        preserveDuration: false,
+        value,
+        fields: [],
+      });
+      continue;
+    }
     if (candidate.action === "LINK") {
       const externalKey = normalizeBusinessExternalId(
         value.externalId ?? candidate.semanticTargetKey,
@@ -908,6 +1325,8 @@ function planApplication(
         expectedOfferingVersion: existing!.rowVersion,
         expectedPriceVersion: primaryPrice(existing!)?.rowVersion ?? null,
         expectedDurationVersion: existing!.duration?.rowVersion ?? null,
+        preservePrice: false,
+        preserveDuration: false,
         value,
         fields: [],
       });
@@ -942,7 +1361,10 @@ function planApplication(
       resourceKey: string,
       fieldPath: string,
       fieldValue: unknown,
-    ) => fields.push({ resourceType, resourceKey, fieldPath, value: fieldValue });
+    ) => {
+      if (manual.fieldKeys.has(manualFieldKey(resourceType, resourceKey, fieldPath))) return;
+      fields.push({ resourceType, resourceKey, fieldPath, value: fieldValue });
+    };
     const archivedAt = candidate.action === "ARCHIVE" ? committedAt : null;
     const offering: CanonicalOfferingSnapshot = current ?? {
       id: offeringId,
@@ -966,14 +1388,16 @@ function planApplication(
       addField("OFFERING", offeringId, "/active", false);
       addField("OFFERING", offeringId, "/archivedAt", archivedAt);
     } else {
-      offering.kind = "SERVICE";
+      if (!manual.fieldKeys.has(manualFieldKey("OFFERING", offeringId, "/kind")))
+        offering.kind = "SERVICE";
       offering.category = value.category ?? null;
       offering.name = value.name;
       offering.description = value.description ?? null;
       offering.locale = value.language ?? identity.defaultLocale;
       offering.bookingNotes = value.bookingNotes ?? null;
       offering.active = value.active;
-      offering.archivedAt = null;
+      if (!manual.fieldKeys.has(manualFieldKey("OFFERING", offeringId, "/archivedAt")))
+        offering.archivedAt = null;
       if (current) offering.rowVersion += 1;
       for (const [fieldPath, fieldValue] of [
         ["/kind", offering.kind],
@@ -1010,20 +1434,25 @@ function planApplication(
         price.taxNote = value.price.taxNote ?? null;
         price.effectiveFrom = value.validFrom ?? null;
         price.effectiveUntil = value.validUntil ?? null;
-        if (existed) price.rowVersion += 1;
-        else offering.prices.push(price);
-        for (const [fieldPath, fieldValue] of [
-          ["/type", price.type],
-          ["/amount", price.amount],
-          ["/amountFrom", price.amountFrom],
-          ["/amountTo", price.amountTo],
-          ["/currency", price.currency],
-          ["/unit", price.unit],
-          ["/taxNote", price.taxNote],
-          ["/effectiveFrom", price.effectiveFrom],
-          ["/effectiveUntil", price.effectiveUntil],
-        ] as const)
-          addField("OFFERING_PRICE", priceId, fieldPath, fieldValue);
+        if (existed) {
+          if (!preservePrice) price.rowVersion += 1;
+        } else {
+          offering.prices.push(price);
+        }
+        if (!preservePrice) {
+          for (const [fieldPath, fieldValue] of [
+            ["/type", price.type],
+            ["/amount", price.amount],
+            ["/amountFrom", price.amountFrom],
+            ["/amountTo", price.amountTo],
+            ["/currency", price.currency],
+            ["/unit", price.unit],
+            ["/taxNote", price.taxNote],
+            ["/effectiveFrom", price.effectiveFrom],
+            ["/effectiveUntil", price.effectiveUntil],
+          ] as const)
+            addField("OFFERING_PRICE", priceId, fieldPath, fieldValue);
+        }
       }
       if (value.duration && durationId) {
         const duration = offering.duration ?? {
@@ -1037,10 +1466,12 @@ function planApplication(
         const existed = offering.duration !== null;
         duration.minimumMinutes = value.duration.minimumMinutes;
         duration.maximumMinutes = value.duration.maximumMinutes ?? null;
-        if (existed) duration.rowVersion += 1;
+        if (existed && !preserveDuration) duration.rowVersion += 1;
         offering.duration = duration;
-        addField("OFFERING_DURATION", durationId, "/minimumMinutes", duration.minimumMinutes);
-        addField("OFFERING_DURATION", durationId, "/maximumMinutes", duration.maximumMinutes);
+        if (!preserveDuration) {
+          addField("OFFERING_DURATION", durationId, "/minimumMinutes", duration.minimumMinutes);
+          addField("OFFERING_DURATION", durationId, "/maximumMinutes", duration.maximumMinutes);
+        }
       }
     }
     if (!current) {
@@ -1057,6 +1488,8 @@ function planApplication(
       expectedOfferingVersion: existing?.rowVersion ?? null,
       expectedPriceVersion: previousPrice?.rowVersion ?? null,
       expectedDurationVersion: existing?.duration?.rowVersion ?? null,
+      preservePrice,
+      preserveDuration,
       value,
       fields,
     });
@@ -1071,11 +1504,10 @@ function planApplication(
     mutations,
     changedFields,
     counts: {
-      additions: manifest.counts.additions,
-      updates:
-        manifest.counts.updates +
-        manifest.candidates.filter((item) => item.action === "ARCHIVE").length,
-      linked: manifest.counts.linked,
+      additions: mutations.filter((mutation) => mutation.kind === "ADD").length,
+      updates: mutations.filter((mutation) => mutation.kind === "UPDATE").length,
+      removals: mutations.filter((mutation) => mutation.kind === "ARCHIVE").length,
+      linked: mutations.filter((mutation) => mutation.kind === "LINK").length,
       unchanged: manifest.counts.unchanged,
     },
   } satisfies ApplicationPlan;
@@ -1146,6 +1578,7 @@ export class BusinessImportApplicationService {
           return prepared;
         },
         async (tx, prepared) => {
+          await this.lockCatalog(tx, context.tenantId);
           await lockKnowledgeV2CorpusTransition(tx, context.tenantId);
           const state = await this.informationState.ensureInTransaction(tx, context);
           const importRecord = await this.lockImportAndCandidates(tx, context, importId, ids);
@@ -1311,11 +1744,17 @@ export class BusinessImportApplicationService {
     assertBusinessImportIfMatch(importIfMatch, businessImportEtag(importId, importRecord.etag));
     assertOptionalInformationIfMatch(informationIfMatch, context.tenantId, state.etag);
     this.assertParsedImport(importRecord);
+    const replacementScope =
+      importRecord.catalogMode === "REPLACE"
+        ? await replacementScopeHash(this.prisma, context.tenantId)
+        : null;
     const rows = await this.prisma.businessImportCandidate.findMany({
       where: { tenantId: context.tenantId, importId, id: { in: ids } },
       orderBy: { id: "asc" },
     });
     if (rows.length !== ids.length) this.notFound();
+    assertCatalogMutationLimit(rows);
+    await this.assertReplaceSelection(this.prisma, importRecord, ids);
     const revisions = await this.prisma.businessImportCandidateRevision.findMany({
       where: { tenantId: context.tenantId, importId, candidateId: { in: ids } },
     });
@@ -1474,9 +1913,32 @@ export class BusinessImportApplicationService {
     }
     const createdAt = new Date();
     const expiresAt = new Date(createdAt.getTime() + PREVIEW_TTL_MS);
+    const [manual, currentOfferings] = await Promise.all([
+      importRecord.catalogMode === "REPLACE"
+        ? manualOwnership(this.prisma, context.tenantId)
+        : Promise.resolve(null),
+      this.prisma.businessOffering.findMany({
+        where: { tenantId: context.tenantId },
+        select: { id: true, active: true },
+      }),
+    ]);
+    const catalogLimitDiagnostic = activeCatalogLimitDiagnostic(
+      businessImportResultingActiveCatalogCount({
+        currentOfferings,
+        candidates,
+        manualOfferingIds: manual?.offeringIds ?? new Set(),
+      }),
+    );
+    if (catalogLimitDiagnostic) diagnostics.push(catalogLimitDiagnostic);
     const counts = {
       additions: candidates.filter((item) => item.action === "ADD").length,
-      updates: candidates.filter((item) => ["UPDATE", "ARCHIVE"].includes(item.action)).length,
+      updates: candidates.filter((item) => item.action === "UPDATE").length,
+      removals: candidates.filter(
+        (item) =>
+          item.action === "ARCHIVE" &&
+          item.targetOfferingId !== null &&
+          !manual?.offeringIds.has(item.targetOfferingId),
+      ).length,
       linked: candidates.filter((item) => item.action === "LINK").length,
       unchanged: candidates.filter((item) => item.action === "UNCHANGED").length,
       conflicts: candidates.filter((item) =>
@@ -1484,10 +1946,12 @@ export class BusinessImportApplicationService {
       ).length,
     };
     const unsigned: PreviewManifestUnsigned = {
-      schema: "leadvirt.business-import-application-preview.v4",
+      schema: "leadvirt.business-import-application-preview.v5",
       tenantId: context.tenantId,
       sourceId: importRecord.sourceId,
       importId,
+      catalogMode: importRecord.catalogMode,
+      replacementScopeHash: replacementScope,
       importGeneration: importRecord.generation,
       importEtag: importRecord.etag,
       parsedRevisionId: importRecord.parsedRevisionId!,
@@ -1651,7 +2115,7 @@ export class BusinessImportApplicationService {
         "The selected candidates do not change business information.",
       );
     }
-    const [tenant, storedIdentity, offerings] = await Promise.all([
+    const [tenant, storedIdentity, offerings, manualOfferingIds] = await Promise.all([
       this.prisma.tenant.findFirst({
         where: { id: context.tenantId, deletedAt: null },
         include: { onboardingState: true },
@@ -1662,13 +2126,25 @@ export class BusinessImportApplicationService {
         include: { prices: true, duration: true, sourceBindings: true },
         orderBy: { id: "asc" },
       }),
+      manualOwnership(this.prisma, context.tenantId),
     ]);
     if (!tenant) this.notFound();
     const identity = storedIdentity
       ? identitySnapshot(storedIdentity)
       : fallbackIdentity(tenant, manifest.candidates);
     const committedAt = new Date().toISOString();
-    const plan = planApplication(identity, offerings, manifest, committedAt);
+    const plan = planApplication(identity, offerings, manifest, committedAt, manualOfferingIds);
+    assertCatalogMutationCount(plan.mutations.length);
+    const resultingActiveCatalogCount = plan.after.offerings.filter(
+      (offering) => offering.active,
+    ).length;
+    if (resultingActiveCatalogCount > BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT) {
+      throw businessImportError(
+        HttpStatus.CONFLICT,
+        "BUSINESS_IMPORT_ACTIVE_CATALOG_LIMIT",
+        `The resulting catalog cannot contain more than ${BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT} active services.`,
+      );
+    }
     if (plan.beforeRowsHash !== canonicalKnowledgeV2Hash(plan.before))
       applicationIntegrityConflict();
     if (
@@ -1754,6 +2230,7 @@ export class BusinessImportApplicationService {
     informationIfMatch: string | string[] | undefined,
     prepared: PreparedApplyMutation,
   ) {
+    await this.lockCatalog(tx, context.tenantId);
     await lockKnowledgeV2CorpusTransition(tx, context.tenantId);
     const state = await this.informationState.ensureInTransaction(tx, context);
     const importRecord = await this.lockImportAndCandidates(tx, context, importId, ids);
@@ -1792,7 +2269,7 @@ export class BusinessImportApplicationService {
       (previewLedger.retainUntil && previewLedger.retainUntil.getTime() <= Date.now())
     )
       this.previewExpired();
-    const [tenant, storedIdentity, offerings] = await Promise.all([
+    const [tenant, storedIdentity, offerings, manualOfferingIds] = await Promise.all([
       tx.tenant.findFirst({
         where: { id: context.tenantId, deletedAt: null },
         include: { onboardingState: true },
@@ -1803,12 +2280,20 @@ export class BusinessImportApplicationService {
         include: { prices: true, duration: true, sourceBindings: true },
         orderBy: { id: "asc" },
       }),
+      manualOwnership(tx, context.tenantId),
     ]);
     if (!tenant) this.notFound();
     const identity = storedIdentity
       ? identitySnapshot(storedIdentity)
       : fallbackIdentity(tenant, prepared.manifest.candidates);
-    const plan = planApplication(identity, offerings, prepared.manifest, prepared.committedAt);
+    const plan = planApplication(
+      identity,
+      offerings,
+      prepared.manifest,
+      prepared.committedAt,
+      manualOfferingIds,
+    );
+    assertCatalogMutationCount(plan.mutations.length);
     const planHash = businessImportManifestHash({
       beforeRowsHash: plan.beforeRowsHash,
       resultingHash: plan.resultingHash,
@@ -1847,6 +2332,7 @@ export class BusinessImportApplicationService {
       identity.defaultLocale,
       identity.defaultCurrency,
     );
+    await this.retireReplacedCatalogs(tx, context, prepared.manifest);
     await adoptPendingBusinessImportObject(
       tx,
       prepared.revisionReservation,
@@ -2036,10 +2522,18 @@ export class BusinessImportApplicationService {
     state: Prisma.BusinessInformationStateGetPayload<Record<string, never>>,
     allowBlocking = false,
   ) {
+    await this.assertReplaceSelection(tx, importRecord, manifest.candidateIds);
+    assertCatalogMutationLimit(manifest.candidates);
+    const currentReplacementScope =
+      importRecord.catalogMode === "REPLACE"
+        ? await replacementScopeHash(tx, importRecord.tenantId)
+        : null;
     if (
       manifest.tenantId !== importRecord.tenantId ||
       manifest.sourceId !== importRecord.sourceId ||
       manifest.importId !== importRecord.id ||
+      manifest.catalogMode !== importRecord.catalogMode ||
+      manifest.replacementScopeHash !== currentReplacementScope ||
       manifest.importGeneration !== importRecord.generation ||
       manifest.importEtag !== importRecord.etag ||
       manifest.parsedRevisionId !== importRecord.parsedRevisionId ||
@@ -2246,6 +2740,23 @@ export class BusinessImportApplicationService {
         message: "Business information changed after this import was prepared.",
       });
     }
+    const [currentOfferings, manual] = await Promise.all([
+      tx.businessOffering.findMany({
+        where: { tenantId: manifest.tenantId },
+        select: { id: true, active: true },
+      }),
+      manifest.catalogMode === "REPLACE"
+        ? manualOwnership(tx, manifest.tenantId)
+        : Promise.resolve(null),
+    ]);
+    const catalogLimitDiagnostic = activeCatalogLimitDiagnostic(
+      businessImportResultingActiveCatalogCount({
+        currentOfferings,
+        candidates: manifest.candidates,
+        manualOfferingIds: manual?.offeringIds ?? new Set(),
+      }),
+    );
+    if (catalogLimitDiagnostic) diagnostics.push(catalogLimitDiagnostic);
     if (JSON.stringify(diagnostics) !== JSON.stringify(manifest.diagnostics))
       this.revisionConflict();
     if (!allowBlocking && hasBlockingDiagnostics(diagnostics)) applicationBlocked();
@@ -2265,7 +2776,7 @@ export class BusinessImportApplicationService {
       const candidate = candidates.get(mutation.candidateId);
       if (!candidate) this.revisionConflict();
       const value = mutation.value;
-      if (mutation.kind === "LINK") {
+      if (["LINK", "UNLINK"].includes(mutation.kind)) {
         const unchanged = await tx.businessOffering.count({
           where: {
             id: mutation.offeringId,
@@ -2316,7 +2827,12 @@ export class BusinessImportApplicationService {
         });
         if (updated.count !== 1) applicationIntegrityConflict();
       }
-      if (!["LINK", "ARCHIVE"].includes(mutation.kind) && value.price && mutation.priceId) {
+      if (
+        !["LINK", "ARCHIVE", "UNLINK"].includes(mutation.kind) &&
+        value.price &&
+        mutation.priceId &&
+        !mutation.preservePrice
+      ) {
         const priceData = {
           type: value.price.type,
           amount: value.price.amount ?? null,
@@ -2350,7 +2866,12 @@ export class BusinessImportApplicationService {
           if (updated.count !== 1) applicationIntegrityConflict();
         }
       }
-      if (!["LINK", "ARCHIVE"].includes(mutation.kind) && value.duration && mutation.durationId) {
+      if (
+        !["LINK", "ARCHIVE", "UNLINK"].includes(mutation.kind) &&
+        value.duration &&
+        mutation.durationId &&
+        !mutation.preserveDuration
+      ) {
         if (mutation.expectedDurationVersion === null) {
           await tx.businessOfferingDuration.create({
             data: {
@@ -2378,20 +2899,31 @@ export class BusinessImportApplicationService {
           if (updated.count !== 1) applicationIntegrityConflict();
         }
       }
-      if (mutation.kind === "ARCHIVE") {
-        await tx.businessOfferingSourceBinding.updateMany({
-          where: {
-            tenantId: context.tenantId,
-            sourceId: manifest.sourceId,
-            offeringId: mutation.offeringId,
-            active: true,
-          },
-          data: {
-            active: false,
-            lastSeenImportId: manifest.importId,
-            lastSeenSourceValueHash: candidate.valueHash,
-          },
-        });
+      if (["ARCHIVE", "UNLINK"].includes(mutation.kind)) {
+        if (manifest.catalogMode === "REPLACE") {
+          await tx.businessOfferingSourceBinding.updateMany({
+            where: {
+              tenantId: context.tenantId,
+              offeringId: mutation.offeringId,
+              active: true,
+            },
+            data: { active: false },
+          });
+        } else {
+          await tx.businessOfferingSourceBinding.updateMany({
+            where: {
+              tenantId: context.tenantId,
+              sourceId: manifest.sourceId,
+              offeringId: mutation.offeringId,
+              active: true,
+            },
+            data: {
+              active: false,
+              lastSeenImportId: manifest.importId,
+              lastSeenSourceValueHash: candidate.valueHash,
+            },
+          });
+        }
         continue;
       }
       const externalKey = value.externalId ?? candidate.semanticTargetKey;
@@ -2442,6 +2974,36 @@ export class BusinessImportApplicationService {
         });
       }
     }
+  }
+
+  private async retireReplacedCatalogs(
+    tx: Prisma.TransactionClient,
+    context: RequestContext,
+    manifest: PreviewManifest,
+  ) {
+    if (manifest.catalogMode !== "REPLACE") return;
+    await tx.businessOfferingSourceBinding.updateMany({
+      where: {
+        tenantId: context.tenantId,
+        sourceId: { not: manifest.sourceId },
+        active: true,
+      },
+      data: { active: false },
+    });
+    await tx.businessImportSource.updateMany({
+      where: {
+        tenantId: context.tenantId,
+        id: { not: manifest.sourceId },
+        status: { in: ["ACTIVE", "PAUSED"] },
+        imports: { some: { purpose: "SERVICES" } },
+      },
+      data: {
+        status: "ARCHIVED",
+        archivedAt: new Date(),
+        updatedByUserId: context.userId,
+        etag: { increment: 1 },
+      },
+    });
   }
 
   private async writeAttributions(
@@ -2559,21 +3121,90 @@ export class BusinessImportApplicationService {
       WHERE "tenantId" = ${context.tenantId} AND "id" = ${importId}
       FOR UPDATE
     `);
-    await tx.$queryRaw(Prisma.sql`
-      SELECT "id"
-      FROM "BusinessImportCandidate"
-      WHERE "tenantId" = ${context.tenantId}
-        AND "importId" = ${importId}
-        AND "id" IN (${Prisma.join(ids)})
-      ORDER BY "id"
-      FOR UPDATE
-    `);
     const importRecord = await tx.businessImport.findFirst({
       where: { id: importId, tenantId: context.tenantId },
     });
     if (!importRecord) this.notFound();
     this.assertReviewState(importRecord.state);
+    await tx.$queryRaw(
+      importRecord.catalogMode === "REPLACE"
+        ? Prisma.sql`
+            SELECT "id"
+            FROM "BusinessImportCandidate"
+            WHERE "tenantId" = ${context.tenantId}
+              AND "importId" = ${importId}
+            ORDER BY "id"
+            FOR UPDATE
+          `
+        : Prisma.sql`
+            SELECT "id"
+            FROM "BusinessImportCandidate"
+            WHERE "tenantId" = ${context.tenantId}
+              AND "importId" = ${importId}
+              AND "id" IN (${Prisma.join(ids)})
+            ORDER BY "id"
+            FOR UPDATE
+          `,
+    );
     return importRecord;
+  }
+
+  private async lockCatalog(tx: Prisma.TransactionClient, tenantId: string) {
+    await tx.$queryRaw(Prisma.sql`
+      SELECT TRUE AS "locked"
+      FROM (
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${`business-import-catalog:${tenantId}`}, 0)
+        )
+      ) AS catalog_lock
+    `);
+  }
+
+  private async assertReplaceSelection(
+    client: PrismaService | Prisma.TransactionClient,
+    importRecord: Prisma.BusinessImportGetPayload<Record<string, never>>,
+    selectedCandidateIds: string[],
+  ) {
+    if (importRecord.catalogMode !== "REPLACE") return;
+    const [candidates, activeBindings, concurrentImports] = await Promise.all([
+      client.businessImportCandidate.findMany({
+        where: { tenantId: importRecord.tenantId, importId: importRecord.id },
+        select: { id: true, action: true, decision: true, targetOfferingId: true },
+      }),
+      client.businessOfferingSourceBinding.findMany({
+        where: {
+          tenantId: importRecord.tenantId,
+          active: true,
+          offering: { archivedAt: null },
+        },
+        select: { offeringId: true },
+      }),
+      client.businessImport.count({
+        where: {
+          tenantId: importRecord.tenantId,
+          id: { not: importRecord.id },
+          state: { in: [...REPLACE_ACTIVE_IMPORT_STATES] },
+        },
+      }),
+    ]);
+    if (concurrentImports > 0) {
+      throw businessImportError(
+        HttpStatus.CONFLICT,
+        "BUSINESS_IMPORT_REPLACE_ACTIVE_IMPORT_CONFLICT",
+        "Finish or cancel other active imports before replacing all imported services.",
+        { details: { activeImports: concurrentImports } },
+      );
+    }
+    const issue = businessImportReplaceSelectionIssue({
+      catalogMode: importRecord.catalogMode,
+      candidates,
+      selectedCandidateIds,
+      activeReplacementOfferingIds: activeBindings.map((binding) => binding.offeringId),
+    });
+    if (!issue) return;
+    throw businessImportError(HttpStatus.CONFLICT, issue.code, issue.message, {
+      details: issue.details,
+    });
   }
 
   private async assertDatabaseEditor(tx: Prisma.TransactionClient, context: RequestContext) {
@@ -2787,6 +3418,7 @@ function applicationView(row: ApplicationRecord): BusinessImportApplicationView 
     counts: {
       additions: count("additions"),
       updates: count("updates"),
+      removals: count("removals"),
       linked: count("linked"),
       unchanged: count("unchanged"),
     },

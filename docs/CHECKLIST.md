@@ -1,9 +1,15 @@
 # LeadVirt Checklist
 
-Last updated: 2026-07-23
+Last updated: 2026-07-24
 
 ## Next
 
+- [x] Reworked service-file import into an explicit catalog lifecycle. First import stays direct; existing ACTIVE or PAUSED catalogs require `Replace imported services` or `Add to existing`. Global `REPLACE` is filename-independent, retires prior imported catalogs and omissions, preserves manually owned data, and fences preview/apply against concurrent catalog changes. The effective mutation and resulting active-catalog limits are 400.
+- [x] Made service editing compact and recoverable: 52px summary rows, one expanded editor, search, stable name sorting, 20-row pagination, result counts, add-service focus, exact validation-error focus, and mobile overflow coverage.
+- [x] Added owner/admin catalog deletion with an exact impact preview, active-import conflict links, ETag/idempotency fencing, ownership-safe draft removal, source-independent canonical provenance, immediate asynchronous object cleanup eligibility, audit metadata retention, and no active-publication mutation.
+- [x] Replaced client-facing draft jargon with unpublished-change states, grouped repeated publication blockers, added exact remediation deep links, localized unknown-error details, and moved blocking service-price confirmation above the editor. Bulk owner verification is atomic for up to 200 exact ETags and records 90-day freshness evidence.
+- [x] Completed the local release matrix: package/API/worker typechecks, lint, builds and import/projection/lifecycle smokes passed; web production build and UI smoke passed `14/14`; focused Knowledge/import/profile/source coverage passed `87/87` after the corrected assertion rerun. The broad API/browser gate passed `218/219` in one serial run, and its sole client-navigation timeout passed immediately in isolation and had already passed in the focused serial run. The original deployment-journal syntax check and release-readiness pruning smoke both pass.
+- [ ] Commit and push the verified tree, monitor CI/deployment, and run the exact live LeadVirt.com smoke for service import, readiness, confirmation, and source deletion.
 - [x] Made structured service catalogs visible in Knowledge Sources through a tenant-scoped catalog-lineage API. The UI now shows the latest import state, filename, service count, and import action; document sources have separate truthful counts and empty states, and the former ambiguous file action is labeled `Add knowledge file`. Generic service-file upload defaults an exact normalized name match to the newest existing lineage, blocks on lookup failure, and requires an explicit duplicate warning to create a separate catalog. Verified Types/API/Web checks and builds, Business Import view smoke, focused desktop/mobile screenshots, and the combined Business Import plus Knowledge Sources Playwright suite `47/47`.
 - [ ] Reset and reprovision `camalov.arthur@gmail.com` before further production acceptance testing. Three prior generic uploads created three same-name source lineages and 90 active offerings for 30 distinct services; a partial source/offering delete is unsafe because imports, revisions, attributions, evidence, object ledgers, and Knowledge projections form one append-only graph. The reset intentionally removes the tenant's Telegram integration, conversation history, and saved tests.
 

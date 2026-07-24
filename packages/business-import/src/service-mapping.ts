@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { parse } from "csv-parse";
 import {
   BUSINESS_IMPORT_CURRENCY_CODES,
+  BUSINESS_IMPORT_SERVICE_LIMIT,
   BUSINESS_SERVICES_CSV_HEADERS,
   BUSINESS_SERVICES_CSV_SCHEMA_VERSION,
   BusinessServicesCsvError,
@@ -100,7 +101,7 @@ const DEFAULT_LIMITS: BusinessServiceCsvLimits = {
   maxRows: 10_000,
   maxColumns: 100,
   maxCellCharacters: 8 * 1024,
-  maxServices: 200,
+  maxServices: BUSINESS_IMPORT_SERVICE_LIMIT,
   maxTotalCharacters: 1_000_000,
 };
 

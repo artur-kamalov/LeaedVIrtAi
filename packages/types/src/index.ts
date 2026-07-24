@@ -1097,6 +1097,7 @@ export interface BusinessProfileView {
 }
 
 export type BusinessImportFormat = "CSV" | "XLSX" | "PDF";
+export type BusinessImportCatalogMode = "ADD" | "REPLACE";
 export type BusinessImportState =
   | "CREATED"
   | "UPLOADING"
@@ -1156,6 +1157,7 @@ export interface BusinessImportCreateIntentRequest {
     | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     | "application/pdf";
   byteSize: number;
+  mode?: BusinessImportCatalogMode;
   sourceId?: string | null;
   sourceName?: string | null;
 }
@@ -1294,6 +1296,7 @@ export interface BusinessImportCountsView {
   invalid: number;
   additions: number;
   updates: number;
+  removals: number;
   linked: number;
   unchanged: number;
   conflicts: number;
@@ -1322,6 +1325,7 @@ export interface BusinessImportView {
   id: string;
   sourceId: string;
   sourceName: string;
+  mode: BusinessImportCatalogMode;
   format: BusinessImportFormat;
   state: BusinessImportState;
   generation: number;
@@ -1456,7 +1460,9 @@ export interface BusinessImportSourceView {
   id: string;
   displayName: string;
   status: BusinessImportSourceStatus;
+  etag: string;
   latestImport: BusinessImportView | null;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1464,6 +1470,46 @@ export interface BusinessImportSourceView {
 export interface BusinessImportSourcePage {
   items: BusinessImportSourceView[];
   nextCursor?: string | null;
+}
+
+export interface BusinessImportSourceArchivePreview {
+  sourceId: string;
+  sourceEtag: string;
+  status: BusinessImportSourceStatus;
+  canArchive: boolean;
+  impact: {
+    detachedOfferingBindings: number;
+    removeOfferings: number;
+    retainedOfferings: number;
+    sharedOfferings: number;
+    manualOfferings: number;
+    objectsScheduledForDeletion: number;
+  };
+  activeImports: {
+    count: number;
+    items: Array<{
+      id: string;
+      state: BusinessImportState;
+      displayName: string;
+      href: string;
+    }>;
+  };
+}
+
+export interface BusinessImportSourceArchiveReceipt {
+  sourceId: string;
+  status: "ARCHIVED";
+  sourceEtag: string;
+  archivedAt: string;
+  detachedOfferingBindings: number;
+  archivedOfferings: number;
+  retainedOfferings: number;
+  sharedOfferings: number;
+  manualOfferings: number;
+  objectsScheduledForDeletion: number;
+  businessInformationRevisionId: string | null;
+  businessInformationRevision: number | null;
+  projectionQueued: boolean;
 }
 
 export interface BusinessImportCandidateDecisionRequest {
@@ -1519,7 +1565,7 @@ export interface BusinessImportApplyPreviewView {
   expiresAt: string;
   counts: Pick<
     BusinessImportCountsView,
-    "additions" | "updates" | "linked" | "unchanged" | "conflicts"
+    "additions" | "updates" | "removals" | "linked" | "unchanged" | "conflicts"
   >;
   diagnostics: BusinessImportDiagnosticView[];
 }
@@ -1535,7 +1581,10 @@ export interface BusinessImportApplicationView {
   state: "COMMITTED" | "PROJECTING" | "READY" | "PROJECTION_DELAYED" | "REVERTED" | "SUPERSEDED";
   baseBusinessInformationRevision: number;
   resultingBusinessInformationRevision: number;
-  counts: Pick<BusinessImportCountsView, "additions" | "updates" | "linked" | "unchanged">;
+  counts: Pick<
+    BusinessImportCountsView,
+    "additions" | "updates" | "removals" | "linked" | "unchanged"
+  >;
   projection: BusinessImportProjectionView;
   createdAt: string;
   readyAt?: string | null;
@@ -3236,6 +3285,33 @@ export interface KnowledgeV2FactDecisionRequest {
   note?: string | null;
 }
 
+export interface KnowledgeV2BulkFactVerificationItem {
+  id: string;
+  etag: string;
+}
+
+export interface KnowledgeV2BulkFactVerificationRequest {
+  items: KnowledgeV2BulkFactVerificationItem[];
+  note?: string | null;
+}
+
+export interface KnowledgeV2BulkFactVerificationItemView {
+  id: string;
+  version: number;
+  etag: string;
+  verificationStatus: "VERIFIED";
+  authority: "OWNER_VERIFIED";
+  effectiveUntil: string;
+}
+
+export interface KnowledgeV2BulkFactVerificationView {
+  verifiedCount: number;
+  items: KnowledgeV2BulkFactVerificationItemView[];
+}
+
+export type KnowledgeV2BulkFactVerificationMutationResult =
+  KnowledgeV2MutationResult<KnowledgeV2BulkFactVerificationView>;
+
 export type KnowledgeV2FactAction = "EDIT" | "VERIFY" | "REJECT" | "ARCHIVE";
 
 export interface KnowledgeV2FactView extends KnowledgeV2VersionedView {
@@ -3351,6 +3427,14 @@ export interface KnowledgeV2ReadinessRemediationView {
   action: string;
   label: string;
   resource?: KnowledgeV2ResourceRef | null;
+  destination?: {
+    view: "overview" | "business" | "sources" | "guidance" | "review" | "test" | "history";
+    task?: string | null;
+    resource?: KnowledgeV2ResourceRef | null;
+    sourceId?: string | null;
+    documentId?: string | null;
+    revisionId?: string | null;
+  } | null;
 }
 
 export interface KnowledgeV2ReadinessRequirementView {

@@ -10,6 +10,7 @@ import {
   BusinessImportUploadController,
 } from "./business-import.controller.js";
 import { BusinessImportRuntimeService } from "./business-import-runtime.service.js";
+import { BusinessImportSourceLifecycleService } from "./business-import-source-lifecycle.service.js";
 import { BusinessImportApplicationService } from "./business-import-application.service.js";
 import { BusinessImportMappingService } from "./business-import-mapping.service.js";
 import { BusinessImportQueueService } from "./business-import-queue.service.js";
@@ -36,6 +37,7 @@ import { BusinessInformationStateService } from "./business-information-state.se
     BusinessImportRebaseService,
     BusinessImportReviewService,
     BusinessImportRuntimeService,
+    BusinessImportSourceLifecycleService,
     BusinessImportUploadService,
     BusinessImportViewService,
     BusinessImportWorkflowService,

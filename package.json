@@ -82,6 +82,7 @@
     "qa:knowledge:v2:review-decisions": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/knowledge-v2-review-decision-smoke.ts",
     "qa:knowledge:v2:conflict-hydration": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/knowledge-v2-conflict-candidate-hydration-smoke.ts",
     "qa:knowledge:v2:bulk-review": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/knowledge-v2-bulk-review-smoke.ts",
+    "qa:knowledge:v2:bulk-fact-verification": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/knowledge-v2-bulk-fact-verification-smoke.ts",
     "qa:knowledge:v2:test-cases": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/knowledge-v2-test-api-smoke.ts",
     "qa:knowledge:v2:operational-query": "corepack pnpm --filter @leadvirt/api exec tsx ../../artifacts/scripts/knowledge-operational-query-smoke.ts",
     "qa:knowledge:v2:processor-query-admission": "corepack pnpm --filter @leadvirt/knowledge exec tsx ../../artifacts/scripts/knowledge-v2-processor-query-admission-smoke.ts",

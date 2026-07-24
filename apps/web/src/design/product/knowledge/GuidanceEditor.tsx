@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   BookOpenCheck,
@@ -39,6 +40,7 @@ import {
 } from "@/lib/api/knowledge";
 import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/utils";
+import { findKnowledgeDataElement } from "./knowledge-dom";
 import { ConfirmDialog, EmptyState, Modal, Select, Spinner } from "../ui";
 
 const ruleTypes: KnowledgeV2GuidanceRuleType[] = [
@@ -182,7 +184,9 @@ function displayConditionValue(value: unknown, t?: Translate): string {
   return t ? t("knowledge.guidance.value.configured") : "";
 }
 
-function conditionValueText(condition: Extract<KnowledgeV2GuidanceCondition, { kind: "PREDICATE" }>) {
+function conditionValueText(
+  condition: Extract<KnowledgeV2GuidanceCondition, { kind: "PREDICATE" }>,
+) {
   if (condition.operator === "EXISTS" || condition.value === undefined) return "";
   if (Array.isArray(condition.value)) {
     return condition.value.map((item) => displayConditionValue(item)).join(", ");
@@ -227,7 +231,14 @@ function formForRule(rule: KnowledgeV2GuidanceRuleView): GuidanceFormState {
 }
 
 function examplesFromText(value: string) {
-  return [...new Set(value.split(/\r?\n/u).map((item) => item.trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      value
+        .split(/\r?\n/u)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function createTieBreakKey(title: string) {
@@ -257,7 +268,12 @@ function conditionFromForm(
   if (form.conditionOperator === "EXISTS") return base;
   if (form.conditionOperator === "IN" || form.conditionOperator === "NOT_IN") {
     const values = [
-      ...new Set(form.conditionValue.split(",").map((item) => item.trim()).filter(Boolean)),
+      ...new Set(
+        form.conditionValue
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ),
     ];
     return { ...base, value: values };
   }
@@ -269,10 +285,8 @@ function conditionFromForm(
 
 function validateForm(form: GuidanceFormState, t: Translate) {
   const errors: Record<string, string> = {};
-  if (form.title.trim().length < 2)
-    errors.title = t("knowledge.guidance.validation.title");
-  if (!form.instruction.trim())
-    errors.instruction = t("knowledge.guidance.validation.instruction");
+  if (form.title.trim().length < 2) errors.title = t("knowledge.guidance.validation.title");
+  if (!form.instruction.trim()) errors.instruction = t("knowledge.guidance.validation.instruction");
 
   const priority = Number(form.priority);
   if (!Number.isInteger(priority) || priority < -1000 || priority > 1000) {
@@ -308,10 +322,7 @@ function validateForm(form: GuidanceFormState, t: Translate) {
     if (!expiry || new Date(expiry).getTime() <= Date.now()) {
       errors.effectiveUntil = t("knowledge.guidance.validation.highRiskExpiry");
     }
-    if (
-      form.requiredApproverRole !== "OWNER" &&
-      form.requiredApproverRole !== "ADMIN"
-    ) {
+    if (form.requiredApproverRole !== "OWNER" && form.requiredApproverRole !== "ADMIN") {
       errors.requiredApproverRole = t("knowledge.guidance.validation.highRiskApprover");
     }
   }
@@ -333,9 +344,7 @@ function errorFields(error: ApiClientError) {
   return fields;
 }
 
-function responseRule(
-  response: Awaited<ReturnType<typeof createKnowledgeV2GuidanceRule>>,
-) {
+function responseRule(response: Awaited<ReturnType<typeof createKnowledgeV2GuidanceRule>>) {
   const etag = response.headers.get("etag");
   return etag ? { ...response.data.resource, etag } : response.data.resource;
 }
@@ -457,6 +466,8 @@ export function GuidanceEditor({
   onChanged?: () => void | Promise<void>;
 }) {
   const { t } = useI18n();
+  const searchParams = useSearchParams();
+  const focusedRuleId = searchParams.get("ruleId");
   const [rules, setRules] = React.useState<KnowledgeV2GuidanceRuleView[]>([]);
   const [searchInput, setSearchInput] = React.useState("");
   const [query, setQuery] = React.useState("");
@@ -477,6 +488,7 @@ export function GuidanceEditor({
   const [decisionBusy, setDecisionBusy] = React.useState<string | null>(null);
   const [confirm, setConfirm] = React.useState<ConfirmState | null>(null);
   const requestSequence = React.useRef(0);
+  const deepLinkRequest = React.useRef(0);
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => setQuery(searchInput.trim()), 300);
@@ -519,6 +531,33 @@ export function GuidanceEditor({
   React.useEffect(() => {
     void loadRules();
   }, [loadRules]);
+
+  React.useEffect(() => {
+    if (!focusedRuleId) return;
+    setSearchInput("");
+    setQuery("");
+    setTypeFilter("ALL");
+    setReviewFilter("ALL");
+  }, [focusedRuleId]);
+
+  React.useEffect(() => {
+    if (!focusedRuleId || loading || query || typeFilter !== "ALL" || reviewFilter !== "ALL") {
+      return;
+    }
+    const sequence = ++deepLinkRequest.current;
+    const existing = rules.find((rule) => rule.id === focusedRuleId);
+    void (async () => {
+      const rule = existing ?? (await findCurrentRule(focusedRuleId));
+      if (sequence !== deepLinkRequest.current || !rule) return;
+      if (!existing)
+        setRules((current) => [rule, ...current.filter((item) => item.id !== rule.id)]);
+      window.requestAnimationFrame(() => {
+        const target = findKnowledgeDataElement("data-guidance-rule-id", focusedRuleId);
+        target?.scrollIntoView({ block: "center" });
+        target?.focus();
+      });
+    })();
+  }, [focusedRuleId, loading, query, reviewFilter, rules, typeFilter]);
 
   async function loadMore() {
     if (!nextCursor || loadingMore) return;
@@ -569,10 +608,7 @@ export function GuidanceEditor({
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function updateCondition<K extends keyof GuidanceFormState>(
-    key: K,
-    value: GuidanceFormState[K],
-  ) {
+  function updateCondition<K extends keyof GuidanceFormState>(key: K, value: GuidanceFormState[K]) {
     setForm((current) => ({ ...current, [key]: value, conditionDirty: true }));
   }
 
@@ -653,7 +689,7 @@ export function GuidanceEditor({
       const current = editor.mode === "edit" ? editor.rule : undefined;
       const effectiveUntil =
         current && !form.effectiveUntilDirty
-          ? current.effectiveUntil ?? null
+          ? (current.effectiveUntil ?? null)
           : form.effectiveUntil
             ? effectiveUntilIso(form.effectiveUntil)
             : null;
@@ -766,12 +802,8 @@ export function GuidanceEditor({
     <section className="space-y-4" data-testid="knowledge-guidance-editor">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-zinc-100">
-            {t("knowledge.guidance.title")}
-          </h2>
-          <p className="mt-1 text-sm text-zinc-500">
-            {t("knowledge.guidance.description")}
-          </p>
+          <h2 className="text-lg font-semibold text-zinc-100">{t("knowledge.guidance.title")}</h2>
+          <p className="mt-1 text-sm text-zinc-500">{t("knowledge.guidance.description")}</p>
         </div>
         {canEdit ? (
           <Button size="sm" onClick={openCreate} data-testid="guidance-create">
@@ -910,6 +942,7 @@ export function GuidanceEditor({
               canEdit={canEdit}
               canVerifyHighRisk={canVerifyHighRisk}
               busy={decisionBusy}
+              focused={focusedRuleId === rule.id}
               onEdit={() => openEdit(rule)}
               onApprove={() => void decide(rule, "APPROVE")}
               onConfirm={(action) => setConfirm({ action, rule })}
@@ -917,7 +950,12 @@ export function GuidanceEditor({
           ))}
           {nextCursor ? (
             <div className="flex justify-center border-t border-white/10 px-4 py-3">
-              <Button size="sm" variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={loadingMore}
+                onClick={() => void loadMore()}
+              >
                 {loadingMore ? <Spinner className="mr-2 h-4 w-4" /> : null}
                 {t("knowledge.guidance.pagination.more")}
               </Button>
@@ -981,9 +1019,7 @@ export function GuidanceEditor({
             >
               <Select
                 value={form.type}
-                onValueChange={(value) =>
-                  updateForm("type", value as KnowledgeV2GuidanceRuleType)
-                }
+                onValueChange={(value) => updateForm("type", value as KnowledgeV2GuidanceRuleType)}
                 ariaLabel={t("knowledge.guidance.form.type")}
                 className="h-10 rounded-lg"
                 options={ruleTypes.map((value) => ({ value, label: t(ruleTypeKeys[value]) }))}
@@ -1162,10 +1198,7 @@ export function GuidanceEditor({
               <Select
                 value={form.requiredApproverRole}
                 onValueChange={(value) =>
-                  updateForm(
-                    "requiredApproverRole",
-                    value as KnowledgeV2ApproverRole | "NONE",
-                  )
+                  updateForm("requiredApproverRole", value as KnowledgeV2ApproverRole | "NONE")
                 }
                 ariaLabel={t("knowledge.guidance.form.approver")}
                 className="h-10 rounded-lg"
@@ -1226,9 +1259,7 @@ export function GuidanceEditor({
         }
         cancelLabel={t("knowledge.guidance.editor.cancel")}
         danger
-        onConfirm={() =>
-          confirm ? decide(confirm.rule, confirm.action) : false
-        }
+        onConfirm={() => (confirm ? decide(confirm.rule, confirm.action) : false)}
       />
     </section>
   );
@@ -1239,6 +1270,7 @@ function GuidanceRow({
   canEdit,
   canVerifyHighRisk,
   busy,
+  focused,
   onEdit,
   onApprove,
   onConfirm,
@@ -1247,6 +1279,7 @@ function GuidanceRow({
   canEdit: boolean;
   canVerifyHighRisk: boolean;
   busy: string | null;
+  focused: boolean;
   onEdit: () => void;
   onApprove: () => void;
   onConfirm: (action: Extract<DecisionAction, "REJECT" | "DISABLE">) => void;
@@ -1254,17 +1287,24 @@ function GuidanceRow({
   const { t } = useI18n();
   const actionBusy = busy?.startsWith(`${rule.id}:`) ?? false;
   const canApprove =
-    canEdit &&
-    rule.allowedActions.includes("APPROVE") &&
-    (!isHighRisk(rule) || canVerifyHighRisk);
+    canEdit && rule.allowedActions.includes("APPROVE") && (!isHighRisk(rule) || canVerifyHighRisk);
   const showActions =
     canEdit &&
-    rule.allowedActions.some((action) =>
-      action === "EDIT" || action === "APPROVE" || action === "REJECT" || action === "DISABLE",
+    rule.allowedActions.some(
+      (action) =>
+        action === "EDIT" || action === "APPROVE" || action === "REJECT" || action === "DISABLE",
     );
 
   return (
-    <article className="border-b border-white/10 px-4 py-4 last:border-b-0" data-testid={`guidance-rule-${rule.id}`}>
+    <article
+      tabIndex={-1}
+      className={cn(
+        "scroll-mt-24 border-b border-white/10 px-4 py-4 outline-none last:border-b-0",
+        focused && "bg-amber-500/[0.07] ring-1 ring-inset ring-amber-400/40",
+      )}
+      data-guidance-rule-id={rule.id}
+      data-testid={`guidance-rule-${rule.id}`}
+    >
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -1379,21 +1419,18 @@ function GuidanceRow({
 
 function Badge({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium", className)}>
+    <span
+      className={cn(
+        "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        className,
+      )}
+    >
       {children}
     </span>
   );
 }
 
-function Meta({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string;
-  icon?: React.ReactNode;
-}) {
+function Meta({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
   return (
     <div className="flex min-w-0 items-start gap-2">
       <span className="mt-0.5 shrink-0 text-zinc-600">{icon}</span>

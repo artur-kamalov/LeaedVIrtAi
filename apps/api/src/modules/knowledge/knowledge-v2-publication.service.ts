@@ -482,14 +482,85 @@ function capabilitySelectionFromItems(
   };
 }
 
+export function knowledgeV2ReadinessRemediation(
+  code: string,
+  resource: KnowledgeV2ResourceRef,
+  target: {
+    task?: string | null;
+    sourceId?: string | null;
+    documentId?: string | null;
+    revisionId?: string | null;
+  } = {},
+) {
+  const view =
+    resource.type === "FACT" || resource.type === "SETTINGS"
+      ? ("business" as const)
+      : resource.type === "GUIDANCE_RULE"
+        ? ("guidance" as const)
+        : ["SOURCE", "ARTIFACT", "DOCUMENT", "REVISION", "CHUNK"].includes(resource.type)
+          ? ("sources" as const)
+          : resource.type === "CAPABILITY"
+            ? ("overview" as const)
+            : resource.type === "REVIEW_ITEM" || resource.type === "CONFLICT"
+              ? ("review" as const)
+              : ["TEST_CASE", "EVALUATION_RUN", "EVALUATION_RESULT"].includes(resource.type)
+                ? ("test" as const)
+                : ("history" as const);
+  const task =
+    target.task !== undefined
+      ? target.task
+      : code === "KNOWLEDGE_PUBLICATION_HIGH_RISK_FACT_EVIDENCE_REQUIRED"
+        ? "verify-services"
+        : resource.type === "FACT"
+          ? "verify-fact"
+          : null;
+  return {
+    action: "OPEN_RESOURCE",
+    label: "Open",
+    resource,
+    destination: {
+      view,
+      task,
+      resource,
+      ...(target.sourceId ? { sourceId: target.sourceId } : {}),
+      ...(target.documentId ? { documentId: target.documentId } : {}),
+      ...(target.revisionId ? { revisionId: target.revisionId } : {}),
+    },
+  };
+}
+
+export function knowledgeV2FactReadinessLabel(
+  factKey: string,
+  displayValue: string | null | undefined,
+) {
+  return displayValue?.trim() || factKey;
+}
+
 function gate(
   code: string,
   status: "WARNING" | "BLOCKED",
   title: string,
   message: string,
   resource?: KnowledgeV2ResourceRef,
+  target?: {
+    task?: string | null;
+    sourceId?: string | null;
+    documentId?: string | null;
+    revisionId?: string | null;
+  },
 ): KnowledgeV2PublicationGateView {
-  return { code, status, title, message, ...(resource ? { resource } : {}) };
+  return {
+    code,
+    status,
+    title,
+    message,
+    ...(resource
+      ? {
+          resource,
+          remediation: knowledgeV2ReadinessRemediation(code, resource, target),
+        }
+      : {}),
+  };
 }
 
 function dateValue(value: Date | null) {
@@ -2610,6 +2681,7 @@ export class KnowledgeV2PublicationService {
           select: {
             id: true,
             factKey: true,
+            entityType: true,
             latestVersionNumber: true,
             versions: {
               orderBy: [{ versionNumber: "desc" }, { id: "desc" }],
@@ -2618,6 +2690,7 @@ export class KnowledgeV2PublicationService {
                 id: true,
                 versionNumber: true,
                 immutableHash: true,
+                displayValue: true,
                 scope: true,
                 effectiveFrom: true,
                 effectiveUntil: true,
@@ -2750,6 +2823,11 @@ export class KnowledgeV2PublicationService {
         id: document.id,
         label: document.title,
       };
+      const documentTarget = {
+        sourceId: document.source.id,
+        documentId: document.id,
+        revisionId: revision?.id ?? null,
+      };
       if (document.source.kind === "LEGACY_ONBOARDING") {
         warnings.push(
           gate(
@@ -2758,6 +2836,7 @@ export class KnowledgeV2PublicationService {
             "Legacy onboarding snapshot excluded",
             "Use the classified onboarding facts and guidance instead of the compatibility snapshot.",
             resource,
+            documentTarget,
           ),
         );
         continue;
@@ -2770,6 +2849,7 @@ export class KnowledgeV2PublicationService {
             "Document revision is unavailable",
             "The current document revision could not be reconciled.",
             resource,
+            documentTarget,
           ),
         );
         continue;
@@ -2830,6 +2910,7 @@ export class KnowledgeV2PublicationService {
             "Document is not ready for indexing",
             "The document content, permission snapshot, and chunks must reconcile before publication.",
             resource,
+            documentTarget,
           ),
         );
         continue;
@@ -2842,6 +2923,7 @@ export class KnowledgeV2PublicationService {
             "Document is outside its effective window",
             "This document revision will not be included in the current publication.",
             resource,
+            documentTarget,
           ),
         );
         continue;
@@ -2877,10 +2959,11 @@ export class KnowledgeV2PublicationService {
 
     for (const fact of facts) {
       const version = fact.versions[0];
+      const factLabel = knowledgeV2FactReadinessLabel(fact.factKey, version?.displayValue);
       const resource: KnowledgeV2ResourceRef = {
         type: "FACT",
         id: fact.id,
-        label: fact.factKey,
+        label: factLabel,
       };
       if (!version || version.versionNumber !== fact.latestVersionNumber) {
         blockers.push(
@@ -2933,7 +3016,7 @@ export class KnowledgeV2PublicationService {
         itemId: version.id,
         itemVersionHash: version.immutableHash,
         stableId: fact.id,
-        label: fact.factKey,
+        label: factLabel,
         scope: factScopeBinding ? persistedScopeJson(factScopeBinding.scope) : version.scope,
         authorizationFingerprint: fingerprint,
         effectiveFrom: dateValue(version.effectiveFrom),
@@ -2951,7 +3034,7 @@ export class KnowledgeV2PublicationService {
           itemType: "FACT_VERSION",
           itemId: version.id,
           itemVersionHash: version.immutableHash,
-          label: fact.factKey,
+          label: factLabel,
           scope: persistedScopeJson(factScopeBinding!.scope),
           usesTenantDefaultScope: factScopeBinding!.usesTenantDefaultScope,
           tenantDefaultScopeGeneration: factScopeBinding!.tenantDefaultScopeGeneration,
@@ -2980,6 +3063,12 @@ export class KnowledgeV2PublicationService {
             "High-risk fact needs current evidence",
             "High-risk facts require owner-verified authority, evidence, and a future expiry.",
             resource,
+            {
+              task:
+                fact.entityType === "BUSINESS_OFFERING"
+                  ? "verify-services"
+                  : "verify-fact",
+            },
           ),
         );
       } else if (!denied && !currentlyEffective) {

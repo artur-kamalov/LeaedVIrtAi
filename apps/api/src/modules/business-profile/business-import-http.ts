@@ -31,6 +31,10 @@ export function businessImportCandidateEtag(id: string, etag: number) {
   return strongKnowledgeV2Etag("business-import-candidate", id, etag);
 }
 
+export function businessImportSourceEtag(id: string, etag: number) {
+  return strongKnowledgeV2Etag("business-import-source", id, etag);
+}
+
 export function businessInformationEtag(tenantId: string, etag: number) {
   return strongKnowledgeV2Etag("business-information", tenantId, etag);
 }
@@ -83,7 +87,8 @@ export function decodeBusinessImportCursor(value?: string) {
       typeof decoded.id !== "string" ||
       !decoded.id ||
       decoded.id.length > 200
-    ) throw new Error("invalid cursor");
+    )
+      throw new Error("invalid cursor");
     return { createdAt: new Date(decoded.createdAt), id: decoded.id };
   } catch {
     throw businessImportError(

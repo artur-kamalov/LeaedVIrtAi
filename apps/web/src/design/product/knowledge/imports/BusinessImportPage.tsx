@@ -72,9 +72,9 @@ import { BusinessImportMappingWorkspace } from "./BusinessImportMappingWorkspace
 import { businessImportStateKeys, businessImportStateTone } from "./businessImportPresentation";
 
 const IMPORT_POLL_INTERVAL_MS = 3_000;
-const MAX_IMPORTED_SERVICES = 200;
-const MAX_MISSING_SOURCE_SERVICES = 200;
-const MAX_REVIEW_CANDIDATES = MAX_IMPORTED_SERVICES + MAX_MISSING_SOURCE_SERVICES;
+const MAX_FILE_SERVICES = 400;
+const MAX_REPLACEMENT_OMISSIONS = 400;
+const MAX_REVIEW_CANDIDATES = MAX_FILE_SERVICES + MAX_REPLACEMENT_OMISSIONS;
 const REVIEW_PAGE_SIZE = 100;
 const MAX_REVIEW_PAGES = MAX_REVIEW_CANDIDATES / REVIEW_PAGE_SIZE;
 const PROCESSING_STATES = new Set<BusinessImportState>([
@@ -134,6 +134,9 @@ function diagnosticText(
   t: ReturnType<typeof useI18n>["t"],
 ) {
   const code = diagnostic.code;
+  if (code === "BUSINESS_IMPORT_ARCHIVE_MISSING_SERVICE") {
+    return t("businessImport.diagnostic.replacementRemoval");
+  }
   if (code === "BUSINESS_IMPORT_MISSING_FROM_REVISION") {
     return t("businessImport.diagnostic.missingFromFile");
   }
@@ -144,8 +147,17 @@ function diagnosticText(
     return t("businessImport.diagnostic.priceInvalid");
   }
   if (code.includes("DURATION")) return t("businessImport.diagnostic.durationInvalid");
+  if (code.includes("DATE") || code.includes("VALIDITY") || code.includes("EFFECTIVE_WINDOW")) {
+    return t("businessImport.diagnostic.dateInvalid");
+  }
+  if (code.includes("PARTIAL_UPDATE") || code.includes("REMOVAL_UNSUPPORTED")) {
+    return t("businessImport.diagnostic.partialUpdate");
+  }
   if (code.includes("DUPLICATE") || code.includes("AMBIGUOUS")) {
     return t("businessImport.diagnostic.duplicate");
+  }
+  if (code === "BUSINESS_IMPORT_ACTIVE_CATALOG_LIMIT") {
+    return t("businessImport.diagnostic.catalogLimit");
   }
   if (code.includes("LIMIT") || code.includes("TOO_LONG") || code.includes("TOO_LARGE")) {
     return t("businessImport.diagnostic.limit");
@@ -175,7 +187,9 @@ function diagnosticText(
   if (code.includes("INVALID_ROW") || code.includes("VALUE_INVALID")) {
     return t("businessImport.diagnostic.rowInvalid");
   }
-  return diagnostic.message;
+  return diagnostic.severity === "WARNING"
+    ? t("businessImport.diagnostic.unknownWarning")
+    : t("businessImport.diagnostic.unknown");
 }
 
 function hasBlockingDiagnostic(candidate: BusinessImportCandidateView) {
@@ -792,7 +806,7 @@ export function BusinessImportPage({ importId }: { importId: string }) {
     }
   }
 
-  async function approveSelected() {
+  async function approveSelected(continueToApply = false) {
     if (
       !resource ||
       !canApprove ||
@@ -829,6 +843,15 @@ export function BusinessImportPage({ importId }: { importId: string }) {
       );
       setResource(response.data.import);
       mergeCandidateUpdates(response.data.candidates);
+      if (continueToApply) {
+        const updates = new Map(
+          response.data.candidates.map((candidate) => [candidate.id, candidate]),
+        );
+        const approvedCandidates = candidates.map(
+          (candidate) => updates.get(candidate.id) ?? candidate,
+        );
+        await prepareApply(response.data.import, approvedCandidates, true);
+      }
     } catch (caught) {
       const error = asApiError(caught, t("businessImport.error.approval"));
       setOperationError(error);
@@ -879,17 +902,21 @@ export function BusinessImportPage({ importId }: { importId: string }) {
     }
   }
 
-  async function prepareApply() {
+  async function prepareApply(
+    targetResource = resource,
+    targetCandidates = candidates,
+    ignoreCurrentOperation = false,
+  ) {
     if (
-      !resource ||
-      operation ||
+      !targetResource ||
+      (!ignoreCurrentOperation && operation) ||
       previewOpen ||
       pendingIds.size > 0 ||
-      !resource.allowedActions.includes("APPLY") ||
-      !resource.applyEligibility.eligible ||
+      !targetResource.allowedActions.includes("APPLY") ||
+      !targetResource.applyEligibility.eligible ||
       candidateLoading ||
       candidateError ||
-      candidates.length !== resource.counts.total
+      targetCandidates.length !== targetResource.counts.total
     ) {
       return;
     }
@@ -898,9 +925,9 @@ export function BusinessImportPage({ importId }: { importId: string }) {
     setApplyIdempotencyKey(null);
     setPreviewCandidates([]);
     try {
-      const chosen = candidates.filter(selected);
+      const chosen = targetCandidates.filter(selected);
       const chosenSnapshot = structuredClone(chosen);
-      if (chosen.length !== resource.applyEligibility.selectedCandidates) {
+      if (chosen.length !== targetResource.applyEligibility.selectedCandidates) {
         await Promise.all([loadImport(false), loadCandidates()]);
         throw new ApiClientError(
           t("businessImport.error.preview"),
@@ -912,7 +939,10 @@ export function BusinessImportPage({ importId }: { importId: string }) {
       const response = await previewBusinessImportApply(
         importId,
         { candidateIds: chosen.map((item) => item.id) },
-        { "If-Match": resource.etag, "Idempotency-Key": createBusinessImportIdempotencyKey() },
+        {
+          "If-Match": targetResource.etag,
+          "Idempotency-Key": createBusinessImportIdempotencyKey(),
+        },
       );
       const blocking = response.data.diagnostics.find(
         (diagnostic) => diagnostic.severity === "ERROR",
@@ -1203,10 +1233,9 @@ export function BusinessImportPage({ importId }: { importId: string }) {
     (candidate) => approvalRequired(candidate) && !approvalVersionClosed(candidate),
   );
   const addCount = eligibleCandidates.filter((item) => item.action === "ADD").length;
-  const updateCount = eligibleCandidates.filter((item) =>
-    ["UPDATE", "ARCHIVE"].includes(item.action),
-  ).length;
+  const updateCount = eligibleCandidates.filter((item) => item.action === "UPDATE").length;
   const linkCount = eligibleCandidates.filter((item) => item.action === "LINK").length;
+  const removeCount = eligibleCandidates.filter((item) => item.action === "ARCHIVE").length;
   const candidateSetComplete = Boolean(
     resource && !candidateLoading && !candidateError && candidates.length === resource.counts.total,
   );
@@ -1244,9 +1273,18 @@ export function BusinessImportPage({ importId }: { importId: string }) {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {resource ? (
-              <StatusBadge status={businessImportStateTone(resource.state)}>
-                {t(businessImportStateKeys[resource.state])}
-              </StatusBadge>
+              <>
+                <StatusBadge status="info">
+                  {t(
+                    resource.mode === "REPLACE"
+                      ? "businessImport.upload.modeReplace"
+                      : "businessImport.upload.modeAdd",
+                  )}
+                </StatusBadge>
+                <StatusBadge status={businessImportStateTone(resource.state)}>
+                  {t(businessImportStateKeys[resource.state])}
+                </StatusBadge>
+              </>
             ) : null}
             {resource && canEdit ? (
               <Button
@@ -1347,6 +1385,28 @@ export function BusinessImportPage({ importId }: { importId: string }) {
 
         {resource ? (
           <>
+            <div
+              className="flex min-w-0 items-start gap-3 border-y border-sky-500/20 bg-sky-500/[0.05] px-4 py-3"
+              data-testid="business-import-mode-summary"
+            >
+              <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-sky-100">
+                  {t(
+                    resource.mode === "REPLACE"
+                      ? "businessImport.upload.modeReplace"
+                      : "businessImport.upload.modeAdd",
+                  )}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-sky-100/60">
+                  {t(
+                    resource.mode === "REPLACE"
+                      ? "businessImport.upload.modeReplaceDescription"
+                      : "businessImport.upload.modeAddDescription",
+                  )}
+                </p>
+              </div>
+            </div>
             {resource.state !== "MAPPING_REQUIRED" ? <ImportMetrics resource={resource} /> : null}
             {resource.diagnostics.length > 0 ? (
               <ImportDiagnostics diagnostics={resource.diagnostics} />
@@ -1437,6 +1497,8 @@ export function BusinessImportPage({ importId }: { importId: string }) {
                 addCount={addCount}
                 updateCount={updateCount}
                 linkCount={linkCount}
+                removeCount={removeCount}
+                mode={resource.mode}
                 approvalCount={
                   candidateSetComplete
                     ? canApprove
@@ -1454,7 +1516,7 @@ export function BusinessImportPage({ importId }: { importId: string }) {
                 busy={operation !== null}
                 onApply={() => void prepareApply()}
                 onApproval={() => void requestApproval()}
-                onBulkApproval={() => void approveSelected()}
+                onConfirmAndApply={() => void approveSelected(true)}
               />
             ) : null}
           </>
@@ -1484,6 +1546,7 @@ export function BusinessImportPage({ importId }: { importId: string }) {
       <ApplyPreviewDialog
         preview={preview}
         candidates={previewCandidates}
+        mode={resource?.mode ?? "ADD"}
         error={previewOpen ? operationError : null}
         open={previewOpen}
         busy={operation === "apply"}
@@ -1563,12 +1626,13 @@ export function BusinessImportPage({ importId }: { importId: string }) {
       ["businessImport.metrics.found", item.counts.total],
       ["businessImport.metrics.additions", item.counts.additions],
       ["businessImport.metrics.updates", item.counts.updates],
+      ["businessImport.metrics.removals", item.counts.removals ?? 0],
       ["businessImport.metrics.linked", item.counts.linked],
       ["businessImport.metrics.attention", item.counts.invalid + item.counts.conflicts],
     ] as const;
     return (
       <dl
-        className="grid grid-cols-2 border-y border-white/10 sm:grid-cols-5"
+        className="grid grid-cols-2 border-y border-white/10 sm:grid-cols-3 xl:grid-cols-6"
         data-testid="business-import-metrics"
       >
         {metrics.map(([key, value]) => (
@@ -1715,6 +1779,7 @@ export function BusinessImportPage({ importId }: { importId: string }) {
               {t("businessImport.result.summary", {
                 added: currentApplication?.counts.additions ?? item.counts.additions,
                 updated: currentApplication?.counts.updates ?? item.counts.updates,
+                removed: currentApplication?.counts.removals ?? item.counts.removals ?? 0,
                 linked: currentApplication?.counts.linked ?? item.counts.linked,
               })}
             </p>
@@ -3021,6 +3086,7 @@ function EditCandidateDialog({
 function ApplyPreviewDialog({
   preview,
   candidates,
+  mode,
   error,
   open,
   busy,
@@ -3029,6 +3095,7 @@ function ApplyPreviewDialog({
 }: {
   preview: BusinessImportApplyPreviewView | null;
   candidates: BusinessImportCandidateView[];
+  mode: BusinessImportView["mode"];
   error: ApiClientError | null;
   open: boolean;
   busy: boolean;
@@ -3060,11 +3127,17 @@ function ApplyPreviewDialog({
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
             {preview
-              ? t("businessImport.apply.confirm", {
-                  add: formatNumber(preview.counts.additions),
-                  update: formatNumber(preview.counts.updates),
-                  link: formatNumber(preview.counts.linked),
-                })
+              ? mode === "REPLACE"
+                ? t("businessImport.apply.primaryReplace", {
+                    add: formatNumber(preview.counts.additions),
+                    update: formatNumber(preview.counts.updates),
+                    remove: formatNumber(preview.counts.removals),
+                  })
+                : t("businessImport.apply.confirm", {
+                    add: formatNumber(preview.counts.additions),
+                    update: formatNumber(preview.counts.updates),
+                    link: formatNumber(preview.counts.linked),
+                  })
               : t("businessImport.apply.confirmEmpty")}
           </Button>
         </>
@@ -3072,7 +3145,26 @@ function ApplyPreviewDialog({
     >
       {preview ? (
         <div className="space-y-4" data-testid="business-import-apply-preview">
-          <dl className="grid grid-cols-3 border-y border-white/10">
+          <div className="flex items-start gap-3 rounded-md border border-sky-500/20 bg-sky-500/[0.06] px-4 py-3">
+            <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
+            <div>
+              <p className="text-sm font-medium text-sky-100">
+                {t(
+                  mode === "REPLACE"
+                    ? "businessImport.upload.modeReplace"
+                    : "businessImport.upload.modeAdd",
+                )}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-sky-100/60">
+                {t(
+                  mode === "REPLACE"
+                    ? "businessImport.upload.modeReplaceDescription"
+                    : "businessImport.upload.modeAddDescription",
+                )}
+              </p>
+            </div>
+          </div>
+          <dl className="grid grid-cols-2 border-y border-white/10 sm:grid-cols-4">
             <div className="px-3 py-3">
               <dt className="text-xs text-zinc-500">{t("businessImport.metrics.additions")}</dt>
               <dd className="mt-1 text-lg font-semibold text-zinc-100">
@@ -3083,6 +3175,12 @@ function ApplyPreviewDialog({
               <dt className="text-xs text-zinc-500">{t("businessImport.metrics.updates")}</dt>
               <dd className="mt-1 text-lg font-semibold text-zinc-100">
                 {formatNumber(preview.counts.updates)}
+              </dd>
+            </div>
+            <div className="px-3 py-3">
+              <dt className="text-xs text-zinc-500">{t("businessImport.metrics.removals")}</dt>
+              <dd className="mt-1 text-lg font-semibold text-zinc-100">
+                {formatNumber(preview.counts.removals)}
               </dd>
             </div>
             <div className="px-3 py-3">
@@ -3168,6 +3266,8 @@ function ApplyActions({
   addCount,
   updateCount,
   linkCount,
+  removeCount,
+  mode,
   approvalCount,
   approvalMode,
   eligibility,
@@ -3175,11 +3275,13 @@ function ApplyActions({
   busy,
   onApply,
   onApproval,
-  onBulkApproval,
+  onConfirmAndApply,
 }: {
   addCount: number;
   updateCount: number;
   linkCount: number;
+  removeCount: number;
+  mode: BusinessImportView["mode"];
   approvalCount: number;
   approvalMode: "APPROVE" | "REQUEST";
   eligibility: BusinessImportApplyEligibilityView;
@@ -3187,14 +3289,33 @@ function ApplyActions({
   busy: boolean;
   onApply: () => void;
   onApproval: () => void;
-  onBulkApproval: () => void;
+  onConfirmAndApply: () => void;
 }) {
   const { formatNumber, t } = useI18n();
-  const label = t("businessImport.apply.primary", {
-    add: formatNumber(addCount),
-    update: formatNumber(updateCount),
-    link: formatNumber(linkCount),
-  });
+  const label =
+    mode === "REPLACE"
+      ? t("businessImport.apply.primaryReplace", {
+          add: formatNumber(addCount),
+          update: formatNumber(updateCount),
+          remove: formatNumber(removeCount),
+        })
+      : t("businessImport.apply.primary", {
+          add: formatNumber(addCount),
+          update: formatNumber(updateCount),
+          link: formatNumber(linkCount),
+        });
+  const canConfirmAndApply =
+    approvalMode === "APPROVE" &&
+    approvalCount > 0 &&
+    eligibility.selectedCandidates > 0 &&
+    eligibility.blockingConflicts === 0 &&
+    eligibility.blockingInvalid === 0 &&
+    eligibility.staleCandidates === 0;
+  const primaryLabel = canConfirmAndApply
+    ? t("businessImport.apply.confirmAndContinue", {
+        count: formatNumber(approvalCount),
+      })
+    : label;
   const content = (
     <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
@@ -3212,39 +3333,32 @@ function ApplyActions({
         </p>
       </div>
       <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-        {approvalCount > 0 ? (
+        {approvalCount > 0 && approvalMode === "REQUEST" ? (
           <Button
             variant="outline"
             className="max-sm:h-auto max-sm:w-full max-sm:min-w-0 max-sm:whitespace-normal max-sm:py-2"
             disabled={busy}
-            onClick={approvalMode === "APPROVE" ? onBulkApproval : onApproval}
-            data-testid={
-              approvalMode === "APPROVE"
-                ? "business-import-approve-selected"
-                : "business-import-request-approval"
-            }
+            onClick={onApproval}
+            data-testid="business-import-request-approval"
           >
-            {approvalMode === "APPROVE" ? (
-              <ShieldCheck className="h-4 w-4" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-            {t(
-              approvalMode === "APPROVE"
-                ? "businessImport.approval.approveSelected"
-                : "businessImport.approval.request",
-              { count: formatNumber(approvalCount) },
-            )}
+            <Send className="h-4 w-4" />
+            {t("businessImport.approval.request", { count: formatNumber(approvalCount) })}
           </Button>
         ) : null}
         <Button
           className="max-sm:h-auto max-sm:w-full max-sm:min-w-0 max-sm:whitespace-normal max-sm:py-2"
-          disabled={busy || !canApply}
-          onClick={onApply}
+          disabled={busy || (!canApply && !canConfirmAndApply)}
+          onClick={canConfirmAndApply ? onConfirmAndApply : onApply}
           data-testid="business-import-apply-selected"
         >
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-          {label}
+          {busy ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : canConfirmAndApply ? (
+            <ShieldCheck className="h-4 w-4" />
+          ) : (
+            <Check className="h-4 w-4" />
+          )}
+          {primaryLabel}
         </Button>
       </div>
     </div>

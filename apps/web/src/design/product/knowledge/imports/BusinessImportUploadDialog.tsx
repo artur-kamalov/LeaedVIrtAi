@@ -11,7 +11,7 @@ import {
   RefreshCw,
   Upload,
 } from "lucide-react";
-import type { BusinessImportSourceView } from "@leadvirt/types";
+import type { BusinessImportCatalogMode, BusinessImportSourceView } from "@leadvirt/types";
 import { useI18n } from "@/i18n/I18nProvider";
 import {
   createBusinessImportIdempotencyKey,
@@ -90,6 +90,7 @@ export function BusinessImportUploadDialog({
   const [catalogLoading, setCatalogLoading] = React.useState(false);
   const [catalogError, setCatalogError] = React.useState<ApiClientError | null>(null);
   const [file, setFile] = React.useState<File | null>(null);
+  const [mode, setMode] = React.useState<BusinessImportCatalogMode>(sourceId ? "REPLACE" : "ADD");
   const [fileError, setFileError] = React.useState("");
   const [phase, setPhase] = React.useState<UploadPhase>("IDLE");
   const [submitError, setSubmitError] = React.useState<ApiClientError | null>(null);
@@ -100,6 +101,7 @@ export function BusinessImportUploadDialog({
   const [sourceLookupPhase, setSourceLookupPhase] = React.useState<SourceLookupPhase>("IDLE");
   const [sourceLookupError, setSourceLookupError] = React.useState<ApiClientError | null>(null);
   const [matchingSources, setMatchingSources] = React.useState<BusinessImportSourceView[]>([]);
+  const [existingCatalogCount, setExistingCatalogCount] = React.useState(sourceId ? 1 : 0);
   const [selectedSourceId, setSelectedSourceId] = React.useState<string | null>(null);
   const [createSeparateSource, setCreateSeparateSource] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
@@ -136,6 +138,7 @@ export function BusinessImportUploadDialog({
 
   const resetUpload = React.useCallback(() => {
     setFile(null);
+    setMode(sourceId ? "REPLACE" : "ADD");
     setFileError("");
     setPhase("IDLE");
     setSubmitError(null);
@@ -144,13 +147,14 @@ export function BusinessImportUploadDialog({
     setSourceLookupPhase("IDLE");
     setSourceLookupError(null);
     setMatchingSources([]);
+    setExistingCatalogCount(sourceId ? 1 : 0);
     setSelectedSourceId(null);
     setCreateSeparateSource(false);
     intentAttempt.current = null;
     finalizeAttempt.current = null;
     sourceLookupSequence.current += 1;
     if (inputRef.current) inputRef.current.value = "";
-  }, []);
+  }, [sourceId]);
 
   const loadTemplates = React.useCallback(async () => {
     const sequence = ++requestSequence.current;
@@ -189,21 +193,36 @@ export function BusinessImportUploadDialog({
       setSourceLookupPhase("LOADING");
       setSourceLookupError(null);
       setMatchingSources([]);
+      setExistingCatalogCount(0);
       setSelectedSourceId(null);
       setCreateSeparateSource(false);
       try {
-        const page = await listBusinessImportSources({
-          limit: 100,
-          status: "ACTIVE",
-          query: candidateName,
-        });
+        const pages = await Promise.all(
+          (["ACTIVE", "PAUSED"] as const).map((status) =>
+            listBusinessImportSources({
+              limit: 100,
+              status,
+            }),
+          ),
+        );
         if (sequence !== sourceLookupSequence.current) return;
+        const items = [
+          ...new Map(
+            pages.flatMap((page) => page.items).map((item) => [item.id, item] as const),
+          ).values(),
+        ];
         const normalizedCandidateName = normalizedSourceName(candidateName);
-        const matches = page.items
-          .filter((item) => normalizedSourceName(item.displayName) === normalizedCandidateName)
+        const matches = items
+          .filter(
+            (item) =>
+              item.status === "ACTIVE" &&
+              normalizedSourceName(item.displayName) === normalizedCandidateName,
+          )
           .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
         setMatchingSources(matches);
         setSelectedSourceId(matches[0]?.id ?? null);
+        setExistingCatalogCount(items.length);
+        setMode(items.length > 0 ? "REPLACE" : "ADD");
         setSourceLookupPhase("READY");
       } catch (caught) {
         if (sequence !== sourceLookupSequence.current) return;
@@ -238,6 +257,7 @@ export function BusinessImportUploadDialog({
     setSourceLookupPhase("IDLE");
     setSourceLookupError(null);
     setMatchingSources([]);
+    setExistingCatalogCount(sourceId ? 1 : 0);
     setSelectedSourceId(null);
     setCreateSeparateSource(false);
     if (!next) {
@@ -278,6 +298,7 @@ export function BusinessImportUploadDialog({
       filename: file.name,
       declaredMimeType: selectedPolicy.declaredMimeType,
       byteSize: file.size,
+      mode,
       sourceName: effectiveSourceName,
       ...(effectiveSourceId ? { sourceId: effectiveSourceId } : {}),
     } as const;
@@ -382,6 +403,71 @@ export function BusinessImportUploadDialog({
       }
     >
       <div className="min-w-0 space-y-5" data-testid="business-import-upload-dialog">
+        {sourceId || (file && sourceLookupPhase === "READY" && existingCatalogCount > 0) ? (
+          <fieldset className="min-w-0">
+            <legend className="mb-2 text-sm font-medium text-zinc-200">
+              {t("businessImport.upload.modeLabel")}
+            </legend>
+            <div
+              className="grid min-w-0 gap-2 sm:grid-cols-2"
+              role="radiogroup"
+              aria-label={t("businessImport.upload.modeLabel")}
+              data-testid="business-import-mode"
+            >
+              {(["REPLACE", "ADD"] as const).map((value) => {
+                const selected = mode === value;
+                return (
+                  <label
+                    key={value}
+                    className={cn(
+                      "relative min-h-24 cursor-pointer rounded-md border px-4 py-3 text-left transition-colors focus-within:ring-2 focus-within:ring-emerald-400/50",
+                      selected
+                        ? "border-emerald-500/45 bg-emerald-500/[0.09]"
+                        : "border-white/10 bg-white/[0.025] hover:bg-white/[0.045]",
+                      busy && "cursor-not-allowed opacity-60",
+                    )}
+                    data-testid={`business-import-mode-${value.toLowerCase()}`}
+                  >
+                    <input
+                      type="radio"
+                      name="business-import-mode"
+                      value={value}
+                      checked={selected}
+                      disabled={busy}
+                      className="sr-only"
+                      onChange={() => {
+                        setMode(value);
+                        clearIntent();
+                      }}
+                    />
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-zinc-100">
+                        {t(
+                          value === "REPLACE"
+                            ? "businessImport.upload.modeReplace"
+                            : "businessImport.upload.modeAdd",
+                        )}
+                      </span>
+                      {value === "REPLACE" ? (
+                        <span className="text-[11px] font-medium text-emerald-400">
+                          {t("businessImport.upload.recommended")}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="mt-1.5 block text-xs leading-5 text-zinc-500">
+                      {t(
+                        value === "REPLACE"
+                          ? "businessImport.upload.modeReplaceDescription"
+                          : "businessImport.upload.modeAddDescription",
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        ) : null}
+
         {sourceId && sourceName ? (
           <p
             className="rounded-md border border-sky-500/20 bg-sky-500/[0.06] px-4 py-3 text-sm text-sky-100"

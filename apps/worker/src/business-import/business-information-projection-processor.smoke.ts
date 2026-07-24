@@ -4,11 +4,14 @@ import { prisma } from "@leadvirt/db";
 import { parseRuntimeQueueEnvelope } from "@leadvirt/runtime-queue";
 import {
   BUSINESS_INFORMATION_PRICE_EFFECTIVE_WINDOW_POLICY_ID,
+  BusinessInformationProjectionError,
   businessInformationProjectionExactOwnerApproval,
   businessInformationProjectionGovernance,
   businessInformationProjectionHash,
   businessInformationProjectionImportedEvidence,
   businessInformationProjectionOfferingEffectiveWindow,
+  businessInformationProjectionPreservedOwnerApproval,
+  businessInformationProjectionResolvedOwnerApproval,
   businessInformationLinkProjectionCanReuse,
   createBusinessInformationProjectionDependencies,
   isBusinessInformationProjectionRuntimeData,
@@ -17,6 +20,7 @@ import {
 
 const exactLinkProjection = {
   candidateActions: ["LINK"],
+  candidateRequiresApproval: [false],
   baseRevisionId: "revision-1",
   baseRevision: 1,
   baseInformationHash: "same",
@@ -51,6 +55,14 @@ assert.equal(
   businessInformationLinkProjectionCanReuse({
     ...exactLinkProjection,
     candidateActions: ["LINK", "ADD"],
+    candidateRequiresApproval: [false, false],
+  }),
+  false,
+);
+assert.equal(
+  businessInformationLinkProjectionCanReuse({
+    ...exactLinkProjection,
+    candidateRequiresApproval: [true],
   }),
   false,
 );
@@ -323,9 +335,86 @@ assert.deepEqual(
   },
 );
 const ownerApprovalFreshUntil = new Date(governanceApprovedAt.getTime() + 90 * 24 * 60 * 60_000);
+const verifiedOfferingValue = {
+  schema: "leadvirt.business-offering-fact.v1",
+  offeringId: activeOfferingId,
+  name: "Consultation",
+  prices: [{ amount: "125", currency: "EUR" }],
+};
+const previousOwnerVerification = {
+  normalizedValue: verifiedOfferingValue,
+  riskLevel: "HIGH",
+  authority: "OWNER_VERIFIED",
+  lifecycleStatus: "DRAFT",
+  verificationStatus: "VERIFIED",
+  verifiedByUserId: userId,
+  verifiedAt: governanceApprovedAt,
+  effectiveUntil: ownerApprovalFreshUntil,
+  evidence: [
+    {
+      sourceReference: {
+        origin: "knowledge_owner_verification",
+        verifiedAt: governanceApprovedAt.toISOString(),
+      },
+    },
+  ],
+};
+assert.deepEqual(
+  businessInformationProjectionPreservedOwnerApproval({
+    previous: previousOwnerVerification,
+    normalizedValue: verifiedOfferingValue,
+    projectedAt: governanceProjectedAt,
+  }),
+  { userId, approvedAt: governanceApprovedAt },
+);
+assert.equal(
+  businessInformationProjectionPreservedOwnerApproval({
+    previous: previousOwnerVerification,
+    normalizedValue: { ...verifiedOfferingValue, name: "Changed consultation" },
+    projectedAt: governanceProjectedAt,
+  }),
+  null,
+);
+assert.equal(
+  businessInformationProjectionPreservedOwnerApproval({
+    previous: { ...previousOwnerVerification, evidence: [] },
+    normalizedValue: verifiedOfferingValue,
+    projectedAt: governanceProjectedAt,
+  }),
+  null,
+);
+const newerImportApproval = {
+  userId: cuid("newer-import-owner"),
+  approvedAt: new Date("2026-07-21T16:59:30.000Z"),
+};
+assert.deepEqual(
+  businessInformationProjectionResolvedOwnerApproval({
+    currentApproval: newerImportApproval,
+    previous: previousOwnerVerification,
+    normalizedValue: verifiedOfferingValue,
+    projectedAt: governanceProjectedAt,
+  }),
+  newerImportApproval,
+);
 assert.deepEqual(
   businessInformationProjectionOfferingEffectiveWindow({
     prices: [{ effectiveFrom: null, effectiveUntil: null }],
+    ownerApproval: { approvedAt: governanceApprovedAt },
+  }),
+  {
+    effectiveFrom: null,
+    effectiveUntil: ownerApprovalFreshUntil,
+    policyId: BUSINESS_INFORMATION_PRICE_EFFECTIVE_WINDOW_POLICY_ID,
+  },
+);
+assert.deepEqual(
+  businessInformationProjectionOfferingEffectiveWindow({
+    prices: [
+      {
+        effectiveFrom: null,
+        effectiveUntil: new Date("2027-01-01T00:00:00.000Z"),
+      },
+    ],
     ownerApproval: { approvedAt: governanceApprovedAt },
   }),
   {
@@ -409,6 +498,23 @@ assert.deepEqual(
   }),
   { effectiveFrom: null, effectiveUntil: null, policyId: null },
 );
+assert.throws(
+  () =>
+    businessInformationProjectionOfferingEffectiveWindow({
+      prices: [
+        {
+          effectiveFrom: new Date("2027-01-01T00:00:00.000Z"),
+          effectiveUntil: null,
+        },
+      ],
+      ownerApproval: { approvedAt: governanceApprovedAt },
+    }),
+  (error) =>
+    error instanceof BusinessInformationProjectionError &&
+    error.code === "BUSINESS_INFORMATION_PRICE_EFFECTIVE_WINDOW_INVALID" &&
+    error.stage === "PROJECTING" &&
+    error.retryable === false,
+);
 
 async function cleanup() {
   await prisma.$transaction(async (tx) => {
@@ -432,6 +538,7 @@ async function createImportApplication(input: {
   resultHash: string;
   runtimeEventId: string;
   committedAt: Date;
+  catalogMode?: "ADD" | "REPLACE";
 }) {
   const deltaLedgerId = randomUUID();
   const previewLedgerId = randomUUID();
@@ -480,6 +587,7 @@ async function createImportApplication(input: {
       sourceId: input.sourceId,
       purpose: "SERVICES",
       format: "CSV",
+      catalogMode: input.catalogMode ?? "ADD",
       state: "PROJECTING",
       generation: 1,
       displayName: `Projection smoke ${input.revision}`,
@@ -566,8 +674,14 @@ async function attachAppliedLinkCandidate(input: {
   importId: string;
   applicationId: string;
   offeringId: string;
+  ownerApprovalAt?: Date;
 }) {
   const candidateId = randomUUID();
+  const approvalId = input.ownerApprovalAt ? randomUUID() : null;
+  const approvalGrantId = input.ownerApprovalAt ? randomUUID() : null;
+  const risk = input.ownerApprovalAt ? "HIGH" : "LOW";
+  const requiresApproval = Boolean(input.ownerApprovalAt);
+  const requiredPermission = input.ownerApprovalAt ? "business_information.approve" : "";
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
     await tx.$executeRaw`
@@ -582,20 +696,50 @@ async function attachAppliedLinkCandidate(input: {
         'OFFERINGS'::"BusinessImportTargetCategory", ${`offering:${input.offeringId}`},
         'LINK'::"BusinessImportCandidateAction", ${JSON.stringify({ name: "Linked service" })}::jsonb,
         ${hash(`value:${candidateId}`)}, ${input.offeringId}, ${hash(`current:${candidateId}`)},
-        'LOW'::"BusinessImportRiskLevel", 'HIGH'::"BusinessImportConfidenceBand",
-        'APPLIED'::"BusinessImportCandidateDecision", FALSE, '', 1, 1, NOW(), NOW(), NOW()
+        ${risk}::"BusinessImportRiskLevel", 'HIGH'::"BusinessImportConfidenceBand",
+        'APPLIED'::"BusinessImportCandidateDecision", ${requiresApproval},
+        ${requiredPermission}, 1, 1, NOW(), NOW(), NOW()
       )
     `;
+    if (input.ownerApprovalAt && approvalId && approvalGrantId) {
+      await tx.$executeRaw`
+        INSERT INTO "BusinessImportCandidateApproval" (
+          "id", "tenantId", "sourceId", "importId", "candidateId", "candidateVersion",
+          "candidateValueHash", "requiresApproval", "requiredPermission", "riskReason",
+          "state", "requestedByUserId", "decidedByUserId", "decidedAt", "createdAt", "updatedAt"
+        ) VALUES (
+          ${approvalId}, ${tenantId}, ${input.sourceId}, ${input.importId}, ${candidateId}, 1,
+          ${hash(`value:${candidateId}`)}, TRUE, ${requiredPermission}, 'HIGH',
+          'APPROVED'::"BusinessImportApprovalState", ${userId}, ${userId},
+          ${input.ownerApprovalAt.toISOString()}::timestamptz AT TIME ZONE 'UTC',
+          ${input.ownerApprovalAt.toISOString()}::timestamptz AT TIME ZONE 'UTC',
+          ${input.ownerApprovalAt.toISOString()}::timestamptz AT TIME ZONE 'UTC'
+        )
+      `;
+      await tx.$executeRaw`
+        INSERT INTO "BusinessImportApprovalGrant" (
+          "id", "tenantId", "sourceId", "importId", "candidateId", "candidateVersion",
+          "candidateValueHash", "requiredPermission", "approvalId", "grantedByUserId",
+          "grantedAt", "decisionHash", "createdAt"
+        ) VALUES (
+          ${approvalGrantId}, ${tenantId}, ${input.sourceId}, ${input.importId}, ${candidateId}, 1,
+          ${hash(`value:${candidateId}`)}, ${requiredPermission}, ${approvalId}, ${userId},
+          ${input.ownerApprovalAt.toISOString()}::timestamptz AT TIME ZONE 'UTC',
+          ${hash(`decision:${candidateId}`)},
+          ${input.ownerApprovalAt.toISOString()}::timestamptz AT TIME ZONE 'UTC'
+        )
+      `;
+    }
     await tx.$executeRaw`
       INSERT INTO "BusinessImportApplicationCandidate" (
         "tenantId", "sourceId", "importId", "applicationId", "candidateId",
         "candidateVersion", "candidateValueHash", "action", "targetCategory", "risk",
-        "requiresApproval", "requiredPermission", "appliedAt"
+        "requiresApproval", "requiredPermission", "approvalGrantId", "appliedAt"
       ) VALUES (
         ${tenantId}, ${input.sourceId}, ${input.importId}, ${input.applicationId}, ${candidateId},
         1, ${hash(`value:${candidateId}`)}, 'LINK'::"BusinessImportCandidateAction",
-        'OFFERINGS'::"BusinessImportTargetCategory", 'LOW'::"BusinessImportRiskLevel",
-        FALSE, '', NOW()
+        'OFFERINGS'::"BusinessImportTargetCategory", ${risk}::"BusinessImportRiskLevel",
+        ${requiresApproval}, ${requiredPermission}, ${approvalGrantId}, NOW()
       )
     `;
   });
@@ -929,36 +1073,66 @@ try {
   const activeFact = facts.find((fact) => fact.factKey.endsWith(activeOfferingId));
   const archivedFact = facts.find((fact) => fact.factKey.endsWith(archivedOfferingId));
   const identityFact = facts.find((fact) => fact.factKey.endsWith(identityId));
-  assert(activeFact?.versions[0]);
+  const activeFactVersion = activeFact?.versions[0];
+  assert(activeFactVersion);
   assert(archivedFact?.versions[0]);
   assert(identityFact?.versions[0]);
   assert.equal(identityFact.versions[0].displayValue, "Projection smoke business");
-  assert.equal(activeFact.versions[0].lifecycleStatus, "DRAFT");
-  assert.equal(activeFact.versions[0].riskLevel, "HIGH");
-  assert.equal(activeFact.versions[0].authority, "MANUAL");
-  assert.equal(activeFact.versions[0].verificationStatus, "PENDING_REVIEW");
-  assert.equal(activeFact.versions[0].verifiedByUserId, null);
-  assert.equal(activeFact.versions[0].verifiedAt, null);
-  assert.equal(activeFact.versions[0].effectiveFrom?.toISOString(), "2026-07-01T00:00:00.000Z");
-  assert.equal(activeFact.versions[0].effectiveUntil, null);
+  assert.equal(activeFactVersion.lifecycleStatus, "DRAFT");
+  assert.equal(activeFactVersion.riskLevel, "HIGH");
+  assert.equal(activeFactVersion.authority, "MANUAL");
+  assert.equal(activeFactVersion.verificationStatus, "PENDING_REVIEW");
+  assert.equal(activeFactVersion.verifiedByUserId, null);
+  assert.equal(activeFactVersion.verifiedAt, null);
+  assert.equal(activeFactVersion.effectiveFrom?.toISOString(), "2026-07-01T00:00:00.000Z");
+  assert.equal(activeFactVersion.effectiveUntil, null);
   assert.equal(identityFact.versions[0].verificationStatus, "VERIFIED");
   assert.equal(archivedFact.versions[0].lifecycleStatus, "ARCHIVED");
-  assert.match(activeFact.versions[0].immutableHash, /^[a-f0-9]{64}$/u);
-  assert.equal(activeFact.versions[0].evidence.length, 1);
-  const activeEvidenceMetadata = activeFact.versions[0].evidence[0]?.metadata as Record<
-    string,
-    unknown
-  >;
+  assert.match(activeFactVersion.immutableHash, /^[a-f0-9]{64}$/u);
+  assert.equal(activeFactVersion.evidence.length, 1);
+  const activeEvidenceMetadata = activeFactVersion.evidence[0]?.metadata as Record<string, unknown>;
   assert.equal(
     activeEvidenceMetadata.effectiveWindowPolicyId,
     BUSINESS_INFORMATION_PRICE_EFFECTIVE_WINDOW_POLICY_ID,
   );
-  const normalized = activeFact.versions[0].normalizedValue as Record<string, unknown>;
+  const normalized = activeFactVersion.normalizedValue as Record<string, unknown>;
   const prices = normalized.prices as Array<Record<string, unknown>>;
   const duration = normalized.duration as Record<string, unknown>;
   assert.equal(prices[0]?.amount, "125");
   assert.equal(prices[0]?.currency, "EUR");
   assert.equal(duration.minimumMinutes, 45);
+
+  const seededVerificationEvidence = {
+    origin: "knowledge_owner_verification",
+    provenanceVersion: 1,
+    verifiedAt: governanceApprovedAt.toISOString(),
+    freshnessPolicyId: BUSINESS_INFORMATION_PRICE_EFFECTIVE_WINDOW_POLICY_ID,
+  };
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+    await tx.knowledgeV2FactVersion.update({
+      where: { id: activeFactVersion.id },
+      data: {
+        authority: "OWNER_VERIFIED",
+        verificationStatus: "VERIFIED",
+        verifiedByUserId: userId,
+        verifiedAt: governanceApprovedAt,
+        effectiveUntil: ownerApprovalFreshUntil,
+      },
+    });
+    await tx.knowledgeV2Evidence.create({
+      data: {
+        tenantId,
+        kind: "MANUAL",
+        factVersionId: activeFactVersion.id,
+        label: "Workspace owner verification",
+        sourceReference: seededVerificationEvidence,
+        metadata: seededVerificationEvidence,
+        createdByUserId: userId,
+        createdAt: governanceApprovedAt,
+      },
+    });
+  });
 
   const versionCountsBeforeReplay = await Promise.all(
     facts.map((fact) => prisma.knowledgeV2FactVersion.count({ where: { factId: fact.id } })),
@@ -1133,6 +1307,42 @@ try {
     JSON.stringify(identityAfterManual.versions[0]?.evidence).includes("business updated"),
     false,
   );
+  const offeringAfterUnrelatedProjection = await prisma.knowledgeV2Fact.findUniqueOrThrow({
+    where: {
+      tenantId_factKey: {
+        tenantId,
+        factKey: `business-information:offering:${activeOfferingId}`,
+      },
+    },
+    include: {
+      versions: {
+        orderBy: { versionNumber: "desc" },
+        take: 1,
+        include: { evidence: true },
+      },
+    },
+  });
+  const unchangedOfferingVersion = offeringAfterUnrelatedProjection.versions[0]!;
+  assert.equal(unchangedOfferingVersion.authority, "OWNER_VERIFIED");
+  assert.equal(unchangedOfferingVersion.verificationStatus, "VERIFIED");
+  assert.equal(unchangedOfferingVersion.verifiedByUserId, userId);
+  assert.equal(
+    unchangedOfferingVersion.verifiedAt?.toISOString(),
+    governanceApprovedAt.toISOString(),
+  );
+  assert.equal(
+    unchangedOfferingVersion.effectiveUntil?.toISOString(),
+    ownerApprovalFreshUntil.toISOString(),
+  );
+  assert(
+    unchangedOfferingVersion.evidence.some((item) => {
+      const reference = item.sourceReference as Record<string, unknown>;
+      return (
+        reference.origin === "knowledge_owner_verification" &&
+        reference.verifiedAt === governanceApprovedAt.toISOString()
+      );
+    }),
+  );
   const countsAfterIdentityProjection = await Promise.all(
     facts.map((fact) => prisma.knowledgeV2FactVersion.count({ where: { factId: fact.id } })),
   );
@@ -1235,12 +1445,14 @@ try {
     resultHash: manualOfferingHash,
     runtimeEventId: linkRuntimeEventId,
     committedAt: linkCommittedAt,
+    catalogMode: "REPLACE",
   });
   await attachAppliedLinkCandidate({
     sourceId,
     importId: linkImportId,
     applicationId: linkApplicationId,
     offeringId: activeOfferingId,
+    ownerApprovalAt: new Date("2026-07-21T18:03:30.000Z"),
   });
   await prisma.businessInformationState.update({
     where: { tenantId },
@@ -1273,16 +1485,50 @@ try {
     dependencies,
   );
   assert.equal(linkResult.status, "succeeded");
-  assert.equal(linkResult.knowledgeDraftGeneration, manualOfferingResult.knowledgeDraftGeneration);
-  assert.equal(
+  assert(linkResult.knowledgeDraftGeneration > manualOfferingResult.knowledgeDraftGeneration);
+  assert.notEqual(
     linkResult.knowledgeDraftManifestHash,
     manualOfferingResult.knowledgeDraftManifestHash,
   );
+  const linkedOwnerVerifiedFact = await prisma.knowledgeV2Fact.findUniqueOrThrow({
+    where: {
+      tenantId_factKey: {
+        tenantId,
+        factKey: `business-information:offering:${activeOfferingId}`,
+      },
+    },
+    include: {
+      versions: {
+        orderBy: { versionNumber: "desc" },
+        take: 1,
+        include: { evidence: true },
+      },
+    },
+  });
+  const linkedOwnerVerifiedVersion = linkedOwnerVerifiedFact.versions[0]!;
+  assert.equal(linkedOwnerVerifiedVersion.authority, "OWNER_VERIFIED");
+  assert.equal(linkedOwnerVerifiedVersion.verificationStatus, "VERIFIED");
+  assert.equal(linkedOwnerVerifiedVersion.verifiedByUserId, userId);
+  assert.equal(linkedOwnerVerifiedVersion.verifiedAt?.toISOString(), "2026-07-21T18:03:30.000Z");
+  assert(
+    linkedOwnerVerifiedVersion.effectiveUntil &&
+      linkedOwnerVerifiedVersion.effectiveUntil > linkCommittedAt,
+  );
+  assert(
+    linkedOwnerVerifiedVersion.evidence.some((item) => {
+      const reference = item.sourceReference as Record<string, unknown>;
+      return (
+        reference.origin === "knowledge_owner_verification" &&
+        reference.verifiedAt === "2026-07-21T18:03:30.000Z"
+      );
+    }),
+  );
+  const countsAfterVerifiedLink = await Promise.all(
+    facts.map((fact) => prisma.knowledgeV2FactVersion.count({ where: { factId: fact.id } })),
+  );
   assert.deepEqual(
-    await Promise.all(
-      facts.map((fact) => prisma.knowledgeV2FactVersion.count({ where: { factId: fact.id } })),
-    ),
-    finalCounts,
+    countsAfterVerifiedLink,
+    finalCounts.map((count) => count + 1),
   );
 
   const intervenedImportId = randomUUID();
@@ -1351,7 +1597,7 @@ try {
   );
   assert.deepEqual(
     countsAfterIntervenedProjection,
-    finalCounts.map((count) => count + 1),
+    countsAfterVerifiedLink.map((count) => count + 1),
   );
   const [intervenedApplication, intervenedSettings, intervenedFacts] = await Promise.all([
     prisma.businessImportApplication.findUniqueOrThrow({

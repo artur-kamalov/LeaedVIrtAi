@@ -170,7 +170,13 @@ function evidenceResource(ref: KnowledgeCapabilityEvidenceRefV1): KnowledgeV2Res
 
 function requirementView(
   requirement: KnowledgeCapabilitySnapshotV1["capabilities"][number]["requirements"][number],
+  capability: { id: string; name: string },
 ): KnowledgeV2ReadinessRequirementView {
+  const resource = {
+    type: "CAPABILITY" as const,
+    id: capability.id,
+    label: capability.name,
+  };
   return {
     id: requirement.requirementKey,
     kind: requirement.kind,
@@ -184,6 +190,8 @@ function requirementView(
       ? {
           action: requirement.remediation.action,
           label: requirement.remediation.label,
+          resource,
+          destination: { view: "overview", resource },
         }
       : null,
     evaluatedAt: requirement.evaluatedAt,
@@ -221,7 +229,12 @@ function capabilityReadinessViews(
       etag: capabilityEtag(record),
       status: readinessStatus(capability.status),
       weight: capability.weight,
-      requirements: capability.requirements.map(requirementView),
+      requirements: capability.requirements.map((requirement) =>
+        requirementView(requirement, {
+          id: capability.capabilityId,
+          name: capability.name,
+        }),
+      ),
       blockerCount: capability.blockerCount,
       warningCount: capability.warningCount,
     };
@@ -252,6 +265,19 @@ function capabilityGates(
                         remediation: {
                           action: requirement.remediation.action,
                           label: requirement.remediation.label,
+                          resource: {
+                            type: "CAPABILITY" as const,
+                            id: capability.capabilityId,
+                            label: capability.name,
+                          },
+                          destination: {
+                            view: "overview" as const,
+                            resource: {
+                              type: "CAPABILITY" as const,
+                              id: capability.capabilityId,
+                              label: capability.name,
+                            },
+                          },
                         },
                       }
                     : {}),
@@ -680,7 +706,23 @@ export class KnowledgeV2CapabilityService {
             remediation:
               typeof remediationRecord.action === "string" &&
               typeof remediationRecord.label === "string"
-                ? { action: remediationRecord.action, label: remediationRecord.label }
+                ? {
+                    action: remediationRecord.action,
+                    label: remediationRecord.label,
+                    resource: {
+                      type: "CAPABILITY",
+                      id: snapshot.capabilityId,
+                      label: capabilityNames[snapshot.capabilityType],
+                    },
+                    destination: {
+                      view: "overview",
+                      resource: {
+                        type: "CAPABILITY",
+                        id: snapshot.capabilityId,
+                        label: capabilityNames[snapshot.capabilityType],
+                      },
+                    },
+                  }
                 : null,
             evaluatedAt: (evaluation.evaluatedAt ?? evaluation.createdAt).toISOString(),
           };

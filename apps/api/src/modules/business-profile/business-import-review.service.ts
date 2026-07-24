@@ -1,10 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import {
+  BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT,
+  businessImportCandidateRequiresApproval,
   businessImportEvidenceRecordHash,
   businessOfferingIdentityKey,
   canonicalBusinessImportDecimal,
   compareBusinessImportDecimals,
+  countBusinessImportCatalogMutations,
   isBusinessImportCurrencyCode,
   normalizeBusinessExternalId,
   reviseBusinessImportFieldProvenance,
@@ -62,7 +65,18 @@ interface PreparedEdit {
   evidence: PreparedEvidence[];
 }
 
-const MAX_BULK_APPROVAL_CANDIDATES = 200;
+const MAX_BULK_APPROVAL_CANDIDATES = BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT;
+
+function assertCatalogMutationLimit(candidates: ReadonlyArray<{ action: string }>) {
+  const mutationCount = countBusinessImportCatalogMutations(candidates);
+  if (mutationCount <= BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT) return;
+  throw businessImportError(
+    HttpStatus.UNPROCESSABLE_ENTITY,
+    "BUSINESS_IMPORT_CANDIDATE_LIMIT",
+    `Select at most ${BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT} service changes.`,
+    { details: { mutationCount } },
+  );
+}
 
 function clean(value: string | null | undefined, maximum: number) {
   const normalized = value?.normalize("NFC").trim();
@@ -540,22 +554,21 @@ export class BusinessImportReviewService {
             prepared.normalized,
             prepared.normalizedHash,
           );
-          const risk =
-            classification.action === "LINK"
-              ? "LOW"
-              : prepared.normalized.price
-                ? "HIGH"
-                : prepared.normalized.duration || prepared.normalized.bookingNotes
-                  ? "MEDIUM"
-                  : "LOW";
+          const risk = prepared.normalized.price
+            ? "HIGH"
+            : prepared.normalized.duration || prepared.normalized.bookingNotes
+              ? "MEDIUM"
+              : "LOW";
           this.assertDecisionAllowed(
             classification.action,
             risk,
             candidate.decision,
             input.decision,
           );
-          const requiresApproval =
-            risk === "HIGH" && ["ADD", "UPDATE"].includes(classification.action);
+          const requiresApproval = businessImportCandidateRequiresApproval(
+            risk,
+            classification.action,
+          );
           const requiredPermission = requiresApproval ? "business_information.approve" : "";
           await this.invalidateApprovals(tx, candidate, context.userId, now);
           await tx.businessImportCandidateRevision.create({
@@ -751,6 +764,7 @@ export class BusinessImportReviewService {
           where: { tenantId: context.tenantId, importId, id: { in: refs.map((item) => item.id) } },
         });
         if (rows.length !== refs.length) this.notFound();
+        assertCatalogMutationLimit(rows);
         const byId = new Map(rows.map((row) => [row.id, row]));
         const now = new Date();
         for (const ref of refs) {
@@ -832,6 +846,7 @@ export class BusinessImportReviewService {
           where: { tenantId: context.tenantId, importId, id: { in: ids } },
         });
         if (candidates.length !== ids.length) this.notFound();
+        assertCatalogMutationLimit(candidates);
         const now = new Date();
         for (const candidate of candidates) {
           if (
@@ -1109,6 +1124,7 @@ export class BusinessImportReviewService {
           },
         });
         if (candidates.length !== refs.length) this.notFound();
+        assertCatalogMutationLimit(candidates);
         const approvals = await tx.businessImportCandidateApproval.findMany({
           where: {
             tenantId: context.tenantId,
@@ -1136,7 +1152,7 @@ export class BusinessImportReviewService {
           if (
             !candidate.requiresApproval ||
             candidate.risk !== "HIGH" ||
-            !["ADD", "UPDATE"].includes(candidate.action) ||
+            !businessImportCandidateRequiresApproval(candidate.risk, candidate.action) ||
             candidate.requiredPermission !== "business_information.approve"
           ) {
             throw businessImportError(

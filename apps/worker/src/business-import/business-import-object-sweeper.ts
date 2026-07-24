@@ -97,9 +97,7 @@ function databaseTimestamp(value: Date) {
 async function expireAbandonedImports(dependencies: BusinessImportObjectSweeperDependencies) {
   const now = dependencies.now();
   const cutoff = databaseTimestamp(now);
-  const staleCutoff = databaseTimestamp(
-    new Date(now.getTime() - dependencies.staleDeletingMs),
-  );
+  const staleCutoff = databaseTimestamp(new Date(now.getTime() - dependencies.staleDeletingMs));
   return dependencies.prisma.$transaction(
     async (tx) => {
       const rows = await tx.$queryRaw<UploadRow[]>(Prisma.sql`
@@ -396,8 +394,13 @@ async function claimExpiredObjects(dependencies: BusinessImportObjectSweeperDepe
               OR (ledger."objectKind" = 'APPLICATION_PREVIEW'::"BusinessImportObjectKind"
                 AND ledger."retentionClass" = 'BUSINESS_IMPORT_APPLICATION_PREVIEW')
             )
-            AND ledger."retainUntil" IS NOT NULL
-            AND ledger."retainUntil" <= CAST(${cutoff} AS timestamp(3))
+            AND (
+              ledger."tombstoneReason" = 'BUSINESS_IMPORT_SOURCE_ARCHIVED'
+              OR (
+                ledger."retainUntil" IS NOT NULL
+                AND ledger."retainUntil" <= CAST(${cutoff} AS timestamp(3))
+              )
+            )
             AND (
               ledger."deletionState" IN ('RETAINED', 'TOMBSTONED', 'FAILED')
               OR (
@@ -537,9 +540,7 @@ export async function sweepBusinessImportPendingObjects(
   let failedObjects = 0;
   for (let offset = 0; offset < claimed.length; offset += 8) {
     const results = await Promise.all(
-      claimed
-        .slice(offset, offset + 8)
-        .map((object) => deleteClaimedObject(object, dependencies)),
+      claimed.slice(offset, offset + 8).map((object) => deleteClaimedObject(object, dependencies)),
     );
     deletedObjects += results.filter((result) => result === "deleted").length;
     failedObjects += results.filter((result) => result === "failed").length;

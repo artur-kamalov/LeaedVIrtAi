@@ -194,6 +194,10 @@ const businessImportMappingConfirmationImmutabilityMigrationUrl = new URL(
   "./migrations/20260723110000_business_import_mapping_confirmation_immutability/migration.sql",
   import.meta.url,
 );
+const businessImportCatalogModeMigrationUrl = new URL(
+  "./migrations/20260724090000_business_import_catalog_mode/migration.sql",
+  import.meta.url,
+);
 const migrationRunnerLockPrefix = "leadvirt.custom-migration-runner.v1";
 const migrationRunnerMaxWaitMs = 30_000;
 const migrationRunnerTimeoutMs = 15 * 60_000;
@@ -4596,6 +4600,74 @@ async function businessImportMappingConfirmationImmutabilityState(prisma: Prisma
   };
 }
 
+async function businessImportCatalogModeState(prisma: PrismaClient) {
+  const rows = await prisma.$queryRaw<
+    Array<{
+      enum_ready: boolean;
+      add_value_ready: boolean;
+      replace_value_ready: boolean;
+      column_ready: boolean;
+    }>
+  >`
+    SELECT
+      EXISTS (
+        SELECT 1
+        FROM pg_type
+        INNER JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace
+        WHERE pg_namespace.nspname = current_schema()
+          AND pg_type.typname = 'BusinessImportCatalogMode'
+      ) AS "enum_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_type
+        INNER JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace
+        INNER JOIN pg_enum ON pg_enum.enumtypid = pg_type.oid
+        WHERE pg_namespace.nspname = current_schema()
+          AND pg_type.typname = 'BusinessImportCatalogMode'
+          AND pg_enum.enumlabel = 'ADD'
+      ) AS "add_value_ready",
+      EXISTS (
+        SELECT 1
+        FROM pg_type
+        INNER JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace
+        INNER JOIN pg_enum ON pg_enum.enumtypid = pg_type.oid
+        WHERE pg_namespace.nspname = current_schema()
+          AND pg_type.typname = 'BusinessImportCatalogMode'
+          AND pg_enum.enumlabel = 'REPLACE'
+      ) AS "replace_value_ready",
+      EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'BusinessImport'
+          AND column_name = 'catalogMode'
+          AND udt_name = 'BusinessImportCatalogMode'
+          AND is_nullable = 'NO'
+          AND column_default LIKE '%ADD%'
+      ) AS "column_ready"
+  `;
+  const state = rows[0];
+  return {
+    present: Boolean(
+      state &&
+      (state.enum_ready ||
+        state.add_value_ready ||
+        state.replace_value_ready ||
+        state.column_ready),
+    ),
+    complete: Boolean(
+      state &&
+      state.enum_ready &&
+      state.add_value_ready &&
+      state.replace_value_ready &&
+      state.column_ready,
+    ),
+    diagnostics: state
+      ? `enum=${state.enum_ready}, add=${state.add_value_ready}, replace=${state.replace_value_ready}, column=${state.column_ready}`
+      : "state query returned no row",
+  };
+}
+
 function splitSqlStatements(sql: string) {
   const statements: string[] = [];
   let start = 0;
@@ -5549,6 +5621,28 @@ async function runMigrations(databaseUrl: string, testStopAfter: MigrationTestSt
       }
       console.log(
         `Applied business_import_mapping_confirmation_immutability migration (${statementCount} statements).`,
+      );
+    }
+
+    const businessImportCatalogMode = await businessImportCatalogModeState(prisma);
+    if (businessImportCatalogMode.complete) {
+      console.log(
+        "Business import catalog mode already exists; skipping business_import_catalog_mode migration.",
+      );
+    } else if (businessImportCatalogMode.present) {
+      throw new Error(
+        `Business import catalog mode is partially installed; refusing to replay its DDL (${businessImportCatalogMode.diagnostics}).`,
+      );
+    } else {
+      const statementCount = await applySqlFile(prisma, businessImportCatalogModeMigrationUrl);
+      const installed = await businessImportCatalogModeState(prisma);
+      if (!installed.complete) {
+        throw new Error(
+          `Business import catalog mode migration completed without its mode contract (${installed.diagnostics}).`,
+        );
+      }
+      console.log(
+        `Applied business_import_catalog_mode migration (${statementCount} statements).`,
       );
     }
   } finally {

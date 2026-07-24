@@ -7,6 +7,10 @@ import { es } from "./translations/es";
 import { fr } from "./translations/fr";
 import { knowledgeMessages, type KnowledgeTranslationKey } from "./knowledge-messages";
 import {
+  knowledgeUxMessages,
+  type KnowledgeUxTranslationKey,
+} from "./knowledge-ux-messages";
+import {
   reviewKnowledgeMessages,
   type ReviewKnowledgeTranslationKey,
 } from "./knowledge-review-messages";
@@ -449,6 +453,7 @@ export type BaseTranslationKey = keyof typeof ru;
 export type TranslationKey =
   | BaseTranslationKey
   | KnowledgeTranslationKey
+  | KnowledgeUxTranslationKey
   | EditorKnowledgeTranslationKey
   | SourceKnowledgeTranslationKey
   | ReviewKnowledgeTranslationKey
@@ -877,6 +882,7 @@ export const messages = {
     ...integrationMessages.en,
     ...resourceMessages.en,
     ...knowledgeMessages.en,
+    ...knowledgeUxMessages.en,
     ...editorKnowledgeMessages.en,
     ...sourceKnowledgeMessages.en,
     ...reviewKnowledgeMessages.en,
@@ -894,6 +900,7 @@ export const messages = {
     ...integrationMessages.es,
     ...resourceMessages.es,
     ...knowledgeMessages.es,
+    ...knowledgeUxMessages.es,
     ...editorKnowledgeMessages.es,
     ...sourceKnowledgeMessages.es,
     ...reviewKnowledgeMessages.es,
@@ -911,6 +918,7 @@ export const messages = {
     ...integrationMessages.fr,
     ...resourceMessages.fr,
     ...knowledgeMessages.fr,
+    ...knowledgeUxMessages.fr,
     ...editorKnowledgeMessages.fr,
     ...sourceKnowledgeMessages.fr,
     ...reviewKnowledgeMessages.fr,
@@ -928,6 +936,7 @@ export const messages = {
     ...integrationMessages.de,
     ...resourceMessages.de,
     ...knowledgeMessages.de,
+    ...knowledgeUxMessages.de,
     ...editorKnowledgeMessages.de,
     ...sourceKnowledgeMessages.de,
     ...reviewKnowledgeMessages.de,
@@ -945,6 +954,7 @@ export const messages = {
     ...integrationMessages.pt,
     ...resourceMessages.pt,
     ...knowledgeMessages.pt,
+    ...knowledgeUxMessages.pt,
     ...editorKnowledgeMessages.pt,
     ...sourceKnowledgeMessages.pt,
     ...reviewKnowledgeMessages.pt,
@@ -962,6 +972,7 @@ export const messages = {
     ...integrationMessages.ru,
     ...resourceMessages.ru,
     ...knowledgeMessages.ru,
+    ...knowledgeUxMessages.ru,
     ...editorKnowledgeMessages.ru,
     ...sourceKnowledgeMessages.ru,
     ...reviewKnowledgeMessages.ru,

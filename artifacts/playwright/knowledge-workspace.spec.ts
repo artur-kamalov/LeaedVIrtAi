@@ -5,6 +5,7 @@ import type {
   KnowledgeV2CapabilityView,
   KnowledgeV2JobView,
   KnowledgeV2OverviewView,
+  KnowledgeV2PublicationGateView,
   KnowledgeV2PublicationDetail,
   KnowledgeV2PublicationItemCounts,
   KnowledgeV2PublicationSummary,
@@ -68,6 +69,7 @@ interface KnowledgeMockState {
   settingsBodies: unknown[];
   capability: KnowledgeV2CapabilityView;
   capabilityBodies: unknown[];
+  validationBlockers: KnowledgeV2PublicationGateView[];
 }
 
 function publicationSummary(
@@ -170,6 +172,7 @@ function readiness(
   candidateManifestHash = candidateManifestHash8,
   validationId: string | null = null,
   testCaseSetHash = evaluationTestCaseSetHash,
+  blockers: KnowledgeV2PublicationGateView[] = [],
 ): KnowledgeV2ReadinessView {
   const servingSequence = published ? 8 : 7;
   const servingCounts = published ? draftCounts : activeCounts;
@@ -253,7 +256,7 @@ function readiness(
       validationId,
       evaluationTestCaseSetHash: testCaseSetHash,
       itemCounts: draftCounts,
-      blockers: [],
+      blockers,
       warnings: [
         {
           code: "KNOWLEDGE_PUBLICATION_OPTIONAL_GUIDANCE_COVERAGE",
@@ -269,7 +272,7 @@ function readiness(
       capabilities,
     },
     capabilities,
-    blockerCount: 0,
+    blockerCount: blockers.length,
     warningCount: 1,
     needsReviewCount: published ? 0 : 1,
     evaluatedAt,
@@ -315,6 +318,7 @@ function overview(state: KnowledgeMockState): KnowledgeV2OverviewView {
     state.candidateManifestHash,
     state.validationId,
     state.evaluationTestCaseSetHash,
+    state.validationBlockers,
   );
   return {
     readiness: currentReadiness,
@@ -399,14 +403,39 @@ function validationResult(state: KnowledgeMockState): KnowledgeV2PublicationVali
     candidateVersion: state.candidateVersion,
     candidateManifestHash: state.candidateManifestHash,
     targetKey: "workspace-v2",
-    status: "PASSED",
-    itemCounts: draftCounts,
-    blockers: [],
+    status: state.validationBlockers.length > 0 ? "FAILED" : "PASSED",
+    itemCounts: {
+      ...draftCounts,
+      factVersions: Math.max(draftCounts.factVersions, state.validationBlockers.length),
+    },
+    blockers: state.validationBlockers,
     warnings: [],
     evaluatedAt: new Date().toISOString(),
     validUntil: new Date(Date.now() + 15 * 60_000).toISOString(),
     version: 1,
     etag: `"kv2-validation-${state.candidateVersion}"`,
+  };
+}
+
+function serviceValidationBlocker(index: number): KnowledgeV2PublicationGateView {
+  const factId = `service-fact-${String(index).padStart(2, "0")}`;
+  const resource = { type: "FACT" as const, id: factId, label: `Service ${index}` };
+  return {
+    code: "KNOWLEDGE_PUBLICATION_HIGH_RISK_FACT_EVIDENCE_REQUIRED",
+    status: "BLOCKED",
+    title: "High-risk fact needs current evidence",
+    message: "High-risk facts require owner-verified authority, evidence, and a future expiry.",
+    resource,
+    remediation: {
+      action: "VERIFY_FACT",
+      label: "Verify fact",
+      resource,
+      destination: {
+        view: "business",
+        task: "verify-services",
+        resource,
+      },
+    },
   };
 }
 
@@ -542,6 +571,7 @@ async function installKnowledgeMocks(page: Page, forbidden = false, canManageSet
       updatedAt: evaluatedAt,
     },
     capabilityBodies: [],
+    validationBlockers: [],
   };
 
   await page.route("**/api/business-profile", async (route) => {
@@ -584,6 +614,7 @@ async function installKnowledgeMocks(page: Page, forbidden = false, canManageSet
           state.candidateManifestHash,
           state.validationId,
           state.evaluationTestCaseSetHash,
+          state.validationBlockers,
         ),
       });
       return;
@@ -1054,9 +1085,9 @@ test("app Knowledge navigation preserves all views and shows honest availability
   await page.getByTestId("knowledge-tab-overview").click();
 
   await expect(page.getByText("Serving customers: Ready")).toBeVisible();
-  await expect(page.getByText("Draft workspace: Changes pending")).toBeVisible();
+  await expect(page.getByText("Unpublished changes: Changes pending")).toBeVisible();
   await expect(page.getByText("Published knowledge is active")).toBeVisible();
-  await expect(page.getByText("Draft version 8")).toBeVisible();
+  await expect(page.getByText("Unpublished version 8")).toBeVisible();
   await expect(
     page.getByTestId("knowledge-serving-capabilities").getByText("General questions"),
   ).toBeVisible();
@@ -1067,7 +1098,7 @@ test("app Knowledge navigation preserves all views and shows honest availability
     fullPage: true,
     animations: "disabled",
   });
-  await page.getByRole("button", { name: "Resolve", exact: true }).click();
+  await page.getByTestId("knowledge-gate-KNOWLEDGE_PUBLICATION_OPTIONAL_GUIDANCE_COVERAGE").click();
   await expect(page).toHaveURL(/\/app\/knowledge\?view=business(?:&|$)/);
   await page.getByTestId("knowledge-tab-overview").click();
   await expect(page.getByTestId("knowledge-overview")).toBeVisible();
@@ -1187,6 +1218,85 @@ test("History validates and publishes one exact candidate before refetching stat
     fullPage: true,
     animations: "disabled",
   });
+});
+
+test("pre-publication check groups 30 service blockers into one localized exact task", async ({
+  page,
+}) => {
+  await authenticate(page);
+  const localeResponse = await page.request.patch(`${apiBase}/settings/preferences/locale`, {
+    data: { locale: "ru" },
+  });
+  expect(localeResponse.ok()).toBeTruthy();
+  await page
+    .context()
+    .addCookies([{ name: "leadvirt-locale", value: "ru", url: webBase, sameSite: "Lax" }]);
+  const state = await installKnowledgeMocks(page);
+  state.validationBlockers = Array.from({ length: 30 }, (_, index) =>
+    serviceValidationBlocker(index + 1),
+  );
+
+  await page.goto(`${webBase}/app/knowledge?view=history`, {
+    waitUntil: "domcontentloaded",
+  });
+  const readinessTask = page.getByTestId("knowledge-readiness-gate-services");
+  await expect(readinessTask).toHaveCount(1);
+  await expect(readinessTask).toContainText(
+    messages.ru["knowledge.ux.gate.servicesTitle"].replace("{count}", "30"),
+  );
+  await expect(page.getByText("High-risk fact needs current evidence")).toHaveCount(0);
+  await page.getByTestId("knowledge-validate-button").click();
+
+  const modal = page.getByTestId("knowledge-validation-result");
+  const serviceTask = modal.getByTestId("knowledge-validation-gate-services");
+  const expectedTitle = messages.ru["knowledge.ux.gate.servicesTitle"].replace("{count}", "30");
+  await expect(serviceTask).toHaveCount(1);
+  await expect(serviceTask).toContainText(expectedTitle);
+  await expect(modal.getByText("High-risk fact needs current evidence")).toHaveCount(0);
+  await expect(
+    modal.getByText(
+      "High-risk facts require owner-verified authority, evidence, and a future expiry.",
+    ),
+  ).toHaveCount(0);
+  await page.screenshot({
+    path: "artifacts/screenshots/knowledge-history-validation-grouped-ru.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+
+  await serviceTask.click();
+  await expect(page).toHaveURL(
+    /\/app\/knowledge\?view=business&task=verify-services&factId=service-fact-01(?:&|$)/,
+  );
+});
+
+test("pre-publication unknown gate expands localized details in place", async ({ page }) => {
+  await authenticate(page);
+  const state = await installKnowledgeMocks(page);
+  state.validationBlockers = [
+    {
+      code: "KNOWLEDGE_PUBLICATION_UNKNOWN_GATE",
+      status: "BLOCKED",
+      title: "Internal publication gate failed",
+      message: "Raw backend diagnostics must not be rendered.",
+      resource: null,
+      remediation: null,
+    },
+  ];
+
+  await page.goto(`${webBase}/app/knowledge?view=history`, {
+    waitUntil: "domcontentloaded",
+  });
+  await page.getByTestId("knowledge-validate-button").click();
+
+  const modal = page.getByTestId("knowledge-validation-result");
+  await expect(modal.getByText("Internal publication gate failed")).toHaveCount(0);
+  await expect(modal.getByText("Raw backend diagnostics must not be rendered.")).toHaveCount(0);
+  await modal.getByTestId("knowledge-validation-gate-generic").click();
+  const details = modal.getByTestId("knowledge-validation-gate-in-place-details");
+  await expect(details).toContainText(messages.en["knowledge.ux.gate.unknownDetailsTitle"]);
+  await expect(details).toContainText(messages.en["knowledge.ux.gate.unknownDetailsDescription"]);
+  await expect(page).toHaveURL(/\/app\/knowledge\?view=history(?:&|$)/);
 });
 
 test("History blocks publishing when a critical publication test fails", async ({ page }) => {

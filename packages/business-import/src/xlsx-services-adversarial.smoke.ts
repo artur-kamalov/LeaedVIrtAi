@@ -166,7 +166,7 @@ const excessiveServices = createXlsxFixture({
       xml: worksheet(
         [
           `<row r="1">${inline("A1", "name")}</row>`,
-          ...Array.from({ length: 201 }, (_, index) => {
+          ...Array.from({ length: 401 }, (_, index) => {
             const row = index + 2;
             return `<row r="${row}">${inline(`A${row}`, `Service ${row}`)}</row>`;
           }),

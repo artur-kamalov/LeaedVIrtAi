@@ -840,6 +840,11 @@ enum BusinessImportPurpose {
   BUSINESS_INFORMATION
 }
 
+enum BusinessImportCatalogMode {
+  ADD
+  REPLACE
+}
+
 enum BusinessImportFormat {
   CSV
   XLSX
@@ -4353,6 +4358,7 @@ model BusinessImport {
   tenantId                       String
   sourceId                       String
   purpose                        BusinessImportPurpose
+  catalogMode                    BusinessImportCatalogMode @default(ADD)
   format                         BusinessImportFormat
   state                          BusinessImportState       @default(CREATED)
   generation                     Int                       @default(1)

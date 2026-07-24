@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import {
+  BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT,
   BUSINESS_SERVICES_CSV_HEADERS,
+  applyBusinessServiceCatalogMode,
+  businessImportCandidateRequiresApproval,
+  businessImportManualFieldsByOffering,
   businessOfferingIdentityKey,
   businessOfferingValueHash,
+  countBusinessImportCatalogMutations,
   diffBusinessServiceRows,
+  isBusinessImportCatalogMutationAction,
   parseBusinessServicesCsv,
   type ParsedBusinessServiceRow,
 } from "./index.js";
@@ -22,6 +28,10 @@ const initial = diffBusinessServiceRows({
 });
 assert.equal(initial[0]?.action, "ADD");
 assert.equal(initial[0]?.riskLevel, "HIGH");
+assert.equal(businessImportCandidateRequiresApproval("HIGH", "ADD"), true);
+assert.equal(businessImportCandidateRequiresApproval("HIGH", "LINK"), true);
+assert.equal(businessImportCandidateRequiresApproval("LOW", "LINK"), false);
+assert.equal(businessImportCandidateRequiresApproval("HIGH", "UNCHANGED"), false);
 
 const existing = {
   id: "offering-1",
@@ -55,7 +65,7 @@ const linked = diffBusinessServiceRows({
 });
 assert.equal(linked[0]?.action, "LINK");
 assert.equal(linked[0]?.targetOfferingId, unboundExisting.id);
-assert.equal(linked[0]?.riskLevel, "LOW");
+assert.equal(linked[0]?.riskLevel, "HIGH");
 assert.equal(linked[0]?.proposedValueHash, businessOfferingValueHash(original));
 
 const identityMismatchedBinding = diffBusinessServiceRows({
@@ -237,6 +247,41 @@ const completeChanged = diffBusinessServiceRows({
 });
 assert.equal(completeChanged[0]?.action, "UPDATE");
 
+const manuallyEnrichedExisting = {
+  ...existing,
+  value: {
+    ...original,
+    description: "Owner-written description",
+    duration: { minimumMinutes: 45, maximumMinutes: 60 },
+  },
+};
+manuallyEnrichedExisting.valueHash = businessOfferingValueHash(manuallyEnrichedExisting.value);
+const manualPartialReplacement = diffBusinessServiceRows({
+  sourceLineageId: "replacement-source",
+  rows: changedParse.rows,
+  existing: [manuallyEnrichedExisting],
+  sourceBindings: [],
+  replacementScopeBindings: [
+    {
+      ...binding,
+      sourceValueHash: manuallyEnrichedExisting.valueHash,
+    },
+  ],
+  manualFieldsByOfferingId: businessImportManualFieldsByOffering([
+    {
+      offeringId: existing.id,
+      resourceType: "OFFERING",
+      fieldPath: "/description",
+    },
+    {
+      offeringId: existing.id,
+      resourceType: "OFFERING_DURATION",
+      fieldPath: "/minimumMinutes",
+    },
+  ]),
+});
+assert.equal(manualPartialReplacement[0]?.action, "UPDATE");
+
 const renamedWithoutId = await parseBusinessServicesCsv(
   new Uint8Array(Buffer.from("name\nExtended audit\n")),
 );
@@ -256,5 +301,172 @@ const missing = diffBusinessServiceRows({
   sourceBindings: [binding],
 });
 assert.equal(missing[0]?.action, "MISSING");
+assert.equal(applyBusinessServiceCatalogMode(missing, "ADD")[0]?.action, "MISSING");
+const replacement = applyBusinessServiceCatalogMode(missing, "REPLACE");
+assert.equal(replacement[0]?.action, "ARCHIVE");
+assert.equal(replacement[0]?.diagnostics[0]?.code, "BUSINESS_IMPORT_ARCHIVE_MISSING_SERVICE");
+const globalReplacement = applyBusinessServiceCatalogMode(
+  diffBusinessServiceRows({
+    sourceLineageId: "replacement-source",
+    rows: [],
+    existing: [existing],
+    sourceBindings: [],
+    replacementScopeBindings: [
+      binding,
+      { ...binding, externalKey: "same-offering-from-another-catalog" },
+    ],
+  }),
+  "REPLACE",
+);
+assert.equal(globalReplacement.length, 1);
+assert.equal(globalReplacement[0]?.action, "ARCHIVE");
+assert.equal(globalReplacement[0]?.targetOfferingId, existing.id);
+
+const duplicateCatalogReplacement = applyBusinessServiceCatalogMode(
+  diffBusinessServiceRows({
+    sourceLineageId: "replacement-source",
+    rows: [original],
+    existing: [existing, duplicateBindingTarget],
+    sourceBindings: [],
+    replacementScopeBindings: [binding, { ...binding, offeringId: duplicateBindingTarget.id }],
+  }),
+  "REPLACE",
+);
+assert.deepEqual(
+  duplicateCatalogReplacement.map((candidate) => candidate.action),
+  ["LINK", "ARCHIVE"],
+);
+assert.equal(duplicateCatalogReplacement[0]?.targetOfferingId, existing.id);
+assert.equal(duplicateCatalogReplacement[1]?.targetOfferingId, duplicateBindingTarget.id);
+assert.notEqual(
+  duplicateCatalogReplacement[0]?.candidateKey,
+  duplicateCatalogReplacement[1]?.candidateKey,
+);
+
+const collisionHeating = {
+  ...original,
+  externalId: "shared-workspace-id",
+  name: "Heating installation",
+  description: "Owner-authored heating notes",
+};
+const collisionCooling = {
+  ...original,
+  externalId: "shared-workspace-id",
+  name: "Cooling installation",
+  description: "Cooling notes",
+};
+const collisionHeatingExisting = {
+  id: "collision-heating",
+  value: collisionHeating,
+  valueHash: businessOfferingValueHash(collisionHeating),
+};
+const collisionCoolingExisting = {
+  id: "collision-cooling",
+  value: collisionCooling,
+  valueHash: businessOfferingValueHash(collisionCooling),
+};
+const collisionBindings = [
+  {
+    offeringId: collisionHeatingExisting.id,
+    externalKey: "shared-workspace-id",
+    identityKey: businessOfferingIdentityKey(collisionHeating),
+    sourceValueHash: collisionHeatingExisting.valueHash,
+  },
+  {
+    offeringId: collisionCoolingExisting.id,
+    externalKey: "shared-workspace-id",
+    identityKey: businessOfferingIdentityKey(collisionCooling),
+    sourceValueHash: collisionCoolingExisting.valueHash,
+  },
+];
+const identityDisambiguatedReplacement = applyBusinessServiceCatalogMode(
+  diffBusinessServiceRows({
+    sourceLineageId: "replacement-source",
+    rows: [collisionCooling],
+    existing: [collisionHeatingExisting, collisionCoolingExisting],
+    sourceBindings: [],
+    replacementScopeBindings: collisionBindings,
+  }),
+  "REPLACE",
+);
+assert.deepEqual(
+  identityDisambiguatedReplacement.map((candidate) => candidate.action),
+  ["LINK", "ARCHIVE"],
+);
+assert.equal(identityDisambiguatedReplacement[0]?.targetOfferingId, collisionCoolingExisting.id);
+assert.equal(identityDisambiguatedReplacement[1]?.targetOfferingId, collisionHeatingExisting.id);
+
+const collisionVentilation = {
+  ...original,
+  externalId: "shared-workspace-id",
+  name: "Ventilation installation",
+  description: "New ventilation service",
+};
+const unmatchedCollisionReplacement = applyBusinessServiceCatalogMode(
+  diffBusinessServiceRows({
+    sourceLineageId: "replacement-source",
+    rows: [collisionVentilation],
+    existing: [collisionHeatingExisting, collisionCoolingExisting],
+    sourceBindings: [],
+    replacementScopeBindings: collisionBindings,
+    manualFieldsByOfferingId: businessImportManualFieldsByOffering([
+      {
+        offeringId: collisionHeatingExisting.id,
+        resourceType: "OFFERING",
+        fieldPath: "/description",
+      },
+    ]),
+  }),
+  "REPLACE",
+);
+assert.deepEqual(
+  unmatchedCollisionReplacement.map((candidate) => candidate.action),
+  ["ADD", "ARCHIVE", "ARCHIVE"],
+);
+assert.equal(unmatchedCollisionReplacement[0]?.targetOfferingId, null);
+assert.deepEqual(
+  unmatchedCollisionReplacement
+    .slice(1)
+    .map((candidate) => candidate.targetOfferingId)
+    .sort(),
+  [collisionCoolingExisting.id, collisionHeatingExisting.id].sort(),
+);
+assert.equal(
+  unmatchedCollisionReplacement.some((candidate) => candidate.action === "UPDATE"),
+  false,
+);
+
+const firstCatalogReplacement = applyBusinessServiceCatalogMode(
+  diffBusinessServiceRows({
+    sourceLineageId: "first-replacement-source",
+    rows: [original],
+    existing: [],
+    sourceBindings: [],
+    replacementScopeBindings: [],
+  }),
+  "REPLACE",
+);
+assert.equal(firstCatalogReplacement.length, 1);
+assert.equal(firstCatalogReplacement[0]?.action, "ADD");
+
+const mutationLimitBoundary = Array.from(
+  { length: BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT },
+  () => ({ action: "UPDATE" }),
+);
+assert.equal(countBusinessImportCatalogMutations(mutationLimitBoundary), 400);
+assert.equal(
+  countBusinessImportCatalogMutations([
+    ...mutationLimitBoundary,
+    { action: "UNCHANGED" },
+    { action: "CONFLICT" },
+  ]),
+  400,
+);
+assert.equal(
+  countBusinessImportCatalogMutations([...mutationLimitBoundary, { action: "ARCHIVE" }]),
+  401,
+);
+assert.equal(isBusinessImportCatalogMutationAction("LINK"), true);
+assert.equal(isBusinessImportCatalogMutationAction("UNCHANGED"), false);
 
 process.stdout.write("business services diff smoke passed\n");

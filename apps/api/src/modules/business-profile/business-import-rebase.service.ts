@@ -2,9 +2,15 @@ import { randomUUID } from "node:crypto";
 import { HttpStatus, Inject, Injectable } from "@nestjs/common";
 import {
   BUSINESS_SERVICES_CSV_HEADERS,
+  applyBusinessServiceCatalogMode,
+  BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT,
+  businessImportCandidateRequiresApproval,
   businessImportEvidenceRecordHash,
+  businessImportManualFieldsByOffering,
   businessOfferingIdentityKey,
   businessOfferingValueHash,
+  createBusinessImportFieldProvenance,
+  countBusinessImportCatalogMutations,
   diffBusinessServiceRows,
   normalizeBusinessExternalId,
   remapBusinessImportFieldProvenance,
@@ -47,6 +53,11 @@ interface RebasedCandidate {
   changed: boolean;
 }
 
+interface RecomputedBusinessImportCandidates {
+  existing: RebasedCandidate[];
+  newOmissions: BusinessServiceDiffCandidate[];
+}
+
 function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -63,6 +74,25 @@ function isoDate(value: Date | null | undefined) {
 
 function jsonArray(value: unknown[]): Prisma.InputJsonArray {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonArray;
+}
+
+function normalizedOfferingValue(value: ParsedBusinessServiceRow): Prisma.InputJsonObject {
+  return JSON.parse(
+    JSON.stringify({
+      externalId: value.externalId,
+      category: value.category,
+      name: value.name,
+      description: value.description,
+      price: value.price,
+      duration: value.duration,
+      locationExternalId: value.locationExternalId,
+      bookingNotes: value.bookingNotes,
+      active: value.active,
+      validFrom: value.validFrom,
+      validUntil: value.validUntil,
+      language: value.language,
+    }),
+  ) as Prisma.InputJsonObject;
 }
 
 function diagnosticValue(value: BusinessImportDiagnostic) {
@@ -228,6 +258,7 @@ function currentOfferingRow(offering: OfferingRow, sourceId: string): ParsedBusi
 function reasonCodes(candidate: BusinessServiceDiffCandidate) {
   return [
     ...(candidate.action === "MISSING" ? ["BUSINESS_IMPORT_MISSING_FROM_REVISION"] : []),
+    ...(candidate.action === "ARCHIVE" ? ["BUSINESS_IMPORT_REPLACEMENT_REMOVAL"] : []),
     ...(candidate.action === "CONFLICT" ? ["BUSINESS_IMPORT_REVIEW_CONFLICT"] : []),
     ...(candidate.action === "INVALID" ? ["BUSINESS_IMPORT_INVALID_ROW"] : []),
   ];
@@ -254,11 +285,13 @@ function conflict(candidate: BusinessServiceDiffCandidate, code: string) {
 
 export function recomputeBusinessImportCandidates(input: {
   sourceLineageId: string;
+  catalogMode: "ADD" | "REPLACE";
   candidates: CandidateRow[];
   offerings: OfferingRow[];
   sourceId: string;
   evidenceHeadersByCandidateId?: ReadonlyMap<string, ReadonlySet<BusinessServiceCsvHeader>>;
-}): RebasedCandidate[] {
+  manualFieldsByOfferingId?: ReadonlyMap<string, ReadonlySet<BusinessServiceCsvHeader>>;
+}): RecomputedBusinessImportCandidates {
   const current = input.offerings.map((offering) => {
     const value = currentOfferingRow(offering, input.sourceId);
     return { id: offering.id, value, valueHash: businessOfferingValueHash(value) };
@@ -275,18 +308,43 @@ export function recomputeBusinessImportCandidates(input: {
         sourceValueHash: binding.lastSeenSourceValueHash,
       })),
   );
+  const replacementScopeBindings = input.offerings.flatMap((offering) =>
+    offering.sourceBindings
+      .filter((binding) => binding.active)
+      .sort((left, right) => {
+        const source = left.sourceId.localeCompare(right.sourceId);
+        return source || left.externalKey.localeCompare(right.externalKey);
+      })
+      .map((binding) => ({
+        offeringId: offering.id,
+        externalKey: binding.externalKey,
+        identityKey: businessOfferingIdentityKey(currentById.get(offering.id)!.value),
+        sourceValueHash: binding.lastSeenSourceValueHash,
+      })),
+  );
   const importedCandidates = input.candidates.filter(
     (candidate) => !["MISSING", "ARCHIVE"].includes(candidate.action),
   );
   const rows = importedCandidates.map((candidate, index) =>
     parsedCandidate(candidate, index + 1, input.evidenceHeadersByCandidateId?.get(candidate.id)),
   );
-  const diffs = diffBusinessServiceRows({
-    sourceLineageId: input.sourceLineageId,
-    rows,
-    existing: current,
-    sourceBindings: bindings,
-  }).slice(0, rows.length);
+  const diffs = applyBusinessServiceCatalogMode(
+    diffBusinessServiceRows({
+      sourceLineageId: input.sourceLineageId,
+      rows,
+      existing: current,
+      sourceBindings: bindings,
+      ...(input.catalogMode === "REPLACE"
+        ? {
+            replacementScopeBindings,
+            manualFieldsByOfferingId: input.manualFieldsByOfferingId,
+          }
+        : {}),
+    }),
+    input.catalogMode,
+  );
+  const rowDiffs = diffs.slice(0, rows.length);
+  const omissionDiffs = diffs.slice(rows.length);
   const identities = new Map<string, number>();
   const externals = new Map<string, number>();
   for (const row of rows) {
@@ -313,50 +371,59 @@ export function recomputeBusinessImportCandidates(input: {
   const byCandidateId = new Map<string, BusinessServiceDiffCandidate>();
   importedCandidates.forEach((candidate, index) => {
     const row = rows[index]!;
-    let diff = diffs[index]!;
+    let diff = rowDiffs[index]!;
     const identity = businessOfferingIdentityKey(row);
     const external = normalizeBusinessExternalId(row.externalId);
     if (
       (identities.get(identity) ?? 0) > 1 ||
       (external && (externals.get(external) ?? 0) > 1) ||
-      (!external && (bindingIdentities.get(identity) ?? 0) > 1) ||
-      (!external && (currentIdentities.get(identity) ?? 0) > 1) ||
-      (external && (bindingExternals.get(external) ?? 0) > 1)
+      (input.catalogMode === "ADD" &&
+        ((!external && (bindingIdentities.get(identity) ?? 0) > 1) ||
+          (!external && (currentIdentities.get(identity) ?? 0) > 1) ||
+          Boolean(external && (bindingExternals.get(external) ?? 0) > 1)))
     ) {
       diff = conflict(diff, "BUSINESS_IMPORT_AMBIGUOUS_IDENTITY");
     }
     byCandidateId.set(candidate.id, diff);
   });
-  return input.candidates.map((candidate) => {
+  const unclaimedOmissions = new Map(
+    omissionDiffs.flatMap((diff) =>
+      diff.targetOfferingId ? [[diff.targetOfferingId, diff] as const] : [],
+    ),
+  );
+  const existing = input.candidates.map((candidate) => {
     const proposed = parsedCandidate(
       candidate,
       0,
       input.evidenceHeadersByCandidateId?.get(candidate.id),
     );
-    const diff = byCandidateId.get(candidate.id) ?? {
-      candidateKey: candidate.candidateKey,
-      action: "MISSING" as const,
-      riskLevel: "HIGH" as const,
-      confidence: "CONFIRMED_FORMAT" as const,
-      proposed: null,
-      current: candidate.targetOfferingId
-        ? (currentById.get(candidate.targetOfferingId) ?? null)
-        : null,
-      targetOfferingId:
-        candidate.targetOfferingId && currentById.has(candidate.targetOfferingId)
-          ? candidate.targetOfferingId
-          : null,
-      sourceExternalKey: proposed.externalId,
-      identityKey: businessOfferingIdentityKey(proposed),
-      proposedValueHash: null,
-      diagnostics: [
-        {
-          severity: "WARNING" as const,
-          code: "BUSINESS_IMPORT_MISSING_FROM_REVISION",
-          message: "This existing service is absent from the imported file and remains unchanged.",
-        },
-      ],
-    };
+    const diff =
+      byCandidateId.get(candidate.id) ??
+      (() => {
+        const omission = candidate.targetOfferingId
+          ? unclaimedOmissions.get(candidate.targetOfferingId)
+          : undefined;
+        if (omission) {
+          unclaimedOmissions.delete(candidate.targetOfferingId!);
+          return { ...omission, candidateKey: candidate.candidateKey };
+        }
+        const current = candidate.targetOfferingId
+          ? (currentById.get(candidate.targetOfferingId) ?? null)
+          : null;
+        return {
+          candidateKey: candidate.candidateKey,
+          action: "UNCHANGED" as const,
+          riskLevel: "LOW" as const,
+          confidence: "CONFIRMED_FORMAT" as const,
+          proposed: null,
+          current,
+          targetOfferingId: current?.id ?? null,
+          sourceExternalKey: proposed.externalId,
+          identityKey: businessOfferingIdentityKey(proposed),
+          proposedValueHash: null,
+          diagnostics: [],
+        };
+      })();
     if (diff.proposed && diff.proposedValueHash !== candidate.normalizedValueHash) {
       throw businessImportError(
         HttpStatus.CONFLICT,
@@ -366,7 +433,7 @@ export function recomputeBusinessImportCandidates(input: {
     }
     const validationCodes = jsonArray(diff.diagnostics.map(diagnosticValue));
     const recomputedReasons = jsonArray(reasonCodes(diff));
-    const requiresApproval = diff.riskLevel === "HIGH" && ["ADD", "UPDATE"].includes(diff.action);
+    const requiresApproval = businessImportCandidateRequiresApproval(diff.riskLevel, diff.action);
     const requiredPermission = requiresApproval ? "business_information.approve" : "";
     const changed =
       candidate.decision !== "APPLIED" &&
@@ -392,6 +459,10 @@ export function recomputeBusinessImportCandidates(input: {
       changed,
     };
   });
+  return {
+    existing,
+    newOmissions: input.catalogMode === "REPLACE" ? [...unclaimedOmissions.values()] : [],
+  };
 }
 
 @Injectable()
@@ -443,6 +514,38 @@ export class BusinessImportRebaseService {
           },
           orderBy: { id: "asc" },
         });
+        const manualAttributions = await tx.businessInformationAttribution.findMany({
+          where: {
+            tenantId: context.tenantId,
+            authority: "MANUAL",
+            supersededAt: null,
+            resourceType: { in: ["OFFERING", "OFFERING_PRICE", "OFFERING_DURATION"] },
+          },
+          select: {
+            resourceType: true,
+            fieldPath: true,
+            offeringId: true,
+            offeringPrice: { select: { offeringId: true } },
+            offeringDuration: { select: { offeringId: true } },
+          },
+        });
+        const manualFieldsByOfferingId = businessImportManualFieldsByOffering(
+          manualAttributions.flatMap((attribution) => {
+            const offeringId =
+              attribution.offeringId ??
+              attribution.offeringPrice?.offeringId ??
+              attribution.offeringDuration?.offeringId;
+            return offeringId
+              ? [
+                  {
+                    offeringId,
+                    resourceType: attribution.resourceType,
+                    fieldPath: attribution.fieldPath,
+                  },
+                ]
+              : [];
+          }),
+        );
         const candidates = await tx.businessImportCandidate.findMany({
           where: { tenantId: context.tenantId, importId },
           orderBy: [{ candidateKey: "asc" }, { id: "asc" }],
@@ -476,14 +579,38 @@ export class BusinessImportRebaseService {
         }
         const rebased = recomputeBusinessImportCandidates({
           sourceLineageId: importRecord.source.lineageKey,
+          catalogMode: importRecord.catalogMode,
           candidates,
           offerings,
           sourceId: importRecord.sourceId,
           evidenceHeadersByCandidateId,
+          manualFieldsByOfferingId,
         });
+        const currentMutations = countBusinessImportCatalogMutations(
+          rebased.existing.map((item) => item.diff),
+        );
+        const mutationCount =
+          currentMutations + countBusinessImportCatalogMutations(rebased.newOmissions);
+        if (mutationCount > BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT) {
+          throw businessImportError(
+            HttpStatus.CONFLICT,
+            "BUSINESS_IMPORT_REBASE_CANDIDATE_LIMIT",
+            `Rebasing would exceed the ${BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT}-change import limit.`,
+            {
+              details: {
+                currentMutations,
+                newRemovals: rebased.newOmissions.length,
+                mutationCount,
+              },
+            },
+          );
+        }
         const now = new Date();
-        for (const item of rebased.filter((candidate) => candidate.changed)) {
+        for (const item of rebased.existing.filter((candidate) => candidate.changed)) {
           await this.reviseCandidate(tx, context, importRecord, item, now);
+        }
+        for (const omission of rebased.newOmissions) {
+          await this.createOmissionCandidate(tx, context, importRecord, omission);
         }
         const currentCandidates = await tx.businessImportCandidate.findMany({
           where: { tenantId: context.tenantId, importId },
@@ -503,6 +630,7 @@ export class BusinessImportRebaseService {
           invalid: currentCandidates.filter((item) => item.action === "INVALID").length,
           additions: currentCandidates.filter((item) => item.action === "ADD").length,
           updates: currentCandidates.filter((item) => item.action === "UPDATE").length,
+          removals: currentCandidates.filter((item) => item.action === "ARCHIVE").length,
           linked: currentCandidates.filter((item) => item.action === "LINK").length,
           unchanged: currentCandidates.filter((item) => item.action === "UNCHANGED").length,
           conflicts: currentCandidates.filter((item) => item.action === "CONFLICT").length,
@@ -548,8 +676,11 @@ export class BusinessImportRebaseService {
             payload: {
               previousBaseRevision: importRecord.baseInformationRevision,
               resultingBaseRevision: state.revision,
-              changedCandidateCount: rebased.filter((item) => item.changed).length,
-              candidateCount: rebased.length,
+              changedCandidateCount:
+                rebased.existing.filter((item) => item.changed).length +
+                rebased.newOmissions.length,
+              candidateCount: currentCandidates.length,
+              newRemovalCount: rebased.newOmissions.length,
             },
           },
         });
@@ -723,6 +854,85 @@ export class BusinessImportRebaseService {
       },
     });
     if (updated.count !== 1) this.revisionConflict();
+  }
+
+  private async createOmissionCandidate(
+    tx: Prisma.TransactionClient,
+    context: RequestContext,
+    importRecord: Prisma.BusinessImportGetPayload<{ include: { source: true } }>,
+    diff: BusinessServiceDiffCandidate,
+  ) {
+    if (
+      diff.action !== "ARCHIVE" ||
+      !diff.current ||
+      !diff.targetOfferingId ||
+      !importRecord.parsedRevisionId ||
+      !importRecord.artifactId ||
+      !importRecord.artifactSha256 ||
+      !importRecord.parsedManifestHash ||
+      !importRecord.parserVersion
+    ) {
+      this.revisionConflict();
+    }
+    const candidateId = randomUUID();
+    const candidateRevisionId = randomUUID();
+    const normalizedValue = normalizedOfferingValue(diff.current.value);
+    const normalizedValueHash = diff.current.valueHash;
+    const validationCodes = jsonArray(diff.diagnostics.map(diagnosticValue));
+    const candidateReasonCodes = jsonArray(reasonCodes(diff));
+    const fieldProvenance = createBusinessImportFieldProvenance(diff.current.value, {});
+    await tx.businessImportCandidate.create({
+      data: {
+        id: candidateId,
+        tenantId: context.tenantId,
+        sourceId: importRecord.sourceId,
+        importId: importRecord.id,
+        candidateKey: diff.candidateKey,
+        targetCategory: "OFFERINGS",
+        semanticTargetKey: diff.identityKey,
+        action: "ARCHIVE",
+        normalizedValue,
+        normalizedValueHash,
+        targetOfferingId: diff.targetOfferingId,
+        currentFingerprint: normalizedValueHash,
+        risk: "HIGH",
+        confidence: diff.confidence,
+        validationCodes,
+        reasonCodes: candidateReasonCodes,
+        requiresApproval: true,
+        requiredPermission: "business_information.approve",
+      },
+    });
+    await tx.businessImportCandidateRevision.create({
+      data: {
+        id: candidateRevisionId,
+        tenantId: context.tenantId,
+        sourceId: importRecord.sourceId,
+        importId: importRecord.id,
+        candidateId,
+        version: 1,
+        parsedRevisionId: importRecord.parsedRevisionId,
+        importGeneration: importRecord.generation,
+        artifactId: importRecord.artifactId,
+        artifactSha256: importRecord.artifactSha256,
+        parsedManifestHash: importRecord.parsedManifestHash,
+        mappingId: null,
+        targetCategory: "OFFERINGS",
+        semanticTargetKey: diff.identityKey,
+        action: "ARCHIVE",
+        normalizedValue,
+        normalizedValueHash,
+        fieldProvenance,
+        targetOfferingId: diff.targetOfferingId,
+        currentFingerprint: normalizedValueHash,
+        risk: "HIGH",
+        confidence: diff.confidence,
+        validationCodes,
+        reasonCodes: candidateReasonCodes,
+        requiresApproval: true,
+        requiredPermission: "business_information.approve",
+      },
+    });
   }
 
   private async lockImport(

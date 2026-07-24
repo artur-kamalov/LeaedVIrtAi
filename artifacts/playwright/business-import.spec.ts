@@ -330,6 +330,27 @@ function twoPageCandidates(): BusinessImportCandidateView[] {
   ];
 }
 
+function largeReviewCandidates(total = 450, selectedMutations = 400) {
+  const template = importCandidates()[0]!;
+  return Array.from({ length: total }, (_, index): BusinessImportCandidateView => {
+    const selected = index < selectedMutations;
+    const number = index + 1;
+    return {
+      ...template,
+      id: `candidate-large-${number}`,
+      action: selected ? "ADD" : "ARCHIVE",
+      decision: selected ? "ACCEPTED" : "REJECTED",
+      etag: `"candidate-large-${number}-1"`,
+      proposed: {
+        ...template.proposed,
+        externalId: `large-service-${number}`,
+        name: `Large review service ${number}`,
+      },
+      selected,
+    };
+  });
+}
+
 function application(state: BusinessImportApplicationView["state"]): BusinessImportApplicationView {
   return {
     id: "application-1",
@@ -378,6 +399,7 @@ async function installMocks(
     uploadOutcomes?: Array<"SUCCESS" | "EXPIRED" | "ALREADY_USED" | "LOST_RESPONSE">;
     applyOutcomes?: Array<"SUCCESS" | "TRANSIENT" | "EXPIRED">;
     paginateCandidates?: boolean;
+    largeReviewCandidateCount?: number;
     initiallySelected?: boolean;
     locale?: Locale;
     mappingRequired?: boolean;
@@ -387,13 +409,18 @@ async function installMocks(
     sourceLookupOutcomes?: Array<"SUCCESS" | "FAIL">;
   } = {},
 ) {
+  const paginatedCandidates = Boolean(
+    options.paginateCandidates || options.largeReviewCandidateCount,
+  );
   const state: ImportMockState = {
     view: options.mappingRequired
       ? mappingRequiredImport()
       : readyImport(options.initiallySelected ?? false),
-    candidates: options.paginateCandidates
-      ? twoPageCandidates()
-      : importCandidates(options.initiallySelected ?? false),
+    candidates: options.largeReviewCandidateCount
+      ? largeReviewCandidates(options.largeReviewCandidateCount)
+      : options.paginateCandidates
+        ? twoPageCandidates()
+        : importCandidates(options.initiallySelected ?? false),
     candidateListRequests: [],
     applications: [],
     intentRequests: [],
@@ -408,22 +435,25 @@ async function installMocks(
     mappingRequests: 0,
     mappingConfirms: [],
   };
-  if (options.paginateCandidates) {
+  if (paginatedCandidates) {
+    const selectedCandidates = state.candidates.filter((candidate) => candidate.selected).length;
     state.view = {
       ...state.view,
       counts: {
         ...state.view.counts,
         total: state.candidates.length,
         valid: state.candidates.length,
-        additions: state.candidates.length,
+        additions: state.candidates.filter((candidate) => candidate.action === "ADD").length,
         updates: 0,
+        removals: state.candidates.filter((candidate) => candidate.action === "ARCHIVE").length,
         linked: 0,
+        unchanged: 0,
       },
       applyEligibility: {
         ...state.view.applyEligibility,
-        eligible: false,
-        selectedCandidates: 0,
-        reasonCodes: ["BUSINESS_IMPORT_NO_SELECTED_CHANGES"],
+        eligible: selectedCandidates > 0,
+        selectedCandidates,
+        reasonCodes: selectedCandidates > 0 ? [] : ["BUSINESS_IMPORT_NO_SELECTED_CHANGES"],
       },
     };
   }
@@ -597,7 +627,11 @@ async function installMocks(
         );
         return;
       }
-      await json(route, { data: { items: options.importSources ?? [], nextCursor: null } });
+      const requestedStatus = requestUrl.searchParams.get("status");
+      const items = (options.importSources ?? []).filter(
+        (source) => !requestedStatus || source.status === requestedStatus,
+      );
+      await json(route, { data: { items, nextCursor: null } });
       return;
     }
     if (pathname === "/api/business-profile/imports/intents" && method === "POST") {
@@ -767,15 +801,22 @@ async function installMocks(
     if (pathname === `/api/business-profile/imports/${importId}/candidates` && method === "GET") {
       const cursor = requestUrl.searchParams.get("cursor");
       state.candidateListRequests.push(cursor);
-      const items = options.paginateCandidates
-        ? cursor === "candidate-page-2"
-          ? state.candidates.slice(100)
-          : state.candidates.slice(0, 100)
+      const pageNumber = cursor?.startsWith("candidate-page-")
+        ? Number.parseInt(cursor.slice("candidate-page-".length), 10)
+        : 1;
+      const pageIndex = Number.isFinite(pageNumber) && pageNumber > 0 ? pageNumber - 1 : 0;
+      const pageStart = pageIndex * 100;
+      const pageEnd = pageStart + 100;
+      const items = paginatedCandidates
+        ? state.candidates.slice(pageStart, pageEnd)
         : state.candidates;
       await json(route, {
         data: {
           items,
-          nextCursor: options.paginateCandidates && !cursor ? "candidate-page-2" : null,
+          nextCursor:
+            paginatedCandidates && pageEnd < state.candidates.length
+              ? `candidate-page-${pageNumber + 1}`
+              : null,
         },
       });
       return;
@@ -1048,6 +1089,16 @@ test("candidate diagnostics use the active locale", async ({ context, page }) =>
           message: "A service name is required.",
           field: "name",
         },
+        {
+          severity: "WARNING",
+          code: "BUSINESS_IMPORT_ARCHIVE_MISSING_SERVICE",
+          message: "This service will be archived because it is missing from the replacement.",
+        },
+        {
+          severity: "WARNING",
+          code: "BUSINESS_IMPORT_UNEXPECTED_PREVIEW_DIAGNOSTIC",
+          message: "Raw technical message must never be shown.",
+        },
       ],
     },
   ];
@@ -1064,8 +1115,12 @@ test("candidate diagnostics use the active locale", async ({ context, page }) =>
   });
 
   const row = page.getByTestId("business-import-candidate-candidate-add");
-  await expect(row).toContainText("Укажите название услуги.");
+  await expect(row).toContainText(messages.ru["businessImport.diagnostic.nameRequired"]);
+  await expect(row).toContainText(messages.ru["businessImport.diagnostic.replacementRemoval"]);
+  await expect(row).toContainText(messages.ru["businessImport.diagnostic.unknownWarning"]);
   await expect(row).not.toContainText("A service name is required.");
+  await expect(row).not.toContainText("This service will be archived");
+  await expect(row).not.toContainText("Raw technical message");
 });
 
 test("recent imports remain discoverable for read-only workspace members", async ({
@@ -1155,6 +1210,10 @@ test("unsaved profile changes are gated and direct upload omits ambient credenti
   await expect(page).toHaveURL(new RegExp(`/app/knowledge/imports/${importId}$`, "u"));
   await expect(page.getByTestId("business-import-review-table")).toBeVisible();
   await expect(page.getByTestId("business-import-diagnostics")).toContainText(
+    messages.en["businessImport.diagnostic.unknownWarning"],
+  );
+  await expect(page.getByTestId("business-import-diagnostics")).toContainText("legacy_code");
+  await expect(page.getByTestId("business-import-diagnostics")).not.toContainText(
     "The column legacy_code was not imported.",
   );
   expect(state.intentRequests).toHaveLength(1);
@@ -1264,6 +1323,39 @@ test("a generic upload reuses the newest exact-name catalog by default", async (
     sourceId: "source-newest",
     sourceName: "teplodom_services",
   });
+});
+
+test("paused catalogs still require an explicit add or replace choice", async ({
+  context,
+  page,
+}) => {
+  await installMocks(page, {
+    importSources: [
+      {
+        id: "source-paused",
+        displayName: "legacy_services",
+        status: "PAUSED",
+        etag: '"business-import-source-paused-1"',
+        latestImport: null,
+        archivedAt: null,
+        createdAt: "2026-07-19T10:00:00.000Z",
+        updatedAt: "2026-07-23T10:00:00.000Z",
+      },
+    ],
+  });
+  await context.addCookies([
+    { name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" },
+  ]);
+  await page.goto(`${webBase}/app/knowledge?view=business`, { waitUntil: "domcontentloaded" });
+  await page.getByTestId("business-profile-import-file").click();
+  await page.getByLabel("Service or price-list file").setInputFiles({
+    name: "replacement.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("external_id,name\nSRV-001,Installation\n"),
+  });
+
+  await expect(page.getByTestId("business-import-mode")).toBeVisible();
+  await expect(page.getByTestId("business-import-mode-replace").getByRole("radio")).toBeChecked();
 });
 
 test("a user can explicitly create a separate catalog after an exact-name match", async ({
@@ -1869,6 +1961,27 @@ test("a blocking apply preview cannot be confirmed and exposes rebase recovery",
   expect(state.applies).toHaveLength(0);
 });
 
+test("an oversized resulting catalog explains the 400-service recovery", async ({ page }) => {
+  await installMocks(page, {
+    initiallySelected: true,
+    previewDiagnostics: [
+      {
+        severity: "ERROR",
+        code: "BUSINESS_IMPORT_ACTIVE_CATALOG_LIMIT",
+        message: "Technical backend catalog limit message.",
+      },
+    ],
+  });
+
+  await page.goto(`${webBase}/app/knowledge/imports/${importId}`);
+  await page.getByTestId("business-import-apply-selected").click();
+
+  const error = page.getByTestId("business-import-operation-error");
+  await expect(error).toContainText(messages.en["businessImport.diagnostic.catalogLimit"]);
+  await expect(error).not.toContainText("Technical backend catalog limit message.");
+  await expect(page.getByTestId("business-import-apply-confirm")).not.toBeVisible();
+});
+
 test("apply retry keeps one idempotency key and shows failure inside the dialog", async ({
   page,
 }) => {
@@ -1891,7 +2004,7 @@ test("apply retry keeps one idempotency key and shows failure inside the dialog"
   );
 });
 
-test("an owner approves all selected high-risk services in one request", async ({ page }) => {
+test("an owner confirms selected prices and continues to the apply preview", async ({ page }) => {
   const state = await installMocks(page, { initiallySelected: true });
   state.candidates = state.candidates.map((candidate) => ({
     ...candidate,
@@ -1916,11 +2029,10 @@ test("an owner approves all selected high-risk services in one request", async (
   }));
 
   await page.goto(`${webBase}/app/knowledge/imports/${importId}`);
-  await expect(page.getByTestId("business-import-approve-selected")).toContainText("2");
-  await page.getByTestId("business-import-approve-selected").click();
+  await expect(page.getByTestId("business-import-apply-selected")).toContainText("2");
+  await page.getByTestId("business-import-apply-selected").click();
 
-  await expect(page.getByTestId("business-import-approve-selected")).not.toBeVisible();
-  await expect(page.getByTestId("business-import-apply-selected")).toBeEnabled();
+  await expect(page.getByTestId("business-import-apply-preview")).toBeVisible();
   expect(state.bulkApprovals).toHaveLength(1);
   expect(state.bulkApprovals[0].body).toEqual({
     candidates: expectedCandidates,
@@ -2091,6 +2203,24 @@ test("search and review filters include candidates returned on the second page",
   await expect(page.getByTestId("business-import-candidate-candidate-filler-1")).toHaveCount(0);
 });
 
+test("a valid review loads more than 400 transport candidates", async ({ context, page }) => {
+  const state = await installMocks(page, { largeReviewCandidateCount: 450 });
+  await context.addCookies([
+    { name: "leadvirt-locale", value: "en", url: webBase, sameSite: "Lax" },
+  ]);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto(`${webBase}/app/knowledge/imports/${importId}`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await expect.poll(() => state.candidateListRequests).toContain("candidate-page-5");
+  expect(state.candidates.filter((candidate) => candidate.selected)).toHaveLength(400);
+  await expect(page.getByTestId("business-import-review").getByRole("alert")).toHaveCount(0);
+
+  await page.getByTestId("business-import-search").fill("Large review service 450");
+  await expect(page.getByTestId("business-import-candidate-candidate-large-450")).toBeVisible();
+});
+
 test("an invalid candidate can be edited but not accepted until it is corrected", async ({
   context,
   page,
@@ -2144,6 +2274,9 @@ test("an invalid candidate can be edited but not accepted until it is corrected"
 
   await expect(page.getByRole("button", { name: "Include Broken service" })).toBeDisabled();
   await expect(page.getByTestId("business-import-candidate-candidate-invalid")).toContainText(
+    messages.en["businessImport.diagnostic.unknown"],
+  );
+  await expect(page.getByTestId("business-import-candidate-candidate-invalid")).not.toContainText(
     "The service row requires correction.",
   );
   await page.getByRole("button", { name: "Edit Broken service" }).click();
@@ -2245,7 +2378,7 @@ test("desktop review exposes source evidence, saves edits, and applies an exact 
 
   await expect(page.getByTestId("business-import-applied")).toBeVisible();
   await expect(page.getByTestId("business-import-applied")).toContainText(
-    "Added 1; updated 1; linked 0.",
+    "Added 1; updated 1; removed 0; linked 0.",
   );
   await expect(page.getByTestId("business-import-review-draft")).toHaveAttribute(
     "href",

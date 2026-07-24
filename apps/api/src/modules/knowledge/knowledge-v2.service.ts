@@ -3,12 +3,16 @@ import { HttpStatus, Inject, Injectable, Optional } from "@nestjs/common";
 import { Prisma, type KnowledgeV2Settings } from "@leadvirt/db";
 import {
   compareKnowledgeCanonicalText,
+  KNOWLEDGE_OWNER_VERIFICATION_FRESHNESS_POLICY_ID,
+  knowledgeOwnerVerificationEffectiveUntil,
   knowledgeV2TenantDefaultScopeHash,
   type KnowledgeV2PersistedScope,
 } from "@leadvirt/knowledge";
 import type {
   KnowledgeV2ActorView,
   KnowledgeV2ApproverRole,
+  KnowledgeV2BulkFactVerificationRequest,
+  KnowledgeV2BulkFactVerificationView,
   KnowledgeV2CreateFactRequest,
   KnowledgeV2CreateGuidanceRuleRequest,
   KnowledgeV2EvidenceView,
@@ -361,10 +365,23 @@ function canViewScope(context: RequestContext, value: Prisma.JsonValue | null) {
   return !scopeView(value).audiences.includes("INTERNAL");
 }
 
-function factActions(context: RequestContext, version: FactVersionRecord): KnowledgeV2FactAction[] {
+function factActions(
+  context: RequestContext,
+  version: FactVersionRecord,
+  entityType: string,
+): KnowledgeV2FactAction[] {
   if (!canEdit(context)) return [];
   const actions: KnowledgeV2FactAction[] = ["EDIT"];
-  if (version.verificationStatus !== "VERIFIED" && canVerifyRisk(context, version.riskLevel)) {
+  const serviceConfirmationExpired =
+    entityType === "BUSINESS_OFFERING" &&
+    ["HIGH", "CRITICAL"].includes(version.riskLevel) &&
+    (version.authority !== "OWNER_VERIFIED" ||
+      !version.effectiveUntil ||
+      version.effectiveUntil <= new Date());
+  if (
+    (version.verificationStatus !== "VERIFIED" || serviceConfirmationExpired) &&
+    canVerifyRisk(context, version.riskLevel)
+  ) {
     actions.push("VERIFY");
   }
   if (version.verificationStatus !== "REJECTED") actions.push("REJECT");
@@ -835,6 +852,198 @@ export class KnowledgeV2Service {
     return this.mutateFact(context, id, input, idempotencyKey, ifMatch, "verify");
   }
 
+  async bulkVerifyFacts(
+    context: RequestContext,
+    input: KnowledgeV2BulkFactVerificationRequest,
+    idempotencyKey: string,
+  ): Promise<KnowledgeV2MutationResult<KnowledgeV2BulkFactVerificationView>> {
+    if (context.role !== "OWNER" && context.role !== "ADMIN") {
+      throw this.permissionDenied("Only an owner or admin can confirm service information.");
+    }
+    const ids = input.items.map((item) => item.id);
+    if (
+      ids.length === 0 ||
+      ids.length > 200 ||
+      new Set(ids).size !== ids.length ||
+      input.items.some((item) => !item.id.trim() || !item.etag.trim())
+    ) {
+      throw knowledgeV2Error(
+        HttpStatus.BAD_REQUEST,
+        "KNOWLEDGE_VALIDATION_BULK_FACT_VERIFICATION_INVALID",
+        "Select between 1 and 200 unique facts with current ETags.",
+        { field: "items" },
+      );
+    }
+    const items = [...input.items].sort((left, right) =>
+      compareKnowledgeCanonicalText(left.id, right.id),
+    );
+    const result = await this.idempotency.execute(
+      {
+        tenantId: context.tenantId,
+        endpoint: "POST:/knowledge/v2/facts/bulk-verify",
+        key: idempotencyKey,
+        request: input,
+        transactionTimeoutMs: 120_000,
+      },
+      async (tx) => {
+        const settings = await this.lockSettings(tx, context.tenantId);
+        for (const item of items) await this.lockFact(tx, context.tenantId, item.id);
+
+        const createdAt = new Date();
+        const prepared = [];
+        for (const item of items) {
+          const current = await this.getFactRecord(tx, context.tenantId, item.id);
+          const previous = current.versions[0];
+          if (!previous || previous.versionNumber !== current.latestVersionNumber) {
+            throw this.invalidVersionDependency("fact");
+          }
+          assertIfMatch(
+            [item.etag],
+            strongKnowledgeV2Etag("fact", current.id, current.etag),
+            current.latestVersionNumber,
+            [
+              "normalizedValue",
+              "displayValue",
+              "effectiveWindow",
+              "authority",
+              "verificationStatus",
+            ],
+          );
+          if (
+            current.entityType !== "BUSINESS_OFFERING" ||
+            !["HIGH", "CRITICAL"].includes(previous.riskLevel) ||
+            previous.lifecycleStatus === "ARCHIVED" ||
+            !factActions(context, previous, current.entityType).includes("VERIFY")
+          ) {
+            throw this.actionNotAllowed();
+          }
+          let material = this.factMaterial({}, previous, settings);
+          material = {
+            ...material,
+            authority: "OWNER_VERIFIED",
+            effectiveUntil: knowledgeOwnerVerificationEffectiveUntil({
+              verifiedAt: createdAt,
+              effectiveUntil: material.effectiveUntil,
+            }),
+          };
+          assertDateWindow(material.effectiveFrom, material.effectiveUntil);
+          const versionNumber = current.latestVersionNumber + 1;
+          const evidence = this.verificationEvidence(context, material.scope, createdAt, true);
+          const successorEvidence = [...previous.evidence, evidence];
+          const immutableHash = this.factHash({
+            fact: current,
+            versionNumber,
+            material,
+            lifecycleStatus: "DRAFT",
+            verificationStatus: "VERIFIED",
+            changeReason: input.note ?? null,
+            supersedesVersionId: previous.id,
+            createdByUserId: context.userId,
+            verifiedByUserId: context.userId,
+            verifiedAt: createdAt,
+            rejectedByUserId: null,
+            rejectedAt: null,
+            createdAt,
+            evidence: successorEvidence,
+          });
+          prepared.push({
+            current,
+            previous,
+            material,
+            versionNumber,
+            evidence,
+            immutableHash,
+          });
+        }
+
+        const draftGeneration = await this.bumpDraftGeneration(tx, context.tenantId);
+        const responseItems: KnowledgeV2BulkFactVerificationView["items"] = [];
+        for (const item of prepared) {
+          const cas = await tx.knowledgeV2Fact.updateMany({
+            where: {
+              id: item.current.id,
+              tenantId: context.tenantId,
+              etag: item.current.etag,
+              latestVersionNumber: item.current.latestVersionNumber,
+            },
+            data: {
+              latestVersionNumber: item.versionNumber,
+              generation: { increment: 1 },
+              etag: { increment: 1 },
+              updatedByUserId: context.userId,
+            },
+          });
+          if (cas.count !== 1) throw this.concurrentMutation();
+          const version = await tx.knowledgeV2FactVersion.create({
+            data: {
+              tenantId: context.tenantId,
+              factId: item.current.id,
+              versionNumber: item.versionNumber,
+              ...this.factVersionData(item.material),
+              lifecycleStatus: "DRAFT",
+              verificationStatus: "VERIFIED",
+              changeReason: input.note ?? null,
+              supersedesVersionId: item.previous.id,
+              immutableHash: item.immutableHash,
+              createdByUserId: context.userId,
+              verifiedByUserId: context.userId,
+              verifiedAt: createdAt,
+              rejectedByUserId: null,
+              rejectedAt: null,
+              createdAt,
+            },
+          });
+          await this.cloneEvidence(tx, item.previous.evidence, {
+            factVersionId: version.id,
+            guidanceRuleVersionId: null,
+          });
+          await this.createManualEvidence(tx, context.tenantId, item.evidence, {
+            factVersionId: version.id,
+            guidanceRuleVersionId: null,
+          });
+          await enqueueKnowledgeV2ContentReconciliation(tx, {
+            tenantId: context.tenantId,
+            resourceType: "FACT",
+            resourceId: item.current.id,
+            resourceGeneration: item.current.generation + 1,
+            versionId: version.id,
+            versionNumber: version.versionNumber,
+            versionHash: version.immutableHash,
+            draftGeneration,
+            action: "VERIFY",
+            actorUserId: context.userId,
+            requestedRole: context.role,
+            mutationIdempotencyKey: idempotencyKey,
+          });
+          await this.audit(tx, context, "knowledge.v2.fact_verified", item.current.id, {
+            factKey: item.current.factKey,
+            version: version.versionNumber,
+            versionId: version.id,
+            verificationStatus: "VERIFIED",
+            bulk: true,
+          });
+          responseItems.push({
+            id: item.current.id,
+            version: version.versionNumber,
+            etag: strongKnowledgeV2Etag("fact", item.current.id, item.current.etag + 1),
+            verificationStatus: "VERIFIED",
+            authority: "OWNER_VERIFIED",
+            effectiveUntil: item.material.effectiveUntil!.toISOString(),
+          });
+        }
+        return {
+          httpStatus: HttpStatus.OK,
+          responseBody: {
+            verifiedCount: responseItems.length,
+            items: responseItems,
+          },
+          responseRef: canonicalKnowledgeV2Hash(responseItems.map((item) => item.id)),
+        };
+      },
+    );
+    return mutationResult(result);
+  }
+
   async rejectFact(
     context: RequestContext,
     id: string,
@@ -1118,7 +1327,10 @@ export class KnowledgeV2Service {
           throw this.permissionDenied("High-risk facts require an owner or admin to verify them.");
         }
         const requestedAction = operation === "verify" ? "VERIFY" : "REJECT";
-        if (operation !== "update" && !factActions(context, previous).includes(requestedAction)) {
+        if (
+          operation !== "update" &&
+          !factActions(context, previous, current.entityType).includes(requestedAction)
+        ) {
           throw this.actionNotAllowed();
         }
         if (
@@ -1134,24 +1346,47 @@ export class KnowledgeV2Service {
           );
         }
 
+        const createdAt = new Date();
         let material =
           operation === "update"
             ? this.factMaterial(input as KnowledgeV2UpdateFactRequest, previous, settings)
             : this.factMaterial({}, previous, settings);
         if (
           operation === "verify" &&
-          (material.authority === "MANUAL" || material.authority === "IMPORTED") &&
           (context.role === "OWNER" || context.role === "ADMIN")
         ) {
           material = { ...material, authority: "OWNER_VERIFIED" };
         }
+        if (
+          operation === "verify" &&
+          current.entityType === "BUSINESS_OFFERING" &&
+          ["HIGH", "CRITICAL"].includes(material.riskLevel) &&
+          (context.role === "OWNER" || context.role === "ADMIN")
+        ) {
+          material = {
+            ...material,
+            effectiveUntil: knowledgeOwnerVerificationEffectiveUntil({
+              verifiedAt: createdAt,
+              effectiveUntil: material.effectiveUntil,
+            }),
+          };
+          assertDateWindow(material.effectiveFrom, material.effectiveUntil);
+        }
         const versionNumber = current.latestVersionNumber + 1;
-        const createdAt = new Date();
         const changeReason =
           operation === "update"
             ? ((input as KnowledgeV2UpdateFactRequest).changeReason ?? null)
             : ((input as KnowledgeV2FactDecisionRequest).note ?? null);
-        const editorEvidence = this.manualEvidence(context, material.scope);
+        const editorEvidence =
+          operation === "verify" && (context.role === "OWNER" || context.role === "ADMIN")
+            ? this.verificationEvidence(
+                context,
+                material.scope,
+                createdAt,
+                current.entityType === "BUSINESS_OFFERING" &&
+                  ["HIGH", "CRITICAL"].includes(material.riskLevel),
+              )
+            : this.manualEvidence(context, material.scope);
         const successorEvidence = [...previous.evidence, editorEvidence];
         const verificationStatus =
           operation === "verify"
@@ -2116,7 +2351,7 @@ export class KnowledgeV2Service {
             : "DRAFT",
       verificationStatus: version.verificationStatus,
       evidence,
-      allowedActions: factActions(context, version),
+      allowedActions: factActions(context, version, fact.entityType),
       createdAt: fact.createdAt.toISOString(),
       updatedAt: fact.updatedAt.toISOString(),
       verifiedAt: dateValue(version.verifiedAt),
@@ -2265,10 +2500,35 @@ export class KnowledgeV2Service {
     };
   }
 
+  private verificationEvidence(
+    context: RequestContext,
+    scope: Prisma.InputJsonObject | null,
+    verifiedAt: Date,
+    freshnessApplied: boolean,
+  ) {
+    const evidence = this.manualEvidence(context, scope);
+    const sourceReference = {
+      origin: "knowledge_owner_verification",
+      provenanceVersion: 1,
+      verifiedAt: verifiedAt.toISOString(),
+      ...(freshnessApplied
+        ? { freshnessPolicyId: KNOWLEDGE_OWNER_VERIFICATION_FRESHNESS_POLICY_ID }
+        : {}),
+    } satisfies Prisma.InputJsonObject;
+    return {
+      ...evidence,
+      label: "Workspace owner verification",
+      sourceReference,
+      metadata: sourceReference,
+    };
+  }
+
   private async createManualEvidence(
     tx: Prisma.TransactionClient,
     tenantId: string,
-    evidence: ReturnType<KnowledgeV2Service["manualEvidence"]>,
+    evidence:
+      | ReturnType<KnowledgeV2Service["manualEvidence"]>
+      | ReturnType<KnowledgeV2Service["verificationEvidence"]>,
     link: { factVersionId: string | null; guidanceRuleVersionId: string | null },
   ) {
     await tx.knowledgeV2Evidence.create({

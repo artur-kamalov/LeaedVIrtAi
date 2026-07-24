@@ -15,9 +15,7 @@ import {
   type OnboardingState as DbOnboardingState,
   type Tenant as DbTenant,
 } from "@leadvirt/db";
-import {
-  createDeterministicKnowledgeObjectKey,
-} from "@leadvirt/knowledge";
+import { createDeterministicKnowledgeObjectKey } from "@leadvirt/knowledge";
 import { createRuntimeQueueEvent } from "@leadvirt/runtime-queue";
 import type {
   BusinessProfileData,
@@ -126,11 +124,7 @@ interface CanonicalSnapshot {
 }
 
 type CanonicalFieldChange = {
-  resourceType:
-    | "BUSINESS_IDENTITY"
-    | "OFFERING"
-    | "OFFERING_PRICE"
-    | "OFFERING_DURATION";
+  resourceType: "BUSINESS_IDENTITY" | "OFFERING" | "OFFERING_PRICE" | "OFFERING_DURATION";
   resourceKey: string;
   fieldPath: string;
   value: unknown;
@@ -427,13 +421,15 @@ function currencyCode(value: string | undefined, fallback: string) {
   if (!value) return fallback;
   const normalized = value.toUpperCase();
   return (
-    {
-      "€": "EUR",
-      "$": "USD",
-      "£": "GBP",
-      "₽": "RUB",
-    } as Record<string, string>
-  )[normalized] ?? normalized;
+    (
+      {
+        "€": "EUR",
+        $: "USD",
+        "£": "GBP",
+        "₽": "RUB",
+      } as Record<string, string>
+    )[normalized] ?? normalized
+  );
 }
 
 function parsePrice(value: string, fallbackCurrency: string): ParsedPrice | null {
@@ -519,7 +515,8 @@ function parseDuration(value: string) {
       (!Number.isInteger(maximumMinutes) ||
         maximumMinutes < minimumMinutes ||
         maximumMinutes > 525_600))
-  ) return null;
+  )
+    return null;
   return { minimumMinutes, maximumMinutes };
 }
 
@@ -767,7 +764,6 @@ function planCanonicalMutation(
           );
         }
       }
-
     }
   }
   after.offerings.sort((left, right) => left.id.localeCompare(right.id));
@@ -903,13 +899,7 @@ export class BusinessProfileService {
       select: { revision: true },
     });
     if (informationState && informationState.revision > 0) {
-      return this.patchCanonical(
-        context,
-        profilePatch,
-        requestedFields,
-        idempotencyKey,
-        ifMatch,
-      );
+      return this.patchCanonical(context, profilePatch, requestedFields, idempotencyKey, ifMatch);
     }
     let dispatch: BusinessProfileDispatch = { eventId: null, reconciliationEventIds: [] };
 
@@ -1218,7 +1208,10 @@ export class BusinessProfileService {
       );
     }
     const rows = await this.loadCanonicalRows(tx, context.tenantId);
-    const legacy = this.profile(record((await this.ensureState(tx, context.tenantId)).data), tenant);
+    const legacy = this.profile(
+      record((await this.ensureState(tx, context.tenantId)).data),
+      tenant,
+    );
     const plan = planCanonicalMutation(context.tenantId, rows, legacy, profilePatch);
     if (plan.beforeRowsHash !== prepared.beforeRowsHash) {
       throw businessImportError(
@@ -1307,11 +1300,7 @@ export class BusinessProfileService {
       requestedAt: revision.createdAt.toISOString(),
     };
     const projectionEvent = this.importQueue
-      ? await this.importQueue.createRevisionProjectionEvent(
-          tx,
-          projectionData,
-          context.sessionId,
-        )
+      ? await this.importQueue.createRevisionProjectionEvent(tx, projectionData, context.sessionId)
       : await createRuntimeQueueEvent(tx, {
           tenantId: context.tenantId,
           aggregateType: "BusinessInformationRevision",
@@ -1359,12 +1348,7 @@ export class BusinessProfileService {
     });
     return {
       httpStatus: HttpStatus.OK,
-      responseBody: this.canonicalView(
-        onboardingState,
-        updatedTenant,
-        updatedState,
-        plan.after,
-      ),
+      responseBody: this.canonicalView(onboardingState, updatedTenant, updatedState, plan.after),
       responseRef: revision.id,
       projectionEventId: projectionEvent.id,
     };
@@ -1392,9 +1376,10 @@ export class BusinessProfileService {
     }
     if (requestedProfileFields.length === 0) {
       const scenarioChanged = own(inputData, "scenario");
-      const nextData = scenarioChanged && (!informationState || informationState.revision === 0)
-        ? this.materializeProfile(mergedData, this.profile(mergedData, tenant))
-        : mergedData;
+      const nextData =
+        scenarioChanged && (!informationState || informationState.revision === 0)
+          ? this.materializeProfile(mergedData, this.profile(mergedData, tenant))
+          : mergedData;
       if (scenarioChanged && (!informationState || informationState.revision === 0)) {
         this.assertProfileSize(this.profile(nextData, tenant));
       }
@@ -1542,13 +1527,7 @@ export class BusinessProfileService {
         informationState && informationState.revision > 0
           ? await this.loadCanonicalIdentity(tx, context.tenantId)
           : null;
-      return this.settingsAccount(
-        updatedTenant,
-        updatedState,
-        context,
-        informationState,
-        identity,
-      );
+      return this.settingsAccount(updatedTenant, updatedState, context, informationState, identity);
     });
     await this.dispatch(dispatch, context.tenantId);
     return account;
@@ -1670,7 +1649,9 @@ export class BusinessProfileService {
     });
   }
 
-  private affectedCanonicalResources(plan: CanonicalMutationPlan) {
+  private affectedCanonicalResources(
+    plan: Pick<CanonicalMutationPlan, "fieldChanges" | "changedProfileFields">,
+  ) {
     const resources = new Map<string, { resourceType: string; resourceKey: string }>();
     for (const change of plan.fieldChanges) {
       resources.set(`${change.resourceType}:${change.resourceKey}`, {
@@ -1728,7 +1709,9 @@ export class BusinessProfileService {
         identity.id,
       );
     }
-    const beforeOfferings = new Map(plan.before.offerings.map((offering) => [offering.id, offering]));
+    const beforeOfferings = new Map(
+      plan.before.offerings.map((offering) => [offering.id, offering]),
+    );
     for (const offering of plan.after.offerings) {
       const before = beforeOfferings.get(offering.id);
       if (!before) {
@@ -1780,7 +1763,9 @@ export class BusinessProfileService {
           currency: price.currency,
           unit: price.unit,
           taxNote: price.taxNote,
-          effectiveFrom: price.effectiveFrom ? new Date(`${price.effectiveFrom}T00:00:00.000Z`) : null,
+          effectiveFrom: price.effectiveFrom
+            ? new Date(`${price.effectiveFrom}T00:00:00.000Z`)
+            : null,
           effectiveUntil: price.effectiveUntil
             ? new Date(`${price.effectiveUntil}T00:00:00.000Z`)
             : null,
@@ -2256,8 +2241,9 @@ export class BusinessProfileService {
       website: optionalText(profile.website) ?? null,
       businessProfileVersion: version,
       businessProfileEtag: this.profileEtag(tenant.id, version),
-      businessProfileUpdatedAt: (
-        v2Enabled ? informationState!.updatedAt : (state?.businessProfileUpdatedAt ?? tenant.updatedAt)
+      businessProfileUpdatedAt: (v2Enabled
+        ? informationState!.updatedAt
+        : (state?.businessProfileUpdatedAt ?? tenant.updatedAt)
       ).toISOString(),
     };
   }

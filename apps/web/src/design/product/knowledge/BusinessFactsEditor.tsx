@@ -34,6 +34,8 @@ import {
   verifyKnowledgeV2Fact,
 } from "@/lib/api/knowledge";
 import { Button } from "../../components/ui/Button";
+import { cn } from "../../lib/utils";
+import { findKnowledgeDataElement } from "./knowledge-dom";
 import { ConfirmDialog, EmptyState, LoadingOverlay, Modal, Select, StatusBadge } from "../ui";
 
 type FactKind =
@@ -554,10 +556,14 @@ function matchesSearch(fact: KnowledgeV2FactView, query: string, t: Translate) {
 export function BusinessFactsEditor({
   canEdit,
   canVerifyHighRisk,
+  focusedFactId = null,
+  initialVerificationFilter = "ALL",
   onChanged,
 }: {
   canEdit: boolean;
   canVerifyHighRisk: boolean;
+  focusedFactId?: string | null;
+  initialVerificationFilter?: FilterValue<KnowledgeV2VerificationStatus>;
   onChanged?: () => void;
 }) {
   const { t } = useI18n();
@@ -566,7 +572,7 @@ export function BusinessFactsEditor({
   const [query, setQuery] = React.useState("");
   const [riskFilter, setRiskFilter] = React.useState<FilterValue<KnowledgeV2RiskLevel>>("ALL");
   const [verificationFilter, setVerificationFilter] =
-    React.useState<FilterValue<KnowledgeV2VerificationStatus>>("ALL");
+    React.useState<FilterValue<KnowledgeV2VerificationStatus>>(initialVerificationFilter);
   const [nextCursor, setNextCursor] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [loadingMore, setLoadingMore] = React.useState(false);
@@ -578,6 +584,7 @@ export function BusinessFactsEditor({
   const [busyAction, setBusyAction] = React.useState<string | null>(null);
   const [announcement, setAnnouncement] = React.useState("");
   const requestSequence = React.useRef(0);
+  const deepLinkRequest = React.useRef(0);
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => setQuery(search.trim()), 250);
@@ -629,6 +636,40 @@ export function BusinessFactsEditor({
     void loadFacts();
   }, [loadFacts]);
 
+  React.useEffect(() => {
+    if (!focusedFactId) return;
+    setSearch("");
+    setQuery("");
+    setRiskFilter("ALL");
+    setVerificationFilter("ALL");
+  }, [focusedFactId]);
+
+  React.useEffect(() => {
+    if (
+      !focusedFactId ||
+      loading ||
+      query ||
+      riskFilter !== "ALL" ||
+      verificationFilter !== "ALL"
+    ) {
+      return;
+    }
+    const sequence = ++deepLinkRequest.current;
+    const existing = facts.find((fact) => fact.id === focusedFactId);
+    void (async () => {
+      const fact = existing ?? (await findCurrentFact(focusedFactId));
+      if (sequence !== deepLinkRequest.current || !fact) return;
+      if (!existing) {
+        setFacts((current) => [fact, ...current.filter((item) => item.id !== fact.id)]);
+      }
+      window.requestAnimationFrame(() => {
+        const target = findKnowledgeDataElement("data-knowledge-fact-id", focusedFactId);
+        target?.scrollIntoView({ block: "center" });
+        target?.focus();
+      });
+    })();
+  }, [facts, focusedFactId, loading, query, riskFilter, verificationFilter]);
+
   const factPassesCurrentFilters = React.useCallback(
     (fact: KnowledgeV2FactView) =>
       (riskFilter === "ALL" || fact.riskLevel === riskFilter) &&
@@ -662,6 +703,17 @@ export function BusinessFactsEditor({
       conflict: false,
       saving: false,
     });
+  }
+
+  async function findCurrentFact(factId: string) {
+    let cursor: string | undefined;
+    do {
+      const page = await listKnowledgeV2Facts({ limit: 100, ...(cursor ? { cursor } : {}) });
+      const current = page.items.find((fact) => fact.id === factId);
+      if (current) return current;
+      cursor = page.pageInfo.nextCursor ?? undefined;
+    } while (cursor);
+    return null;
   }
 
   function openEdit(fact: KnowledgeV2FactView, conflict = false, message?: string) {
@@ -1011,6 +1063,7 @@ export function BusinessFactsEditor({
               onEdit={() => openEdit(fact)}
               onVerify={() => void verifyFact(fact)}
               onReject={() => setRejectTarget(fact)}
+              focused={focusedFactId === fact.id}
             />
           ))}
           {listError ? (
@@ -1082,6 +1135,7 @@ function FactRow({
   onEdit,
   onVerify,
   onReject,
+  focused,
 }: {
   fact: KnowledgeV2FactView;
   canEdit: boolean;
@@ -1090,6 +1144,7 @@ function FactRow({
   onEdit: () => void;
   onVerify: () => void;
   onReject: () => void;
+  focused: boolean;
 }) {
   const { t, formatDate } = useI18n();
   const isHighRisk = fact.riskLevel === "HIGH" || fact.riskLevel === "CRITICAL";
@@ -1101,7 +1156,15 @@ function FactRow({
   const rowBusy = busyAction?.startsWith(`${fact.id}:`) ?? false;
 
   return (
-    <article className="grid min-w-0 gap-4 border-b border-white/5 px-4 py-4 last:border-b-0 lg:grid-cols-[minmax(0,1.5fr)_minmax(240px,1fr)_auto]">
+    <article
+      tabIndex={-1}
+      className={cn(
+        "scroll-mt-24 grid min-w-0 gap-4 border-b border-white/5 px-4 py-4 outline-none last:border-b-0 lg:grid-cols-[minmax(0,1.5fr)_minmax(240px,1fr)_auto]",
+        focused && "bg-amber-500/[0.07] ring-1 ring-inset ring-amber-400/40",
+      )}
+      data-knowledge-fact-id={fact.id}
+      data-testid={`knowledge-fact-${fact.id}`}
+    >
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <h3

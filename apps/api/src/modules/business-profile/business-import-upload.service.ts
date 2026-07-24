@@ -14,6 +14,7 @@ import type {
   BusinessImportUploadIntentView,
   BusinessImportUploadReceiptView,
 } from "@leadvirt/types";
+import { Prisma } from "@leadvirt/db";
 import type { RequestContext } from "../../common/request-context.js";
 import { AppConfigService } from "../../config/app-config.service.js";
 import { PrismaService } from "../database/prisma.service.js";
@@ -73,6 +74,7 @@ export class BusinessImportUploadService {
   ): Promise<BusinessImportUploadIntentView> {
     this.assertEditor(context);
     const runtime = this.runtimeService.runtime();
+    const catalogMode = input.mode ?? "ADD";
     const metadata = this.metadata(input.filename, input.declaredMimeType);
     if (
       (metadata.extension === "xlsx" && !this.config.businessImportXlsxSandboxApproved) ||
@@ -98,7 +100,7 @@ export class BusinessImportUploadService {
         tenantId: context.tenantId,
         endpoint: "POST:/business-profile/imports/intents",
         key: idempotencyKey,
-        request: input,
+        request: { ...input, mode: catalogMode },
       },
       async (tx) => {
         const membership = await tx.membership.findUnique({
@@ -107,6 +109,14 @@ export class BusinessImportUploadService {
         if (!membership || !["OWNER", "ADMIN", "MANAGER"].includes(membership.role)) {
           this.permissionDenied();
         }
+        await tx.$queryRaw(Prisma.sql`
+          SELECT TRUE AS "locked"
+          FROM (
+            SELECT pg_advisory_xact_lock(
+              hashtextextended(${"business-import-catalog:" + context.tenantId}, 0)
+            )
+          ) AS catalog_lock
+        `);
         const state = await this.informationState.ensureInTransaction(tx, context);
         const pending = await tx.businessImport.count({
           where: { tenantId: context.tenantId, state: { in: [...ACTIVE_STATES] } },
@@ -158,6 +168,7 @@ export class BusinessImportUploadService {
             tenantId: context.tenantId,
             sourceId: source.id,
             purpose: "SERVICES",
+            catalogMode,
             format: this.format(metadata.extension),
             state: "CREATED",
             displayName: source.displayName,
@@ -200,6 +211,7 @@ export class BusinessImportUploadService {
             entityId: created.id,
             payload: {
               sourceId: source.id,
+              mode: created.catalogMode,
               format: created.format,
               expectedByteSize: input.byteSize,
               baseInformationRevision: state.revision,

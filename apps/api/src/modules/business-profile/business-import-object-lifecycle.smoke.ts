@@ -128,6 +128,7 @@ async function main() {
       filename: "services.csv",
       declaredMimeType: "text/csv" as const,
       byteSize: 128,
+      mode: "ADD" as const,
       sourceName: "Lifecycle services",
     };
     const concurrent = await Promise.allSettled([

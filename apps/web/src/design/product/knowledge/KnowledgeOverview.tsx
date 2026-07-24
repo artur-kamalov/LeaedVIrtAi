@@ -1,12 +1,14 @@
 "use client";
 
 import React from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
   Clock3,
   FileWarning,
+  ListChecks,
   Loader2,
   RefreshCw,
   ShieldCheck,
@@ -32,7 +34,13 @@ import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/utils";
 import { Card } from "../shared";
 import { Select, StatusBadge } from "../ui";
-import type { KnowledgeViewId } from "./knowledge-views";
+import type { KnowledgeNavigationTarget, KnowledgeViewId } from "./knowledge-views";
+import { findKnowledgeDataElement } from "./knowledge-dom";
+import {
+  groupKnowledgePublicationGates,
+  knowledgeGateGroupCopy,
+  type KnowledgeGateGroup,
+} from "./knowledge-publication-gates";
 
 const readinessLabelKeys: Record<KnowledgeV2ReadinessStatus, TranslationKey> = {
   READY: "knowledge.status.readiness.ready",
@@ -115,12 +123,19 @@ export function KnowledgeOverview({
   onRefresh,
 }: {
   overview: KnowledgeV2OverviewView;
-  onNavigate: (view: KnowledgeViewId) => void;
+  onNavigate: (target: KnowledgeViewId | KnowledgeNavigationTarget) => void;
   onRefresh: () => void;
 }) {
   const { formatDate, formatNumber, t } = useI18n();
+  const searchParams = useSearchParams();
+  const focusedCapabilityId = searchParams.get("capabilityId");
+  const [expandedGateKey, setExpandedGateKey] = React.useState<string | null>(null);
+  const expandedGateDetailsRef = React.useRef<HTMLDivElement>(null);
   const { readiness } = overview;
   const gates = [...readiness.draft.blockers, ...readiness.draft.warnings];
+  const gateGroups = groupKnowledgePublicationGates(gates);
+  const blockerGroups = gateGroups.filter((group) => group.status === "BLOCKED");
+  const firstBlockerGroup = blockerGroups[0] ?? null;
   const canManageCapabilities = overview.permissions.canManageSettings;
   const [capabilitySettings, setCapabilitySettings] = React.useState<KnowledgeV2CapabilityView[]>(
     [],
@@ -157,9 +172,33 @@ export function KnowledgeOverview({
     };
   }, [loadCapabilities]);
 
+  React.useEffect(() => {
+    if (!focusedCapabilityId || capabilityLoading) return;
+    const target = findKnowledgeDataElement("data-capability-id", focusedCapabilityId);
+    if (!target) return;
+    target.scrollIntoView({ block: "center" });
+    target.focus();
+  }, [capabilityLoading, focusedCapabilityId]);
+
   const capabilitySaving = Object.values(capabilityStates).some(
     (state) => state?.status === "saving",
   );
+
+  React.useEffect(() => {
+    if (!expandedGateKey) return;
+    window.requestAnimationFrame(() => {
+      expandedGateDetailsRef.current?.scrollIntoView({ block: "center" });
+      expandedGateDetailsRef.current?.focus();
+    });
+  }, [expandedGateKey]);
+
+  function openGateGroup(group: KnowledgeGateGroup) {
+    if (group.target) {
+      onNavigate(group.target);
+      return;
+    }
+    setExpandedGateKey((current) => (current === group.key ? null : group.key));
+  }
 
   async function saveCapability(
     capabilityType: KnowledgeV2CapabilityType,
@@ -202,6 +241,58 @@ export function KnowledgeOverview({
 
   return (
     <div className="space-y-6" data-testid="knowledge-overview">
+      <section
+        className={cn(
+          "flex min-w-0 flex-col gap-4 border-y px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5",
+          firstBlockerGroup
+            ? "border-amber-500/25 bg-amber-500/[0.06]"
+            : "border-emerald-500/25 bg-emerald-500/[0.06]",
+        )}
+        data-testid="knowledge-next-action"
+      >
+        <div className="flex min-w-0 items-start gap-3">
+          <div
+            className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-md border",
+              firstBlockerGroup
+                ? "border-amber-500/25 bg-amber-500/10 text-amber-400"
+                : "border-emerald-500/25 bg-emerald-500/10 text-emerald-400",
+            )}
+          >
+            {firstBlockerGroup ? (
+              <ListChecks className="h-5 w-5" />
+            ) : (
+              <CheckCircle2 className="h-5 w-5" />
+            )}
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-zinc-100">
+              {firstBlockerGroup
+                ? t("knowledge.ux.next.blockedTitle", {
+                    count: formatNumber(blockerGroups.length),
+                  })
+                : t("knowledge.ux.next.readyTitle")}
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-400">
+              {t(
+                firstBlockerGroup
+                  ? "knowledge.ux.next.blockedDescription"
+                  : "knowledge.ux.next.readyDescription",
+              )}
+            </p>
+          </div>
+        </div>
+        <Button
+          className="shrink-0"
+          onClick={() =>
+            firstBlockerGroup ? openGateGroup(firstBlockerGroup) : onNavigate("history")
+          }
+        >
+          {t(firstBlockerGroup ? "knowledge.ux.next.fixAction" : "knowledge.ux.next.publishAction")}
+          <ArrowRight className="h-4 w-4" />
+        </Button>
+      </section>
+
       <section
         className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-white/10 bg-white/10 xl:grid-cols-4"
         data-testid="knowledge-overview-metrics"
@@ -312,7 +403,7 @@ export function KnowledgeOverview({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs font-medium uppercase text-zinc-500">
-                {t("knowledge.overview.draftEyebrow")}
+                {t("knowledge.ux.draft.title")}
               </p>
               <h2 className="mt-1 text-base font-semibold text-zinc-100">
                 {t("knowledge.overview.draftVersion", {
@@ -332,10 +423,17 @@ export function KnowledgeOverview({
               {t(draftStatusKeys[readiness.draft.status])}
             </StatusBadge>
           </div>
-          <p className="mt-4 text-sm text-zinc-400">
-            {readiness.draft.blockers.length > 0
+          <p className="mt-4 text-sm leading-6 text-zinc-400">
+            {readiness.serving.activePublicationSequence
+              ? t("knowledge.ux.draft.descriptionActive", {
+                  sequence: formatNumber(readiness.serving.activePublicationSequence),
+                })
+              : t("knowledge.ux.draft.descriptionEmpty")}
+          </p>
+          <p className="mt-2 text-sm text-zinc-500">
+            {blockerGroups.length > 0
               ? t("knowledge.overview.draftBlocked", {
-                  count: formatNumber(readiness.draft.blockers.length),
+                  count: formatNumber(blockerGroups.length),
                 })
               : readiness.draft.warnings.length > 0
                 ? t("knowledge.overview.draftWarnings")
@@ -345,9 +443,13 @@ export function KnowledgeOverview({
             className="mt-4"
             size="sm"
             variant="outline"
-            onClick={() => onNavigate("history")}
+            onClick={() =>
+              firstBlockerGroup ? openGateGroup(firstBlockerGroup) : onNavigate("history")
+            }
           >
-            {t("knowledge.overview.openHistory")}
+            {t(
+              firstBlockerGroup ? "knowledge.ux.next.fixAction" : "knowledge.ux.next.publishAction",
+            )}
             <ArrowRight className="ml-2 h-3.5 w-3.5" />
           </Button>
         </Card>
@@ -419,6 +521,7 @@ export function KnowledgeOverview({
                   canManage={canManageCapabilities}
                   controlsLoading={capabilityLoading || Boolean(capabilityLoadError)}
                   saveState={capabilityStates[capability.capabilityType]}
+                  focused={focusedCapabilityId === capability.capabilityId}
                   onEnabledChange={(enabled) =>
                     void saveCapability(capability.capabilityType, { enabled })
                   }
@@ -438,31 +541,65 @@ export function KnowledgeOverview({
           <h2 className="text-base font-semibold text-zinc-100">
             {t("knowledge.overview.draftAttention")}
           </h2>
+          <p className="mt-1 text-sm text-zinc-500">{t("knowledge.ux.attention.description")}</p>
           <div className="mt-3 space-y-2">
-            {gates.map((gate) => {
-              const resource = gate.remediation?.resource ?? gate.resource;
+            {gateGroups.map((group) => {
+              const copy = knowledgeGateGroupCopy(group, t, formatNumber);
+              const expanded = !group.target && expandedGateKey === group.key;
               return (
-                <div
-                  key={`${gate.code}:${gate.resource?.id ?? "workspace"}`}
-                  className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.025] px-4 py-3 sm:flex-row sm:items-center"
-                >
-                  {gate.status === "BLOCKED" ? (
-                    <FileWarning className="h-4 w-4 shrink-0 text-rose-400" />
-                  ) : (
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-zinc-200">{gate.title}</p>
-                    <p className="mt-0.5 text-xs text-zinc-500">{gate.message}</p>
-                  </div>
-                  {resource?.type === "FACT" ? (
-                    <Button size="sm" variant="ghost" onClick={() => onNavigate("business")}>
-                      {t("knowledge.common.resolve")}
-                    </Button>
-                  ) : resource?.type === "GUIDANCE_RULE" ? (
-                    <Button size="sm" variant="ghost" onClick={() => onNavigate("guidance")}>
-                      {t("knowledge.common.resolve")}
-                    </Button>
+                <div key={group.key}>
+                  <button
+                    type="button"
+                    className="flex w-full min-w-0 flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.025] px-4 py-3 text-left transition-colors hover:border-white/20 hover:bg-white/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 sm:flex-row sm:items-center"
+                    onClick={() => openGateGroup(group)}
+                    aria-expanded={group.target ? undefined : expanded}
+                    data-testid={`knowledge-gate-${group.gates[0]?.code ?? "unknown"}`}
+                  >
+                    {group.status === "BLOCKED" ? (
+                      <FileWarning className="h-4 w-4 shrink-0 text-rose-400" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-zinc-200">{copy.title}</p>
+                      <p className="mt-0.5 text-xs text-zinc-500">{copy.description}</p>
+                    </div>
+                    <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-emerald-400">
+                      {t(
+                        group.target
+                          ? "knowledge.ux.attention.open"
+                          : "knowledge.ux.attention.details",
+                      )}
+                      <ArrowRight
+                        className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-90")}
+                      />
+                    </span>
+                  </button>
+                  {expanded ? (
+                    <div
+                      ref={expandedGateDetailsRef}
+                      tabIndex={-1}
+                      className="mx-3 border-x border-b border-amber-500/20 bg-amber-500/[0.05] px-4 py-3"
+                      data-testid="knowledge-gate-in-place-details"
+                    >
+                      <p className="text-sm font-medium text-amber-200">
+                        {t("knowledge.ux.gate.unknownDetailsTitle")}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-amber-100/70">
+                        {t("knowledge.ux.gate.unknownDetailsDescription")}
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <Button type="button" size="sm" variant="outline" onClick={onRefresh}>
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          {t("knowledge.page.refresh")}
+                        </Button>
+                        <span className="break-all text-xs text-zinc-600">
+                          {t("knowledge.ux.gate.reference", {
+                            code: group.gates[0]?.code ?? "UNKNOWN",
+                          })}
+                        </span>
+                      </div>
+                    </div>
                   ) : null}
                 </div>
               );
@@ -516,6 +653,7 @@ function CapabilityDraftRow({
   canManage,
   controlsLoading,
   saveState,
+  focused,
   onEnabledChange,
   onAutonomyChange,
   onReload,
@@ -525,6 +663,7 @@ function CapabilityDraftRow({
   canManage: boolean;
   controlsLoading: boolean;
   saveState?: CapabilitySaveState;
+  focused: boolean;
   onEnabledChange: (enabled: boolean) => void;
   onAutonomyChange: (autonomy: KnowledgeV2CapabilityAutonomy) => void;
   onReload: () => void;
@@ -538,7 +677,12 @@ function CapabilityDraftRow({
 
   return (
     <div
-      className="grid min-w-0 gap-4 border-b border-white/5 px-5 py-4 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_minmax(12rem,15rem)_auto] lg:items-center"
+      tabIndex={-1}
+      className={cn(
+        "grid min-w-0 scroll-mt-24 gap-4 border-b border-white/5 px-5 py-4 outline-none last:border-b-0 lg:grid-cols-[minmax(0,1fr)_minmax(12rem,15rem)_auto] lg:items-center",
+        focused && "bg-amber-500/[0.07] ring-1 ring-inset ring-amber-400/40",
+      )}
+      data-capability-id={capability.capabilityId}
       data-capability-type={capability.capabilityType}
     >
       <div className="min-w-0">

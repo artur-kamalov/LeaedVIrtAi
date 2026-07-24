@@ -2,6 +2,7 @@ import { Readable } from "node:stream";
 import { parse } from "csv-parse";
 
 export const BUSINESS_SERVICES_CSV_SCHEMA_VERSION = "leadvirt.services.v1";
+export const BUSINESS_IMPORT_SERVICE_LIMIT = 400;
 
 // ISO 4217 List One published 2026-01-01; XTS and XXX are not customer price currencies.
 export const BUSINESS_IMPORT_CURRENCY_CODES =
@@ -179,7 +180,7 @@ const DEFAULT_LIMITS: BusinessServiceCsvLimits = {
   maxRows: 10_000,
   maxColumns: 100,
   maxCellCharacters: 8 * 1024,
-  maxServices: 200,
+  maxServices: BUSINESS_IMPORT_SERVICE_LIMIT,
   maxTotalCharacters: 1_000_000,
 };
 

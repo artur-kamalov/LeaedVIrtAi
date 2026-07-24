@@ -24,6 +24,7 @@ import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { RequestContext } from "../../common/request-context.js";
 import { WorkspaceAuthGuard } from "../auth/workspace-auth.guard.js";
 import {
+  KnowledgeV2BulkFactVerificationDto,
   KnowledgeV2CreateFactDto,
   KnowledgeV2FactDecisionDto,
   KnowledgeV2FactListQueryDto,
@@ -509,6 +510,22 @@ export class KnowledgeV2Controller {
       headers.ifMatch,
     );
     setEtag(response, data.resource.etag);
+    return { data };
+  }
+
+  @Roles(...publisherRoles)
+  @Post("facts/bulk-verify")
+  @HttpCode(HttpStatus.OK)
+  async bulkVerifyFacts(
+    @CurrentContext() context: RequestContext,
+    @Body() dto: KnowledgeV2BulkFactVerificationDto,
+    @Headers("idempotency-key") idempotencyKey: HeaderValue,
+  ) {
+    const data = await this.knowledge.bulkVerifyFacts(
+      context,
+      dto,
+      requireIdempotencyKey(idempotencyKey),
+    );
     return { data };
   }
 

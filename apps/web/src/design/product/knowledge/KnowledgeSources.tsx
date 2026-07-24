@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import React from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   Ban,
@@ -30,6 +31,8 @@ import {
 } from "lucide-react";
 import type {
   BusinessImportSourcePage,
+  BusinessImportSourceArchivePreview,
+  BusinessImportSourceArchiveReceipt,
   BusinessImportSourceView,
   KnowledgeV2AcceptedMutation,
   KnowledgeV2Audience,
@@ -55,7 +58,12 @@ import type {
 import { useI18n } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/messages";
 import { ApiClientError } from "@/lib/api/client";
-import { listBusinessImportSources } from "@/lib/api/business-imports";
+import {
+  archiveBusinessImportSource,
+  createBusinessImportIdempotencyKey,
+  listBusinessImportSources,
+  previewBusinessImportSourceArchive,
+} from "@/lib/api/business-imports";
 import {
   createKnowledgeV2IdempotencyKey,
   createKnowledgeV2Source,
@@ -63,6 +71,7 @@ import {
   createKnowledgeV2FileUploadIntent,
   deleteKnowledgeV2Source,
   excludeKnowledgeV2Revision,
+  getKnowledgeV2Document,
   getKnowledgeV2Job,
   getKnowledgeV2Source,
   listKnowledgeV2DocumentRevisions,
@@ -82,6 +91,7 @@ import {
 import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/utils";
 import { EmptyState, LoadingOverlay, Modal, Select, Spinner, StatusBadge } from "../ui";
+import { findKnowledgeDataElement } from "./knowledge-dom";
 
 const SOURCE_PAGE_SIZE = 25;
 const CATALOG_PAGE_SIZE = 25;
@@ -399,6 +409,10 @@ export function KnowledgeSources({
   onChanged: () => void;
 }) {
   const { t, locale, formatDate, formatNumber } = useI18n();
+  const searchParams = useSearchParams();
+  const focusedSourceId = searchParams.get("sourceId");
+  const focusedDocumentId = searchParams.get("documentId");
+  const focusedRevisionId = searchParams.get("revisionId");
   const [sources, setSources] = React.useState<KnowledgeV2SourceView[]>([]);
   const [sourcePage, setSourcePage] = React.useState<KnowledgeV2SourcePage["pageInfo"] | null>(
     null,
@@ -417,6 +431,7 @@ export function KnowledgeSources({
   const [conflict, setConflict] = React.useState(false);
   const sourceRequest = React.useRef(0);
   const detailRequest = React.useRef(0);
+  const missingFocusedSourceId = React.useRef<string | null>(null);
 
   const [catalogSources, setCatalogSources] = React.useState<BusinessImportSourceView[]>([]);
   const [catalogPage, setCatalogPage] = React.useState<BusinessImportSourcePage | null>(null);
@@ -424,6 +439,16 @@ export function KnowledgeSources({
   const [catalogLoading, setCatalogLoading] = React.useState(true);
   const [catalogLoadingMore, setCatalogLoadingMore] = React.useState(false);
   const [catalogError, setCatalogError] = React.useState<ApiClientError | null>(null);
+  const [catalogArchiveTarget, setCatalogArchiveTarget] =
+    React.useState<BusinessImportSourceView | null>(null);
+  const [catalogArchiveBusy, setCatalogArchiveBusy] = React.useState(false);
+  const [catalogArchivePreview, setCatalogArchivePreview] =
+    React.useState<BusinessImportSourceArchivePreview | null>(null);
+  const [catalogArchivePreviewLoading, setCatalogArchivePreviewLoading] = React.useState(false);
+  const [catalogArchiveReceipt, setCatalogArchiveReceipt] =
+    React.useState<BusinessImportSourceArchiveReceipt | null>(null);
+  const [catalogArchiveError, setCatalogArchiveError] = React.useState<ApiClientError | null>(null);
+  const catalogArchiveAttempt = React.useRef<string | null>(null);
   const catalogRequest = React.useRef(0);
 
   const [documents, setDocuments] = React.useState<KnowledgeV2DocumentView[]>([]);
@@ -450,6 +475,7 @@ export function KnowledgeSources({
   const [revisionLoadingMore, setRevisionLoadingMore] = React.useState(false);
   const [revisionError, setRevisionError] = React.useState<ApiClientError | null>(null);
   const revisionRequest = React.useRef(0);
+  const documentDeepLinkRequest = React.useRef(0);
 
   const [createOpen, setCreateOpen] = React.useState(false);
   const [createName, setCreateName] = React.useState("");
@@ -586,6 +612,113 @@ export function KnowledgeSources({
     void loadCatalogSources(false);
   }, [loadCatalogSources]);
 
+  React.useEffect(() => {
+    if (!focusedSourceId && !focusedDocumentId && !focusedRevisionId) return;
+    missingFocusedSourceId.current = null;
+    setSearch("");
+    setKindFilter("ALL");
+    setStatusFilter("ALL");
+    setDocumentSearch("");
+    setDocumentStatus("ALL");
+  }, [focusedDocumentId, focusedRevisionId, focusedSourceId]);
+
+  React.useEffect(() => {
+    if (!focusedSourceId || catalogLoading || sourceLoading) return;
+    if (missingFocusedSourceId.current === focusedSourceId) return;
+    if (catalogSources.some((source) => source.id === focusedSourceId)) return;
+    setSelectedSourceId(focusedSourceId);
+  }, [catalogLoading, catalogSources, focusedSourceId, sourceLoading]);
+
+  const openCatalogArchive = React.useCallback(
+    async (source: BusinessImportSourceView) => {
+      setCatalogArchiveTarget(source);
+      setCatalogArchivePreview(null);
+      setCatalogArchiveError(null);
+      setCatalogArchivePreviewLoading(true);
+      catalogArchiveAttempt.current = null;
+      try {
+        const preview = await previewBusinessImportSourceArchive(source.id);
+        setCatalogArchivePreview(preview);
+      } catch (caught) {
+        setCatalogArchiveError(
+          apiError(caught, t("knowledge.sources.catalog.archivePreviewError")),
+        );
+      } finally {
+        setCatalogArchivePreviewLoading(false);
+      }
+    },
+    [t],
+  );
+
+  async function archiveCatalogSource() {
+    const source = catalogArchiveTarget;
+    const preview = catalogArchivePreview;
+    if (!source || !preview?.canArchive || catalogArchiveBusy) return;
+    setCatalogArchiveBusy(true);
+    setCatalogArchiveError(null);
+    try {
+      const response = await archiveBusinessImportSource(source.id, {
+        "Idempotency-Key":
+          catalogArchiveAttempt.current ??
+          (catalogArchiveAttempt.current = createBusinessImportIdempotencyKey()),
+        "If-Match": preview.sourceEtag,
+      });
+      setCatalogArchiveReceipt(response.data);
+      setCatalogSources((current) => current.filter((item) => item.id !== source.id));
+      setCatalogArchiveTarget(null);
+      setCatalogArchivePreview(null);
+      catalogArchiveAttempt.current = null;
+      await loadCatalogSources(false);
+      onChanged();
+    } catch (caught) {
+      const error = apiError(caught, t("knowledge.sources.catalog.archiveError"));
+      setCatalogArchiveError(error);
+      if (
+        error.status === 412 ||
+        (error.status === 409 && error.code === "BUSINESS_IMPORT_SOURCE_BUSY")
+      ) {
+        try {
+          setCatalogArchivePreviewLoading(true);
+          setCatalogArchivePreview(await previewBusinessImportSourceArchive(source.id));
+          catalogArchiveAttempt.current = null;
+          setCatalogArchiveError(null);
+        } catch (previewError) {
+          setCatalogArchiveError(
+            apiError(previewError, t("knowledge.sources.catalog.archivePreviewError")),
+          );
+        } finally {
+          setCatalogArchivePreviewLoading(false);
+        }
+      }
+    } finally {
+      setCatalogArchiveBusy(false);
+    }
+  }
+
+  React.useEffect(() => {
+    if (
+      !focusedSourceId ||
+      focusedDocumentId ||
+      focusedRevisionId ||
+      catalogLoading ||
+      sourceLoading
+    ) {
+      return;
+    }
+    const target = findKnowledgeDataElement("data-knowledge-source-id", focusedSourceId);
+    if (!target) return;
+    target.scrollIntoView({ block: "center" });
+    target.focus();
+  }, [
+    catalogLoading,
+    catalogSources,
+    focusedDocumentId,
+    focusedRevisionId,
+    focusedSourceId,
+    sourceLoading,
+    sources,
+  ]);
+
   const loadSourceDetail = React.useCallback(
     async (sourceId: string, showLoading = true) => {
       const sequence = ++detailRequest.current;
@@ -602,6 +735,7 @@ export function KnowledgeSources({
         if (sequence !== detailRequest.current) return null;
         const error = apiError(caught, t("knowledge.sources.error.detail"));
         if (error.status === 404) {
+          if (sourceId === focusedSourceId) missingFocusedSourceId.current = sourceId;
           setSourceDetail(null);
           setSelectedSourceId(null);
           void loadSources(false);
@@ -613,7 +747,7 @@ export function KnowledgeSources({
         if (sequence === detailRequest.current) setDetailLoading(false);
       }
     },
-    [loadSources, t],
+    [focusedSourceId, loadSources, t],
   );
 
   React.useEffect(() => {
@@ -628,6 +762,24 @@ export function KnowledgeSources({
     if (selectedSourceId) void loadSourceDetail(selectedSourceId, true);
   }, [loadSourceDetail, selectedSourceId]);
 
+  React.useEffect(() => {
+    if (!focusedDocumentId || focusedSourceId) return;
+    const sequence = ++documentDeepLinkRequest.current;
+    void (async () => {
+      try {
+        const response = await getKnowledgeV2Document(focusedDocumentId);
+        if (sequence !== documentDeepLinkRequest.current) return;
+        setSelectedSourceId(response.data.sourceId);
+      } catch {
+        if (sequence !== documentDeepLinkRequest.current) return;
+        setDocumentError(apiError(null, t("knowledge.sources.error.documents")));
+      }
+    })();
+    return () => {
+      documentDeepLinkRequest.current += 1;
+    };
+  }, [focusedDocumentId, focusedSourceId, t]);
+
   const loadDocuments = React.useCallback(
     async (sourceId: string, append = false) => {
       const sequence = ++documentRequest.current;
@@ -641,16 +793,36 @@ export function KnowledgeSources({
           ...(documentStatus !== "ALL" ? { status: documentStatus } : {}),
           ...(documentSearch.trim() ? { query: documentSearch.trim() } : {}),
         });
+        let focusedDocument: KnowledgeV2DocumentView | null = null;
+        let focusedDocumentMissing = false;
+        if (!append && focusedDocumentId) {
+          try {
+            const response = await getKnowledgeV2Document(focusedDocumentId);
+            if (response.data.sourceId === sourceId) focusedDocument = response.data;
+          } catch {
+            focusedDocumentMissing = true;
+          }
+        }
         if (sequence !== documentRequest.current) return;
-        setDocuments((current) => (append ? [...current, ...page.items] : page.items));
+        const pageItems =
+          focusedDocument && !page.items.some((item) => item.id === focusedDocument.id)
+            ? [focusedDocument, ...page.items]
+            : page.items;
+        setDocuments((current) => (append ? [...current, ...pageItems] : pageItems));
         setDocumentPage(page.pageInfo);
         documentPageCursor.current = page.pageInfo.nextCursor;
-        setDocumentError(null);
+        setDocumentError(
+          focusedDocumentMissing ? apiError(null, t("knowledge.sources.error.documents")) : null,
+        );
         if (!append) {
           setSelectedDocumentId((current) =>
-            current && page.items.some((item) => item.id === current)
-              ? current
-              : (page.items[0]?.id ?? null),
+            focusedDocument
+              ? focusedDocument.id
+              : focusedDocumentMissing
+                ? null
+                : current && pageItems.some((item) => item.id === current)
+                  ? current
+                  : (pageItems[0]?.id ?? null),
           );
         }
       } catch (caught) {
@@ -663,7 +835,7 @@ export function KnowledgeSources({
         }
       }
     },
-    [documentSearch, documentStatus, t],
+    [documentSearch, documentStatus, focusedDocumentId, t],
   );
 
   React.useEffect(() => {
@@ -681,15 +853,32 @@ export function KnowledgeSources({
       if (append) setRevisionLoadingMore(true);
       else setRevisionLoading(true);
       try {
-        const page = await listKnowledgeV2DocumentRevisions(documentId, {
+        let page = await listKnowledgeV2DocumentRevisions(documentId, {
           limit: REVISION_PAGE_SIZE,
           ...(append && revisionPageCursor.current ? { cursor: revisionPageCursor.current } : {}),
         });
+        const items = [...page.items];
+        while (
+          !append &&
+          focusedRevisionId &&
+          !items.some((revision) => revision.id === focusedRevisionId) &&
+          page.pageInfo.nextCursor
+        ) {
+          page = await listKnowledgeV2DocumentRevisions(documentId, {
+            limit: REVISION_PAGE_SIZE,
+            cursor: page.pageInfo.nextCursor,
+          });
+          items.push(...page.items);
+        }
         if (sequence !== revisionRequest.current) return;
-        setRevisions((current) => (append ? [...current, ...page.items] : page.items));
+        setRevisions((current) => (append ? [...current, ...items] : items));
         setRevisionPage(page.pageInfo);
         revisionPageCursor.current = page.pageInfo.nextCursor;
-        setRevisionError(null);
+        setRevisionError(
+          focusedRevisionId && !items.some((revision) => revision.id === focusedRevisionId)
+            ? apiError(null, t("knowledge.sources.error.revisions"))
+            : null,
+        );
       } catch (caught) {
         if (sequence !== revisionRequest.current) return;
         setRevisionError(apiError(caught, t("knowledge.sources.error.revisions")));
@@ -700,7 +889,7 @@ export function KnowledgeSources({
         }
       }
     },
-    [t],
+    [focusedRevisionId, t],
   );
 
   React.useEffect(() => {
@@ -710,6 +899,25 @@ export function KnowledgeSources({
     setRevisionError(null);
     if (selectedDocumentId) void loadRevisions(selectedDocumentId, false);
   }, [loadRevisions, selectedDocumentId]);
+
+  React.useEffect(() => {
+    if (documentLoading || revisionLoading) return;
+    const target = focusedRevisionId
+      ? findKnowledgeDataElement("data-knowledge-revision-id", focusedRevisionId)
+      : focusedDocumentId
+        ? findKnowledgeDataElement("data-knowledge-document-id", focusedDocumentId)
+        : null;
+    if (!target) return;
+    target.scrollIntoView({ block: "center" });
+    target.focus();
+  }, [
+    documentLoading,
+    documents,
+    focusedDocumentId,
+    focusedRevisionId,
+    revisionLoading,
+    revisions,
+  ]);
 
   const refreshAfterJob = React.useCallback(async () => {
     await loadSources(false);
@@ -1521,6 +1729,25 @@ export function KnowledgeSources({
       ) : null}
 
       <section className="min-w-0" data-testid="knowledge-catalog-sources">
+        {catalogArchiveReceipt ? (
+          <div
+            className="mb-4 flex min-w-0 flex-col gap-3 border-l-2 border-emerald-500 bg-emerald-500/[0.07] px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            role="status"
+            data-testid="knowledge-catalog-archive-receipt"
+          >
+            <p className="min-w-0 text-sm text-emerald-100">
+              {t("knowledge.sources.catalog.archiveSuccess", {
+                removed: catalogArchiveReceipt.archivedOfferings,
+                retained: catalogArchiveReceipt.retainedOfferings,
+              })}
+            </p>
+            <Button asChild size="sm">
+              <Link href="/app/knowledge?view=overview">
+                {t("knowledge.sources.catalog.archiveReview")}
+              </Link>
+            </Button>
+          </div>
+        ) : null}
         <div className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <h3 className="text-base font-semibold text-zinc-100">
@@ -1571,7 +1798,13 @@ export function KnowledgeSources({
               return (
                 <article
                   key={source.id}
-                  className="flex min-w-0 items-center gap-3 py-3"
+                  tabIndex={-1}
+                  className={cn(
+                    "flex min-w-0 flex-col gap-3 py-3 outline-none sm:flex-row sm:items-center",
+                    focusedSourceId === source.id &&
+                      "bg-amber-500/[0.07] ring-1 ring-inset ring-amber-400/40",
+                  )}
+                  data-knowledge-source-id={source.id}
                   data-testid={`knowledge-catalog-source-${source.id}`}
                 >
                   <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -1604,14 +1837,34 @@ export function KnowledgeSources({
                       ) : null}
                     </div>
                   </div>
-                  {latest ? (
-                    <Button asChild variant="outline" size="sm" className="shrink-0">
-                      <Link href={`/app/knowledge/imports/${encodeURIComponent(latest.id)}`}>
-                        {t("knowledge.sources.catalog.open")}
-                        <ChevronRight className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                  ) : null}
+                  <div className="flex w-full shrink-0 items-center justify-end gap-1 sm:w-auto">
+                    {latest ? (
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={`/app/knowledge/imports/${encodeURIComponent(latest.id)}`}>
+                          {t("knowledge.sources.catalog.open")}
+                          <ChevronRight className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    ) : null}
+                    {canManageSources ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="text-zinc-500 hover:bg-rose-500/10 hover:text-rose-400"
+                        aria-label={t("knowledge.sources.catalog.archiveAction", {
+                          name: source.displayName,
+                        })}
+                        title={t("knowledge.sources.catalog.archiveAction", {
+                          name: source.displayName,
+                        })}
+                        onClick={() => void openCatalogArchive(source)}
+                        data-testid={`knowledge-catalog-source-archive-${source.id}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                  </div>
                 </article>
               );
             })}
@@ -1730,7 +1983,10 @@ export function KnowledgeSources({
                     selectedSourceId === source.id
                       ? "bg-emerald-500/[0.08]"
                       : "hover:bg-white/[0.035]",
+                    focusedSourceId === source.id &&
+                      "bg-amber-500/[0.07] ring-1 ring-inset ring-amber-400/40",
                   )}
+                  data-knowledge-source-id={source.id}
                   data-testid={`knowledge-source-${source.id}`}
                 >
                   <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04]">
@@ -2027,6 +2283,7 @@ export function KnowledgeSources({
                           <button
                             key={document.id}
                             type="button"
+                            data-knowledge-document-id={document.id}
                             aria-current={selectedDocumentId === document.id ? "true" : undefined}
                             onClick={() => setSelectedDocumentId(document.id)}
                             className={cn(
@@ -2081,6 +2338,7 @@ export function KnowledgeSources({
                     <RevisionList
                       document={selectedDocument}
                       revisions={revisions}
+                      focusedRevisionId={focusedRevisionId}
                       pageInfo={revisionPage}
                       loading={revisionLoading}
                       loadingMore={revisionLoadingMore}
@@ -2625,6 +2883,130 @@ export function KnowledgeSources({
         }
       />
 
+      <Modal
+        open={Boolean(catalogArchiveTarget)}
+        onOpenChange={(open) => {
+          if (!open && !catalogArchiveBusy) {
+            setCatalogArchiveTarget(null);
+            setCatalogArchivePreview(null);
+            setCatalogArchiveError(null);
+            catalogArchiveAttempt.current = null;
+          }
+        }}
+        title={t("knowledge.sources.catalog.archiveTitle")}
+        description={
+          catalogArchiveTarget
+            ? t("knowledge.sources.catalog.archiveDescription", {
+                name: catalogArchiveTarget.displayName,
+              })
+            : ""
+        }
+        closeLabel={t("knowledge.common.close")}
+        className="max-w-lg rounded-lg"
+        footer={
+          <>
+            <Button
+              variant="outline"
+              disabled={catalogArchiveBusy || catalogArchivePreviewLoading}
+              onClick={() => {
+                setCatalogArchiveTarget(null);
+                setCatalogArchivePreview(null);
+              }}
+            >
+              {t("knowledge.common.cancel")}
+            </Button>
+            <Button
+              variant="outline"
+              className="border-rose-500/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 hover:text-rose-100"
+              disabled={
+                catalogArchiveBusy ||
+                catalogArchivePreviewLoading ||
+                !catalogArchivePreview?.canArchive
+              }
+              onClick={() => void archiveCatalogSource()}
+              data-testid="knowledge-catalog-source-archive-confirm"
+            >
+              {catalogArchiveBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              {t("knowledge.sources.catalog.archiveConfirm")}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {catalogArchivePreviewLoading ? (
+            <LoadingOverlay label={t("knowledge.sources.catalog.archiveLoading")} />
+          ) : catalogArchivePreview ? (
+            <>
+              <div className="grid grid-cols-1 gap-px overflow-hidden rounded-md border border-white/10 bg-white/10 sm:grid-cols-3">
+                <div className="bg-zinc-950 px-3 py-3">
+                  <p className="text-xs text-zinc-500">
+                    {t("knowledge.sources.catalog.archiveRemoving")}
+                  </p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-rose-300">
+                    {catalogArchivePreview.impact.removeOfferings}
+                  </p>
+                </div>
+                <div className="bg-zinc-950 px-3 py-3">
+                  <p className="text-xs text-zinc-500">
+                    {t("knowledge.sources.catalog.archiveRetained")}
+                  </p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-emerald-300">
+                    {catalogArchivePreview.impact.retainedOfferings}
+                  </p>
+                </div>
+                <div className="bg-zinc-950 px-3 py-3">
+                  <p className="text-xs text-zinc-500">
+                    {t("knowledge.sources.catalog.archiveObjects")}
+                  </p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-zinc-200">
+                    {catalogArchivePreview.impact.objectsScheduledForDeletion}
+                  </p>
+                </div>
+              </div>
+              <div className="border-l-2 border-amber-500 bg-amber-500/[0.06] px-4 py-3 text-sm leading-6 text-amber-100/80">
+                <p>{t("knowledge.sources.catalog.archiveImpact")}</p>
+                <p className="mt-2 text-amber-200">
+                  {t("knowledge.sources.catalog.archivePublishedBoundary")}
+                </p>
+              </div>
+              {!catalogArchivePreview.canArchive ? (
+                <div className="border-l-2 border-rose-500 bg-rose-500/[0.07] px-4 py-3">
+                  <p className="text-sm text-rose-200">
+                    {t("knowledge.sources.catalog.archiveBlocked")}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {catalogArchivePreview.activeImports.items.map((item) => (
+                      <Button key={item.id} asChild variant="outline" size="sm">
+                        <Link href={item.href}>
+                          {t("knowledge.sources.catalog.archiveOpenImport")}
+                          <ChevronRight className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+          {catalogArchiveError ? (
+            <div
+              className="rounded-md border border-rose-500/20 bg-rose-500/[0.07] px-4 py-3 text-sm text-rose-200"
+              role="alert"
+            >
+              {t(
+                catalogArchivePreview
+                  ? "knowledge.sources.catalog.archiveError"
+                  : "knowledge.sources.catalog.archivePreviewError",
+              )}
+            </div>
+          ) : null}
+        </div>
+      </Modal>
+
       <RevisionPreviewModal
         open={previewOpen}
         loading={previewLoading}
@@ -2976,6 +3358,7 @@ function JobProgressPanel({
 function RevisionList({
   document,
   revisions,
+  focusedRevisionId,
   pageInfo,
   loading,
   loadingMore,
@@ -2986,6 +3369,7 @@ function RevisionList({
 }: {
   document: KnowledgeV2DocumentView | null;
   revisions: KnowledgeV2RevisionView[];
+  focusedRevisionId: string | null;
   pageInfo: KnowledgeV2RevisionPage["pageInfo"] | null;
   loading: boolean;
   loadingMore: boolean;
@@ -3024,7 +3408,16 @@ function RevisionList({
       ) : (
         <div className="divide-y divide-white/[0.07]">
           {revisions.map((revision) => (
-            <div key={revision.id} className="min-w-0 px-3 py-3">
+            <div
+              key={revision.id}
+              tabIndex={-1}
+              data-knowledge-revision-id={revision.id}
+              className={cn(
+                "min-w-0 scroll-mt-24 px-3 py-3 outline-none",
+                focusedRevisionId === revision.id &&
+                  "bg-amber-500/[0.07] ring-1 ring-inset ring-amber-400/40",
+              )}
+            >
               <div className="flex min-w-0 items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">

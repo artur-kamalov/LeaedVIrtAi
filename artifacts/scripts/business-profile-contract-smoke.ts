@@ -91,6 +91,37 @@ async function main() {
     },
   });
   assert(valid instanceof BusinessProfilePatchRequestDto, "A valid profile was not transformed.");
+  const maximumServiceCatalog = Array.from({ length: 400 }, (_, index) => ({
+    id: `service-${index}`,
+    name: `Service ${index}`,
+    description: "",
+    price: "",
+    duration: "",
+  }));
+  const maximumCatalog = await validate({
+    profile: { services: maximumServiceCatalog },
+  });
+  assert(
+    maximumCatalog.profile.services?.length === 400,
+    "A 400-service catalog could not be edited.",
+  );
+  await expectInvalid(
+    {
+      profile: {
+        services: [
+          ...maximumServiceCatalog,
+          {
+            id: "service-400",
+            name: "Service 400",
+            description: "",
+            price: "",
+            duration: "",
+          },
+        ],
+      },
+    },
+    "services",
+  );
 
   await expectInvalid({ profile: { name: "Studio", unknown: true } }, "unknown");
   await expectInvalid(
@@ -161,6 +192,13 @@ async function main() {
     },
   });
   assert(validOnboarding instanceof UpdateOnboardingDto, "Valid onboarding was not transformed.");
+  const maximumOnboardingCatalog = await validateOnboarding({
+    data: { companyInfo: { services: maximumServiceCatalog } },
+  });
+  assert(
+    maximumOnboardingCatalog.data?.companyInfo?.services?.length === 400,
+    "Onboarding rejected the shared 400-service catalog limit.",
+  );
   const customOnboarding = await validateOnboarding({
     data: { businessType: "consulting", scenario: "sales", crm: "spreadsheet" },
   });

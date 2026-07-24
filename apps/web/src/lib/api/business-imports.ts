@@ -22,6 +22,8 @@ import type {
   BusinessImportRebaseRequest,
   BusinessImportRetryRequest,
   BusinessImportSourceListQuery,
+  BusinessImportSourceArchivePreview,
+  BusinessImportSourceArchiveReceipt,
   BusinessImportSourcePage,
   BusinessImportUploadIntentView,
   BusinessImportUploadReceiptView,
@@ -90,6 +92,22 @@ export function listBusinessImports(query: BusinessImportListQuery = {}) {
 
 export function listBusinessImportSources(query: BusinessImportSourceListQuery = {}) {
   return apiData<BusinessImportSourcePage>(withQuery(`${basePath}/sources`, query));
+}
+
+export function previewBusinessImportSourceArchive(sourceId: string) {
+  return apiData<BusinessImportSourceArchivePreview>(
+    `${basePath}/sources/${resourceId(sourceId)}/archive-preview`,
+  );
+}
+
+export function archiveBusinessImportSource(
+  sourceId: string,
+  headers: BusinessImportUpdateHeaders,
+) {
+  return apiDataResponse<BusinessImportSourceArchiveReceipt>(
+    `${basePath}/sources/${resourceId(sourceId)}`,
+    { method: "DELETE", headers },
+  );
 }
 
 export function createBusinessImportIntent(

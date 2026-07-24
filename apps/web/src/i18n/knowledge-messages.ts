@@ -102,8 +102,8 @@ const en = {
     "Published version #{sequence} remains live while draft changes are reviewed.",
   "knowledge.overview.servingEmptyDescription":
     "Publish an approved version before this knowledge can be used in customer replies.",
-  "knowledge.overview.draftEyebrow": "Draft workspace",
-  "knowledge.overview.draftVersion": "Draft version {version}",
+  "knowledge.overview.draftEyebrow": "Unpublished changes",
+  "knowledge.overview.draftVersion": "Unpublished version {version}",
   "knowledge.overview.draftBlocked": "Complete {count} required fixes before publishing.",
   "knowledge.overview.draftWarnings": "The draft can be reviewed with warnings.",
   "knowledge.overview.draftClear": "The current draft has no reported publishing checks.",
@@ -147,7 +147,7 @@ const en = {
   "knowledge.overview.noCapabilities": "No customer needs are enabled.",
   "knowledge.overview.capabilityDisabled": "Disabled",
   "knowledge.overview.requirements": "{done} of {total} requirements met",
-  "knowledge.overview.draftAttention": "Draft attention",
+  "knowledge.overview.draftAttention": "Required before publishing",
   "knowledge.overview.recentWork": "Recent updates",
   "knowledge.overview.noWork": "No background updates are pending.",
   "knowledge.settings.title": "Customer languages",
@@ -180,7 +180,7 @@ const en = {
   "knowledge.history.activeDescription": "Activated {date}. Approved by {approver}.",
   "knowledge.history.emptyDescription":
     "Publish an approved version before this knowledge can be used in customer replies.",
-  "knowledge.history.draftEyebrow": "Draft workspace",
+  "knowledge.history.draftEyebrow": "Unpublished changes",
   "knowledge.history.draftUpToDate": "The draft matches the published version.",
   "knowledge.history.draftDescription":
     "The check applies to this exact draft. The published version stays unchanged until the update completes.",
@@ -392,8 +392,8 @@ const ru: Record<KnowledgeTranslationKey, string> = {
     "Опубликованная версия №{sequence} остаётся активной, пока изменения черновика проверяются.",
   "knowledge.overview.servingEmptyDescription":
     "Опубликуйте утверждённую версию, чтобы использовать эти знания в ответах клиентам.",
-  "knowledge.overview.draftEyebrow": "Рабочий черновик",
-  "knowledge.overview.draftVersion": "Версия черновика {version}",
+  "knowledge.overview.draftEyebrow": "Неопубликованные изменения",
+  "knowledge.overview.draftVersion": "Неопубликованная версия {version}",
   "knowledge.overview.draftBlocked":
     "Перед публикацией выполните обязательные исправления: {count}.",
   "knowledge.overview.draftWarnings": "Черновик можно проверить с предупреждениями.",
@@ -438,7 +438,7 @@ const ru: Record<KnowledgeTranslationKey, string> = {
   "knowledge.overview.noCapabilities": "Задачи клиентов не включены.",
   "knowledge.overview.capabilityDisabled": "Отключено",
   "knowledge.overview.requirements": "Выполнено требований: {done} из {total}",
-  "knowledge.overview.draftAttention": "Что проверить в черновике",
+  "knowledge.overview.draftAttention": "Что исправить перед публикацией",
   "knowledge.overview.recentWork": "Последние обновления",
   "knowledge.overview.noWork": "Нет ожидающих фоновых обновлений.",
   "knowledge.settings.title": "Языки клиентов",
@@ -471,7 +471,7 @@ const ru: Record<KnowledgeTranslationKey, string> = {
   "knowledge.history.activeDescription": "Активировано {date}. Утвердил: {approver}.",
   "knowledge.history.emptyDescription":
     "Опубликуйте утверждённую версию, чтобы использовать эти знания в ответах клиентам.",
-  "knowledge.history.draftEyebrow": "Рабочий черновик",
+  "knowledge.history.draftEyebrow": "Неопубликованные изменения",
   "knowledge.history.draftUpToDate": "Черновик совпадает с опубликованной версией.",
   "knowledge.history.draftDescription":
     "Проверка относится только к этому черновику. Опубликованная версия не изменится до завершения обновления.",

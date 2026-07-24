@@ -1,4 +1,5 @@
 import {
+  BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT,
   BUSINESS_IMPORT_CURRENCY_CODES,
   BUSINESS_SERVICE_MAPPING_TARGETS,
 } from "@leadvirt/business-import";
@@ -41,6 +42,7 @@ const OPAQUE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/;
 const DECIMAL = /^(?:0|[1-9]\d{0,11})(?:\.\d{1,4})?$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const LANGUAGE = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
+const MAX_BUSINESS_IMPORT_REVIEW_CANDIDATES = BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT * 2;
 const MIME_TYPES = [
   "text/csv",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -86,6 +88,10 @@ export class BusinessImportCreateIntentDto implements BusinessImportCreateIntent
   @Min(1)
   @Max(10 * 1024 * 1024)
   byteSize!: number;
+
+  @IsOptional()
+  @IsIn(["ADD", "REPLACE"])
+  mode?: Exclude<BusinessImportCreateIntentRequest["mode"], undefined>;
 
   @IsOptional()
   @ValidateIf((_object, value: unknown) => value !== null)
@@ -331,7 +337,7 @@ export class BusinessImportCandidateRefDto {
 export class BusinessImportBulkDecisionDto {
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(400)
+  @ArrayMaxSize(MAX_BUSINESS_IMPORT_REVIEW_CANDIDATES)
   @ArrayUnique((item: BusinessImportCandidateRefDto) => item.id)
   @ValidateNested({ each: true })
   @Type(() => BusinessImportCandidateRefDto)
@@ -341,7 +347,7 @@ export class BusinessImportBulkDecisionDto {
 export class BusinessImportCandidateIdsDto implements BusinessImportApplyPreviewRequest {
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(200)
+  @ArrayMaxSize(MAX_BUSINESS_IMPORT_REVIEW_CANDIDATES)
   @ArrayUnique()
   @IsString({ each: true })
   candidateIds!: string[];
@@ -385,7 +391,7 @@ export class BusinessImportBulkApprovalCandidateDto {
 export class BusinessImportBulkApprovalDto implements BusinessImportBulkApprovalRequest {
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(200)
+  @ArrayMaxSize(BUSINESS_IMPORT_CATALOG_MUTATION_LIMIT)
   @ArrayUnique((item: BusinessImportBulkApprovalCandidateDto) => item.id)
   @ValidateNested({ each: true })
   @Type(() => BusinessImportBulkApprovalCandidateDto)

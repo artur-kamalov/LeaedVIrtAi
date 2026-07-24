@@ -1,4 +1,5 @@
 import type {
+  KnowledgeV2BulkFactVerificationRequest,
   KnowledgeV2CreateFactRequest,
   KnowledgeV2FactAuthority,
   KnowledgeV2FactDecisionRequest,
@@ -10,7 +11,9 @@ import type {
   KnowledgeV2UpdateFactRequest,
   KnowledgeV2VerificationStatus,
 } from "@leadvirt/types";
+import { Type } from "class-transformer";
 import {
+  ArrayMinSize,
   ArrayMaxSize,
   ArrayUnique,
   IsArray,
@@ -21,6 +24,7 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateNested,
   ValidateIf,
 } from "class-validator";
 import { KnowledgeV2PaginationDto } from "./knowledge-v2-pagination.dto.js";
@@ -234,6 +238,36 @@ export class KnowledgeV2UpdateFactDto implements KnowledgeV2UpdateFactRequest {
 }
 
 export class KnowledgeV2FactDecisionDto implements KnowledgeV2FactDecisionRequest {
+  @ValidateIf((_object, value: unknown) => value !== undefined && value !== null)
+  @IsString()
+  @MaxLength(2_000)
+  note?: string | null;
+}
+
+export class KnowledgeV2BulkFactVerificationItemDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  @Matches(OPAQUE_ID)
+  id!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(240)
+  etag!: string;
+}
+
+export class KnowledgeV2BulkFactVerificationDto
+  implements KnowledgeV2BulkFactVerificationRequest
+{
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @ArrayUnique((item: KnowledgeV2BulkFactVerificationItemDto) => item.id)
+  @ValidateNested({ each: true })
+  @Type(() => KnowledgeV2BulkFactVerificationItemDto)
+  items!: KnowledgeV2BulkFactVerificationItemDto[];
+
   @ValidateIf((_object, value: unknown) => value !== undefined && value !== null)
   @IsString()
   @MaxLength(2_000)

@@ -31,3 +31,4 @@ export * from "./capability-runtime-evidence-store-v1.js";
 export * from "./capability-intent-v1.js";
 export * from "./capability-autonomy-v1.js";
 export * from "./ai-business-identity.js";
+export * from "./owner-verification-freshness.js";

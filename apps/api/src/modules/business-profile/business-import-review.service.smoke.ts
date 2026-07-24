@@ -350,6 +350,31 @@ async function fixture(prisma: PrismaService) {
           locale: value.language ?? "en",
           bookingNotes: value.bookingNotes ?? null,
           active: value.active,
+          ...(value.price
+            ? {
+                prices: {
+                  create: {
+                    type: value.price.type ?? "FIXED",
+                    amount: value.price.amount ?? null,
+                    amountFrom: value.price.from ?? null,
+                    amountTo: value.price.to ?? null,
+                    currency: value.price.currency ?? "EUR",
+                    unit: value.price.unit ?? null,
+                    taxNote: value.price.taxNote ?? null,
+                  },
+                },
+              }
+            : {}),
+          ...(value.duration
+            ? {
+                duration: {
+                  create: {
+                    minimumMinutes: value.duration.minimumMinutes ?? 0,
+                    maximumMinutes: value.duration.maximumMinutes ?? null,
+                  },
+                },
+              }
+            : {}),
         },
       }),
   };
@@ -432,7 +457,19 @@ async function main() {
     assert.equal(updateRevision.targetOfferingId, existing.id);
     assert.match(updateRevision.currentFingerprint ?? "", /^[a-f0-9]{64}$/u);
 
-    const linkValue = offering({ name: "Existing link target", description: "Unchanged" });
+    const linkValue = offering({
+      name: "Existing link target",
+      description: "Unchanged",
+      price: {
+        type: "FIXED",
+        amount: "60.00",
+        from: null,
+        to: null,
+        currency: "EUR",
+        unit: "service",
+        taxNote: null,
+      },
+    });
     const linkTarget = await data.existingOffering(linkValue);
     const linkCandidate = await data.candidate("CONFLICT", linkValue, linkTarget.id);
     const linkedView = await service.decideCandidate(
@@ -448,14 +485,41 @@ async function main() {
     );
     assert.equal(linkedView.action, "LINK");
     assert.equal(linkedView.targetOfferingId, linkTarget.id);
-    assert.equal(linkedView.riskLevel, "LOW");
+    assert.equal(linkedView.riskLevel, "HIGH");
     assert.equal(linkedView.decision, "EDITED");
     const linkRevision = await prisma.businessImportCandidateRevision.findFirstOrThrow({
       where: { candidateId: linkCandidate.id, version: 2 },
     });
     assert.equal(linkRevision.action, "LINK");
     assert.equal(linkRevision.targetOfferingId, linkTarget.id);
-    assert.equal(linkRevision.requiresApproval, false);
+    assert.equal(linkRevision.requiresApproval, true);
+    const linkImportBeforeApproval = await views.get(data.context, data.importId);
+    const approvedLink = await service.bulkApprove(
+      data.context,
+      data.importId,
+      {
+        candidates: [
+          {
+            id: linkedView.id,
+            version: linkedView.version,
+            etag: linkedView.etag,
+          },
+        ],
+      },
+      linkImportBeforeApproval.etag,
+      "review-priced-link-owner-approval",
+    );
+    assert.deepEqual(approvedLink.summary, {
+      selected: 1,
+      newlyApproved: 1,
+      approvalRequestsCreated: 1,
+      alreadyApproved: 0,
+    });
+    assert.equal(approvedLink.candidates[0]?.approval?.state, "APPROVED");
+    assert.equal(
+      await prisma.businessImportApprovalGrant.count({ where: { candidateId: linkedView.id } }),
+      1,
+    );
 
     const provisionalValue = offering({ name: "Provisional target", description: "Existing" });
     const provisionalTarget = await data.existingOffering(provisionalValue);
@@ -951,7 +1015,7 @@ async function main() {
         data.context,
         data.importId,
         {
-          candidates: Array.from({ length: 201 }, (_, index) => ({
+          candidates: Array.from({ length: 401 }, (_, index) => ({
             id: `candidate-${index}`,
             version: 1,
             etag: '"candidate-etag"',

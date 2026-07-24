@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { Prisma, type PrismaClient } from "@leadvirt/db";
 import {
   hashKnowledgeValue,
+  KNOWLEDGE_OWNER_VERIFICATION_FRESHNESS_POLICY_ID,
+  knowledgeOwnerVerificationEffectiveUntil,
   lockKnowledgeCorpusTransition,
   stableKnowledgeValue,
 } from "@leadvirt/knowledge";
@@ -17,8 +19,7 @@ const IDENTITY_FACT_SCHEMA = "leadvirt.business-identity-fact.v1";
 const OFFERING_FACT_SCHEMA = "leadvirt.business-offering-fact.v1";
 const MANIFEST_SCHEMA = "leadvirt.business-information-knowledge-manifest.v1";
 export const BUSINESS_INFORMATION_PRICE_EFFECTIVE_WINDOW_POLICY_ID =
-  "leadvirt.business-information.price-effective-window.explicit-or-owner-approval-90d.v1";
-const OWNER_APPROVAL_PRICE_FRESHNESS_MS = 90 * 24 * 60 * 60_000;
+  KNOWLEDGE_OWNER_VERIFICATION_FRESHNESS_POLICY_ID;
 
 type ProjectionStage = "VALIDATING" | "PROJECTING" | "FINALIZING";
 
@@ -159,6 +160,7 @@ interface ProjectedFactInput {
 
 export function businessInformationLinkProjectionCanReuse(input: {
   candidateActions: readonly string[];
+  candidateRequiresApproval: readonly boolean[];
   baseRevisionId: string | null;
   baseRevision: number;
   baseInformationHash: string;
@@ -175,7 +177,9 @@ export function businessInformationLinkProjectionCanReuse(input: {
 }) {
   return (
     input.candidateActions.length > 0 &&
+    input.candidateRequiresApproval.length === input.candidateActions.length &&
     input.candidateActions.every((action) => action === "LINK") &&
+    input.candidateRequiresApproval.every((requiresApproval) => !requiresApproval) &&
     input.baseInformationHash === input.resultingInformationHash &&
     input.baseRevisionId !== null &&
     input.priorProjection?.revisionId === input.baseRevisionId &&
@@ -216,6 +220,78 @@ export function businessInformationProjectionGovernance(input: {
   };
 }
 
+interface PreviousOwnerVerification {
+  normalizedValue: Prisma.JsonValue;
+  riskLevel: string;
+  authority: string;
+  lifecycleStatus: string;
+  verificationStatus: string;
+  verifiedByUserId: string | null;
+  verifiedAt: Date | null;
+  effectiveUntil: Date | null;
+  evidence: ReadonlyArray<{ sourceReference: Prisma.JsonValue | null }>;
+}
+
+function ownerVerificationReference(value: Prisma.JsonValue | null): { verifiedAt: string } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (value.origin !== "knowledge_owner_verification" || typeof value.verifiedAt !== "string") {
+    return null;
+  }
+  return { verifiedAt: value.verifiedAt };
+}
+
+export function businessInformationProjectionPreservedOwnerApproval(input: {
+  previous: PreviousOwnerVerification | null;
+  normalizedValue: Prisma.InputJsonObject;
+  projectedAt: Date;
+}) {
+  const previous = input.previous;
+  if (
+    !previous ||
+    previous.riskLevel !== "HIGH" ||
+    previous.authority !== "OWNER_VERIFIED" ||
+    previous.lifecycleStatus !== "DRAFT" ||
+    previous.verificationStatus !== "VERIFIED" ||
+    !previous.verifiedByUserId ||
+    !previous.verifiedAt ||
+    !previous.effectiveUntil ||
+    previous.verifiedAt > input.projectedAt ||
+    previous.effectiveUntil <= input.projectedAt ||
+    businessInformationProjectionHash(previous.normalizedValue) !==
+      businessInformationProjectionHash(input.normalizedValue)
+  ) {
+    return null;
+  }
+  const verifiedAt = previous.verifiedAt.toISOString();
+  if (
+    !previous.evidence.some(
+      (evidence) => ownerVerificationReference(evidence.sourceReference)?.verifiedAt === verifiedAt,
+    )
+  ) {
+    return null;
+  }
+  return {
+    userId: previous.verifiedByUserId,
+    approvedAt: previous.verifiedAt,
+  };
+}
+
+export function businessInformationProjectionResolvedOwnerApproval(input: {
+  currentApproval: { userId: string; approvedAt: Date } | null;
+  previous: PreviousOwnerVerification | null;
+  normalizedValue: Prisma.InputJsonObject;
+  projectedAt: Date;
+}) {
+  return (
+    input.currentApproval ??
+    businessInformationProjectionPreservedOwnerApproval({
+      previous: input.previous,
+      normalizedValue: input.normalizedValue,
+      projectedAt: input.projectedAt,
+    })
+  );
+}
+
 export function businessInformationProjectionOfferingEffectiveWindow(input: {
   prices: ReadonlyArray<{ effectiveFrom: Date | null; effectiveUntil: Date | null }>;
   ownerApproval: { approvedAt: Date } | null;
@@ -232,10 +308,14 @@ export function businessInformationProjectionOfferingEffectiveWindow(input: {
     .filter((value): value is Date => value !== null);
   const effectiveFrom =
     starts.length > 0 ? new Date(Math.max(...starts.map((value) => value.getTime()))) : null;
-  const approvalFreshUntil = input.ownerApproval
-    ? new Date(input.ownerApproval.approvedAt.getTime() + OWNER_APPROVAL_PRICE_FRESHNESS_MS)
-    : null;
-  const expiries = input.prices.map((price) => price.effectiveUntil ?? approvalFreshUntil);
+  const expiries = input.prices.map((price) =>
+    input.ownerApproval
+      ? knowledgeOwnerVerificationEffectiveUntil({
+          verifiedAt: input.ownerApproval.approvedAt,
+          effectiveUntil: price.effectiveUntil,
+        })
+      : price.effectiveUntil,
+  );
   if (expiries.some((value) => value === null)) {
     return {
       effectiveFrom,
@@ -243,9 +323,13 @@ export function businessInformationProjectionOfferingEffectiveWindow(input: {
       policyId: BUSINESS_INFORMATION_PRICE_EFFECTIVE_WINDOW_POLICY_ID,
     };
   }
+  const effectiveUntil = new Date(Math.min(...expiries.map((value) => value!.getTime())));
+  if (effectiveFrom && effectiveUntil <= effectiveFrom) {
+    fail("BUSINESS_INFORMATION_PRICE_EFFECTIVE_WINDOW_INVALID", false, "PROJECTING");
+  }
   return {
     effectiveFrom,
-    effectiveUntil: new Date(Math.min(...expiries.map((value) => value!.getTime()))),
+    effectiveUntil,
     policyId: BUSINESS_INFORMATION_PRICE_EFFECTIVE_WINDOW_POLICY_ID,
   };
 }
@@ -667,6 +751,40 @@ function revisionEvidence(
       projectionSchema: PROJECTION_SCHEMA,
       authority: "CANONICAL",
     },
+  };
+}
+
+function ownerVerificationEvidence(
+  ownerApproval: { userId: string; approvedAt: Date },
+  target: EvidenceTarget,
+): ProjectionEvidence {
+  const resourceReference = { [target.resourceIdKey]: target.resourceId };
+  const sourceReference = {
+    origin: "knowledge_owner_verification",
+    provenanceVersion: 1,
+    verifiedAt: ownerApproval.approvedAt.toISOString(),
+    verifiedByUserId: ownerApproval.userId,
+    freshnessPolicyId: BUSINESS_INFORMATION_PRICE_EFFECTIVE_WINDOW_POLICY_ID,
+    projectionSchema: PROJECTION_SCHEMA,
+    tenantResource: target.tenantResource,
+    ...resourceReference,
+  } satisfies Prisma.InputJsonObject;
+  return {
+    key: `owner-verification:${businessInformationProjectionHash(sourceReference)}`,
+    fieldPaths: [],
+    kind: "MANUAL",
+    locator: `knowledge-owner-verification:${ownerApproval.userId}`,
+    quoteHash: businessInformationProjectionHash({
+      verifiedByUserId: ownerApproval.userId,
+      verifiedAt: ownerApproval.approvedAt.toISOString(),
+    }),
+    confidence: null,
+    sourceReference,
+    elementReference: {
+      ...resourceReference,
+      fieldPaths: [],
+    },
+    metadata: sourceReference,
   };
 }
 
@@ -1267,6 +1385,7 @@ export async function processBusinessInformationProjectionJob(
           isImportProjection(data) &&
           application!.candidateItems.length > 0 &&
           application!.candidateItems.every((item) => item.action === "LINK") &&
+          application!.candidateItems.every((item) => !item.requiresApproval) &&
           application!.baseInformationHash === revision.canonicalHash,
         );
         const priorProjectionReceipt =
@@ -1461,6 +1580,8 @@ export async function processBusinessInformationProjectionJob(
           : null;
         const linkOnlyProjection = businessInformationLinkProjectionCanReuse({
           candidateActions: application?.candidateItems.map((item) => item.action) ?? [],
+          candidateRequiresApproval:
+            application?.candidateItems.map((item) => item.requiresApproval) ?? [],
           baseRevisionId: application?.baseBusinessRevisionId ?? null,
           baseRevision: application?.baseInformationRevision ?? 0,
           baseInformationHash: application?.baseInformationHash ?? "",
@@ -1575,7 +1696,6 @@ export async function processBusinessInformationProjectionJob(
             ) {
               evidence.push(revisionEvidence(data, revision.canonicalHash, target));
             }
-            evidence.sort((left, right) => left.key.localeCompare(right.key));
             const currencies = [...new Set(offering.prices.map((price) => price.currency))];
             const units = [
               ...new Set(
@@ -1625,7 +1745,16 @@ export async function processBusinessInformationProjectionJob(
                   ? ("MEDIUM" as const)
                   : ("LOW" as const);
             const ownerApproval =
-              riskLevel === "HIGH" ? (ownerApprovalByOffering.get(offering.id) ?? null) : null;
+              riskLevel === "HIGH"
+                ? businessInformationProjectionResolvedOwnerApproval({
+                    currentApproval: ownerApprovalByOffering.get(offering.id) ?? null,
+                    previous: factsByKey.get(factKey)?.versions[0] ?? null,
+                    normalizedValue,
+                    projectedAt,
+                  })
+                : null;
+            if (ownerApproval) evidence.push(ownerVerificationEvidence(ownerApproval, target));
+            evidence.sort((left, right) => left.key.localeCompare(right.key));
             const effectiveWindow = businessInformationProjectionOfferingEffectiveWindow({
               prices: offering.prices,
               ownerApproval,

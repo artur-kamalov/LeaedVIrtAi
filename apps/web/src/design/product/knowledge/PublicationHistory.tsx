@@ -4,6 +4,7 @@ import React from "react";
 import {
   AlertTriangle,
   ArchiveRestore,
+  ArrowRight,
   CheckCircle2,
   ClipboardCheck,
   Clock3,
@@ -50,6 +51,11 @@ import {
 import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/utils";
 import { ConfirmDialog, EmptyState, Modal, StatusBadge } from "../ui";
+import type { KnowledgeNavigationTarget, KnowledgeViewId } from "./knowledge-views";
+import {
+  groupKnowledgePublicationGates,
+  knowledgeGateGroupCopy,
+} from "./knowledge-publication-gates";
 
 const PAGE_SIZE = 25;
 const JOB_POLL_LIMIT = 48;
@@ -129,7 +135,7 @@ interface PublicationHistoryProps {
   canPublish: boolean;
   canRollback: boolean;
   readiness: KnowledgeV2ReadinessView;
-  onNavigate: (view: KnowledgeDiagnosticView) => void;
+  onNavigate: (target: KnowledgeViewId | KnowledgeNavigationTarget) => void;
   onChanged?: () => void;
 }
 
@@ -892,6 +898,7 @@ export function PublicationHistory({
           )}
           counts={readiness.serving.itemCounts}
           gates={readiness.serving.blockers}
+          onNavigate={onNavigate}
           detail={
             active
               ? t("knowledge.history.activeDescription", {
@@ -922,6 +929,7 @@ export function PublicationHistory({
           statusLabel={t(draftStatusKeys[readiness.draft.status])}
           counts={readiness.draft.itemCounts}
           gates={[...readiness.draft.blockers, ...readiness.draft.warnings]}
+          onNavigate={onNavigate}
           detail={
             readiness.draft.status === "UP_TO_DATE"
               ? t("knowledge.history.draftUpToDate")
@@ -1140,6 +1148,7 @@ export function PublicationHistory({
               now={clock}
               candidateChanged={candidateChanged}
               expired={validationExpired}
+              onNavigate={onNavigate}
             />
           ) : null}
 
@@ -1310,6 +1319,7 @@ function ReadinessPanel({
   statusLabel,
   counts,
   gates,
+  onNavigate,
   detail,
   action,
   permissionNote,
@@ -1320,11 +1330,13 @@ function ReadinessPanel({
   statusLabel: string;
   counts: KnowledgeV2ReadinessView["serving"]["itemCounts"];
   gates: KnowledgeV2PublicationGateView[];
+  onNavigate: (target: KnowledgeViewId | KnowledgeNavigationTarget) => void;
   detail: string;
   action?: React.ReactNode;
   permissionNote?: string | null;
 }) {
   const { formatNumber, t } = useI18n();
+  const gateGroups = groupKnowledgePublicationGates(gates);
   return (
     <div className="min-w-0 rounded-lg border border-white/10 bg-zinc-950/30 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1342,22 +1354,46 @@ function ReadinessPanel({
       </div>
       {gates.length > 0 ? (
         <div className="mt-4 space-y-2 border-t border-white/5 pt-3">
-          {gates.slice(0, 3).map((gate) => (
-            <div
-              key={`${gate.code}:${gate.resource?.id ?? "workspace"}`}
-              className="flex gap-2 text-xs"
-            >
-              {gate.status === "BLOCKED" ? (
-                <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-400" />
-              ) : (
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
-              )}
-              <span className="text-zinc-400">{gate.title}</span>
-            </div>
-          ))}
-          {gates.length > 3 ? (
+          {gateGroups.slice(0, 3).map((group) => {
+            const copy = knowledgeGateGroupCopy(group, t, formatNumber);
+            const content = (
+              <>
+                {group.status === "BLOCKED" ? (
+                  <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-400" />
+                ) : (
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+                )}
+                <span className="min-w-0 flex-1 text-zinc-400">{copy.title}</span>
+                {group.target ? (
+                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                ) : null}
+              </>
+            );
+            return group.target ? (
+              <button
+                key={group.key}
+                type="button"
+                className="flex w-full gap-2 text-left text-xs hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50"
+                onClick={() => onNavigate(group.target)}
+                data-testid={`knowledge-readiness-gate-${group.kind.toLowerCase()}`}
+              >
+                {content}
+              </button>
+            ) : (
+              <div
+                key={group.key}
+                className="flex gap-2 text-xs"
+                data-testid={`knowledge-readiness-gate-${group.kind.toLowerCase()}`}
+              >
+                {content}
+              </div>
+            );
+          })}
+          {gateGroups.length > 3 ? (
             <p className="pl-5 text-xs text-zinc-600">
-              {t("knowledge.common.moreChecks", { count: formatNumber(gates.length - 3) })}
+              {t("knowledge.common.moreChecks", {
+                count: formatNumber(gateGroups.length - 3),
+              })}
             </p>
           ) : null}
         </div>
@@ -1485,14 +1521,18 @@ function ValidationResult({
   now,
   candidateChanged,
   expired,
+  onNavigate,
 }: {
   validation: KnowledgeV2PublicationValidationView;
   now: number;
   candidateChanged: boolean;
   expired: boolean;
+  onNavigate: (target: KnowledgeViewId | KnowledgeNavigationTarget) => void;
 }) {
   const { formatDate, formatNumber, t } = useI18n();
   const gates = [...validation.blockers, ...validation.warnings];
+  const gateGroups = groupKnowledgePublicationGates(gates);
+  const [expandedGateKey, setExpandedGateKey] = React.useState<string | null>(null);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-white/10 bg-zinc-950/50 p-4">
@@ -1572,26 +1612,66 @@ function ValidationResult({
             {t("knowledge.history.noGates")}
           </div>
         ) : (
-          <div className="mt-2 overflow-hidden rounded-lg border border-white/10">
-            {gates.map((gate) => (
-              <div
-                key={`${gate.code}:${gate.resource?.id ?? "workspace"}`}
-                className="flex gap-3 border-b border-white/5 px-4 py-3 last:border-b-0"
-              >
-                {gate.status === "BLOCKED" ? (
-                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
-                ) : (
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-                )}
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-zinc-200">{gate.title}</p>
-                  <p className="mt-0.5 text-xs leading-5 text-zinc-500">{gate.message}</p>
-                  {gate.resource?.label ? (
-                    <p className="mt-1 truncate text-xs text-zinc-700">{gate.resource.label}</p>
+          <div className="mt-2 space-y-2" data-testid="knowledge-validation-gates">
+            {gateGroups.map((group) => {
+              const copy = knowledgeGateGroupCopy(group, t, formatNumber);
+              const expanded = !group.target && expandedGateKey === group.key;
+              return (
+                <div key={group.key}>
+                  <button
+                    type="button"
+                    className="flex w-full min-w-0 flex-col gap-3 rounded-lg border border-white/10 bg-zinc-950/40 px-4 py-3 text-left transition-colors hover:border-white/20 hover:bg-white/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 sm:flex-row sm:items-center"
+                    onClick={() => {
+                      if (group.target) {
+                        onNavigate(group.target);
+                        return;
+                      }
+                      setExpandedGateKey((current) => (current === group.key ? null : group.key));
+                    }}
+                    aria-expanded={group.target ? undefined : expanded}
+                    data-testid={`knowledge-validation-gate-${group.kind.toLowerCase()}`}
+                  >
+                    {group.status === "BLOCKED" ? (
+                      <ShieldAlert className="h-4 w-4 shrink-0 text-rose-400" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-zinc-200">{copy.title}</p>
+                      <p className="mt-0.5 text-xs leading-5 text-zinc-500">{copy.description}</p>
+                    </div>
+                    <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-emerald-400">
+                      {t(
+                        group.target
+                          ? "knowledge.ux.attention.open"
+                          : "knowledge.ux.attention.details",
+                      )}
+                      <ArrowRight
+                        className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-90")}
+                      />
+                    </span>
+                  </button>
+                  {expanded ? (
+                    <div
+                      className="mx-3 border-x border-b border-amber-500/20 bg-amber-500/[0.05] px-4 py-3"
+                      data-testid="knowledge-validation-gate-in-place-details"
+                    >
+                      <p className="text-sm font-medium text-amber-200">
+                        {t("knowledge.ux.gate.unknownDetailsTitle")}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-amber-100/70">
+                        {t("knowledge.ux.gate.unknownDetailsDescription")}
+                      </p>
+                      <p className="mt-3 break-all text-xs text-zinc-600">
+                        {t("knowledge.ux.gate.reference", {
+                          code: group.gates[0]?.code ?? "UNKNOWN",
+                        })}
+                      </p>
+                    </div>
                   ) : null}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

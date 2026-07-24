@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
+import type { KnowledgeV2ResourceType } from "@leadvirt/types";
 import type { TranslationKey } from "@/i18n/messages";
 
 export type KnowledgeViewId =
@@ -18,6 +19,16 @@ export type KnowledgeViewId =
   | "review"
   | "test"
   | "history";
+
+export interface KnowledgeNavigationTarget {
+  view: KnowledgeViewId;
+  task?: string | null;
+  resourceType?: KnowledgeV2ResourceType | null;
+  resourceId?: string | null;
+  sourceId?: string | null;
+  documentId?: string | null;
+  revisionId?: string | null;
+}
 
 export interface KnowledgeViewDefinition {
   id: KnowledgeViewId;
